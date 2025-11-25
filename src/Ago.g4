@@ -10,42 +10,19 @@
 principio
     =
     [ nl ]
-    class_block
-    { nl class_block }
+    sub_principio
+    { nl }
+    { sub_principio { nl } }
     [ nl ]
     $
     ;
 
-class_block
+sub_principio
     =
-    CLASS name:identifier [ LPAREN base:identifier RPAREN ] LBRACE nl
-        vars:{ var_decl }*
-        methods:{ method_decl }*
-    RBRACE
-    ;
-
-var_decl
-    =
-    name:identifier [ ASSIGNMENT_OP value:expression ] nl
-    ;
-
-method_decl
-    =
-    DEF name:identifier
-        LPAREN [ params:expression_list ] RPAREN
-        [ returns:type ]
-        LBRACE nl
-            body:{ statement nl }*
-        RBRACE nl
-    ;
-
-type
-    =
-    | base:identifier
-    | array:(
-        inner:type
-        LBRACKET [ size:expression ] RBRACKET
-      )
+    | statement
+    | var_decl
+    | method_decl
+    | lambda_decl
     ;
 
 statement
@@ -61,6 +38,30 @@ statement
     | return_stmt:(RETURN value:expression)
     | var:var_decl
     ;
+
+lambda_decl
+    = 
+    DEF LPAREN [ params:expression_list ] RPAREN
+    LBRACE
+        body:{ statement nl }*
+    RBRACE
+    ;
+
+
+var_decl
+    =
+    name:identifier [ ASSIGNMENT_OP value:expression ] nl
+    ;
+
+method_decl
+    =
+    DEF name:identifier
+        LPAREN [ params:expression_list ] RPAREN
+        LBRACE nl
+            body:{ statement nl }*
+        RBRACE nl
+    ;
+
 
 assignment_stmt
     =
@@ -167,8 +168,20 @@ pg
 ph
     =
     | call:call_stmt
-    | new:(NEW new_type:type)
+    | list:list
     | value:item
+    | mapstruct:mapstruct
+    ;
+
+list
+    = 
+    LBRACKET { item COMMA }* [ item ] RBRACKET
+    ;
+
+
+mapstruct
+    = 
+    LBRACE { (STR_LIT | identifier) COLON item }* RBRACE
     ;
 
 item
