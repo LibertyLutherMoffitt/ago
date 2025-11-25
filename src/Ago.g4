@@ -3,9 +3,9 @@
 @@eol_comments :: /(?m)#([^\n]*?)$/
 @@left_recursion :: True
 
-@@keyword :: ordo aluid falsus frio id pergo omitto redeo
-@@keyword :: si est pro dum cum hoc novus inanis tunc verum
-@@keyword :: et vel non des designo in inporto
+@@keyword :: aluid falsus frio id pergo omitto redeo
+@@keyword :: si est pro dum inanis tunc verum
+@@keyword :: et vel non des in inporto
 
 principio
     =
@@ -20,14 +20,13 @@ principio
 sub_principio
     =
     | statement
-    | var_decl
     | method_decl
-    | lambda_decl
     ;
 
 statement
     =
-    | assignment:assignment_stmt
+    | declaration_stmt
+    | reassignment_stmt
     | if_stmt:if_stmt
     | for_stmt:for_stmt
     | while_stmt:while_stmt
@@ -36,38 +35,32 @@ statement
     | BREAK
     | CONTINUE
     | return_stmt:(RETURN value:expression)
-    | var:var_decl
     ;
 
 lambda_decl
     = 
-    DEF LPAREN [ params:expression_list ] RPAREN
-    LBRACE
-        body:{ statement nl }*
-    RBRACE
+    DEF [ LPAREN [ params:expression_list ] RPAREN ]
+    body:block
     ;
 
-
-var_decl
-    =
-    name:identifier [ ASSIGNMENT_OP value:expression ] nl
-    ;
 
 method_decl
     =
     DEF name:identifier
         LPAREN [ params:expression_list ] RPAREN
-        LBRACE nl
-            body:{ statement nl }*
-        RBRACE nl
+        body:block
     ;
 
 
-assignment_stmt
+declaration_stmt
     =
-    target:identifier [ index:indexing ]
-    op:(ASSIGNMENT_OP | REASSIGNMENT_OP)
-    value:expression
+    name:identifier ASSIGNMENT_OP value:expression
+    ;
+
+
+reassignment_stmt
+    =
+    target:identifier [ index:indexing ] REASSIGNMENT_OP value:expression
     ;
 
 indexing
@@ -77,26 +70,34 @@ indexing
 
 if_stmt
     =
-    IF cond:expression then:block_body
-        elifs:{ ELSE elif_cond:expression elif_body:block_body }*
-        [ ELSE else_body:block_body ]
+    IF cond:expression then:block
+        elifs:{ ELSE elif_cond:expression elif_body:block }*
+        [ ELSE else_body:block ]
     ;
 
-block_body
+block
     =
-    LBRACE nl
-        stmts:{ statement nl }*
+    LBRACE
+        [ nl ]
+        [ stmts:statement_list ]
+        [ nl ]
     RBRACE
+    ;
+
+statement_list
+    =
+    first:statement
+    rest:{ { nl }+ statement }*
     ;
 
 while_stmt
     =
-    WHILE cond:expression body:block_body
+    WHILE cond:expression body:block
     ;
 
 for_stmt
     =
-    FOR iterator:expression IN iterable:expression body:block_body
+    FOR iterator:expression IN iterable:expression body:block
     ;
 
 # --- CALLS ---
@@ -167,7 +168,6 @@ pg
 
 ph
     =
-    | call:call_stmt
     | list:list
     | value:item
     | mapstruct:mapstruct
@@ -181,7 +181,7 @@ list
 
 mapstruct
     = 
-    LBRACE { (STR_LIT | identifier) COLON item }* RBRACE
+    LBRACE { (STR_LIT | identifier) COLON item COMMA}* [ (STR_LIT | identifier) COLON item ] RBRACE
     ;
 
 item
@@ -189,10 +189,11 @@ item
     | paren:(LPAREN expr:expression RPAREN)
     | call:nodotcall_stmt
     | mchain:(
-        base:base_ref
+        base:item
         chain:{ PERIOD method:nodotcall_stmt }+
       )
     | indexed:(identifier idx:indexing)
+    | lambda_decl
     | id:identifier
     | str:STR_LIT
     | float:FLOATLIT
@@ -201,27 +202,17 @@ item
     | TRUE
     | FALSE
     | NULL
-    | THIS
     | IT
-    ;
-
-base_ref
-    =
-    | THIS
-    | IT
-    | indexed:(identifier idx:indexing)
-    | id:identifier
     ;
 
 nl = { CR }+ ;
 
-@name
-identifier = /[A-Za-z_][A-Za-z_0-9]*/ ;
-
-
 # ---------- lexical rules (tokens) ----------
 
 ROMAN_NUMERAL = /[MCDLXIV]+/ ;
+
+@name
+identifier = /[A-Za-z_][A-Za-z_0-9]*/ ;
 FLOATLIT = /[0-9]*\.[0-9]+/ ;
 INTLIT = /[0-9]+/ ;
 
@@ -254,7 +245,6 @@ EQ = '==' ;
 ASSIGNMENT_OP   = ':=' ;
 REASSIGNMENT_OP = '=' ;
 
-CLASS   = 'ordo' ;
 ELSE    = 'aluid' ;
 FALSE   = 'falsus' ;
 BREAK   = 'frio' ;
@@ -266,16 +256,12 @@ IF      = 'si' ;
 IS      = 'est' ;
 FOR     = 'pro' ;
 WHILE   = 'dum' ;
-WITH    = 'cum' ;
-THIS    = 'hoc' ;
-NEW     = 'novus' ;
 NULL    = 'inanis' ;
-THEN    = 'tunc' ;
 TRUE    = 'verum' ;
 AND     = 'et' ;
 OR      = 'vel' ;
 NOT     = 'non' ;
-DEF     = 'des' | 'designo' ;
+DEF     = 'des' ;
 IN      = 'in' ;
 IMPORT  = 'inporto' ;
 
