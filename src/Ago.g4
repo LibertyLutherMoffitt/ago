@@ -181,13 +181,19 @@ list
 
 mapstruct
     = 
-    LBRACE { (STR_LIT | identifier) COLON item COMMA}* [ (STR_LIT | identifier) COLON item ] RBRACE
+    LBRACE mapcontent RBRACE
+    ;
+
+mapcontent
+    =
+    | (STR_LIT | identifier) COLON item COMMA mapcontent
+    | (STR_LIT | identifier) COLON item
     ;
 
 item
     =
     | paren:(LPAREN expr:expression RPAREN)
-   | mchain:(
+    | mchain:(
         base:item
         chain:{ PERIOD method:nodotcall_stmt }+
       ) 
