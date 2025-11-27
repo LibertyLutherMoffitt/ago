@@ -187,18 +187,18 @@ mapstruct
 item
     =
     | paren:(LPAREN expr:expression RPAREN)
-    | call:nodotcall_stmt
-    | mchain:(
+   | mchain:(
         base:item
         chain:{ PERIOD method:nodotcall_stmt }+
-      )
+      ) 
+    | call:nodotcall_stmt
     | indexed:(identifier idx:indexing)
     | lambda_decl
+    | roman:ROMAN_NUMERAL
     | id:identifier
     | str:STR_LIT
     | float:FLOATLIT
     | int:INTLIT
-    | roman:ROMAN_NUMERAL
     | TRUE
     | FALSE
     | NULL

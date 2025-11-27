@@ -1,0 +1,18 @@
+des satus() {
+    pro ies in werum[0 .< werum[0..5].diu() - II] {
+        si ia ^ I > 0 {
+            dixit(ies)
+        }
+
+        si iae + -.1 > 0 {
+            dixit(ies)
+        } aluid (iam et falsus) < 0 {
+            frio
+        } aluid {
+            omitto
+        }
+    }
+    redeo werum[0] ?: verum
+}
+
+satus()
