@@ -4,7 +4,7 @@ from dataclasses import dataclass
 @dataclass
 class Symbol:
     name: str 
-    starting_type: str 
+    type_t: str 
     category: str = "var" 
     scope: Optional[int] = -1 
     num_of_params: Optional[int] = -1 
