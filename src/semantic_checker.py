@@ -30,6 +30,21 @@ class AgoSemanticException(Exception):
 
 # --------- Helper functs ---------
 
+def ending_to_type(ending: str) -> str:
+    endings_to_str = {
+        "a": "int",
+        "ae": "float",
+        "am": "bool",
+        "aem": "int_list",
+        "arum": "float_list",
+        "as": "bool_list",
+        "es": "string",
+        "erum": "string_list",
+        "u": "struct",
+        "uum": "list_list",
+    }
+    return endings_to_str[ending]
+
 def type_to_type_check(current: str, to: str) -> True:
     acceptables = {
         "int": ["float", "bool", "string"],
@@ -40,6 +55,8 @@ def type_to_type_check(current: str, to: str) -> True:
         "bool_list": ["int", "string", "int_list", "float_list", "string_list"],
         "string_list": ["int", "string", "int_list", "float_list", "bool_list"],
         "string": ["int", "float", "bool", "string_list"],
+        "struct": ["string", "int"],
+        "list_list": ["int"],
     }
 
     if current not in acceptables:
@@ -163,7 +180,7 @@ class AgoSemantics(Semantics):
         name = ast.name
 
         
-
+        
         # TODO: infer type from ast.value later
         self.declare_symbol(name=name, type_t="unknown", category="var", node=ast)
         self.walk(ast.value)
