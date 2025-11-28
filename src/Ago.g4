@@ -1,5 +1,6 @@
 @@grammar :: Ago
 @@whitespace :: /[ \t]+/
+@@comments :: /(?m)#([^\n]*?)$/
 @@eol_comments :: /(?m)#([^\n]*?)$/
 @@left_recursion :: True
 
@@ -21,6 +22,7 @@ sub_principio
     =
     | statement
     | method_decl
+    | nl
     ;
 
 statement
@@ -68,11 +70,17 @@ indexing
     indexes:{ LBRACKET expr:expression RBRACKET }+
     ;
 
+else_fragment
+    = 
+    ELSE else_body:block
+    ;
+
+
 if_stmt
     =
     IF cond:expression then:block
-        elifs:{ ELSE elif_cond:expression elif_body:block }*
-        [ ELSE else_body:block ]
+        elifs:{ [nl] ELSE elif_cond:expression elif_body:block [nl] }*
+        [else_fragment]
     ;
 
 block
@@ -105,7 +113,7 @@ for_stmt
 call_stmt
     =
     [ recv:(receiver:item) PERIOD ]
-    first:nodotcall_stmt
+    first:(nodotcall_stmt | identifier)
     chain:{ PERIOD more:nodotcall_stmt }*
     ;
 
