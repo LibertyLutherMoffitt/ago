@@ -1,5 +1,5 @@
 {
-  description = "shell";
+  description = "rust + python";
   inputs.unstable.url = "github:nixos/nixpkgs?ref=nixos-unstable";
   outputs = inputs: let
     system = "x86_64-linux";
@@ -9,6 +9,7 @@
       default = pkgs.mkShell {
         packages = with pkgs; [
           (python3.withPackages (p: with p; [tatsu]))
+          rustc
         ];
       };
     };
