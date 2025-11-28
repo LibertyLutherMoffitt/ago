@@ -3,3 +3,7 @@ des satus(){
         lego()
     }
 }
+
+des satus_du() {
+    redeo des { lego() }
+}
