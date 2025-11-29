@@ -376,10 +376,6 @@ impl AgoType {
                 new_list.map(AgoType::BoolList)
             }
 
-            // --- Struct and ListAny conversions ---
-            // These are more complex and might require specific rules or be disallowed.
-            // For now, most direct conversions to/from these types will be errors.
-
             // Default error for unsupported conversions
             _ => Err(format!("Unsupported cast from {:?} to {:?}", self, target)),
         }
