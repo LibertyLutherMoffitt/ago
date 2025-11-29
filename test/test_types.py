@@ -133,6 +133,8 @@ def test_logical_and_or_require_bool():
 
     assert t_and == "bool"
     assert t_or == "bool"
+
+
 # ---------- comparison operators ----------
 
 
@@ -157,7 +159,7 @@ def test_comparison_with_mixed_numeric_types():
     # int compared with float should work
     t1, sem1 = infer_type("1 >= 3.14")
     t2, sem2 = infer_type("2.5 >= 2")
-    
+
     # assert sem1.errors == []
     assert t1 == "bool"
 
@@ -174,11 +176,12 @@ def test_comparison_with_incompatible_types():
 def test_equality_with_same_types():
     t1, sem1 = infer_type('"hello" == "world"')
     t2, sem2 = infer_type("verum == falsus")
-    
+
     assert t1 == "bool"
     assert t2 == "bool"
     assert sem1.errors == []
     assert sem2.errors == []
+
 
 # ---------- complex expressions ----------
 
@@ -193,7 +196,7 @@ def test_mixed_float_int_arithmetic():
     t1, sem1 = infer_type("1.5 + 2")
     t2, sem2 = infer_type("3 * 2.0")
     t3, sem3 = infer_type("(1 + 2.5) / 2")
-    
+
     assert t1 == "float"
     assert t2 == "float"
     assert t3 == "float"
@@ -210,7 +213,9 @@ def test_complex_boolean_expression():
 
 def test_boolean_with_non_boolean_operands():
     _, sem = infer_type("1 et 2")
-    assert any("bool" in str(e).lower() or "logical" in str(e).lower() for e in sem.errors)
+    assert any(
+        "bool" in str(e).lower() or "logical" in str(e).lower() for e in sem.errors
+    )
 
 
 # ---------- type coercion and promotion ----------
@@ -226,7 +231,7 @@ def test_int_promotes_to_float_in_division():
 def test_roman_numeral_treated_as_int():
     t1, sem1 = infer_type("XII + 5")
     t2, sem2 = infer_type("X * III")
-    
+
     assert t1 == "int"
     assert t2 == "int"
     assert sem1.errors == []
@@ -255,7 +260,10 @@ xa := 10
 """
     semantics = run_program(src)
     # Should error on xa not being declared
-    assert any("not defined" in str(e).lower() or "undeclared" in str(e).lower() for e in semantics.errors)
+    assert any(
+        "not defined" in str(e).lower() or "undeclared" in str(e).lower()
+        for e in semantics.errors
+    )
 
 
 # ---------- function calls (if supported) ----------
@@ -273,7 +281,7 @@ xa := add(2, 2)
     func_sym = semantics.sym_table.get_symbol("add")
     assert func_sym is not None
     assert func_sym.type_t == "int"  # return type
-    
+
 
 def test_function_call_with_wrong_argument_types():
     src = """\
@@ -284,7 +292,10 @@ xa := vala("hello", 5)
 """
     semantics = run_program(src)
     # Should error on argument type mismatch
-    assert any("argument" in str(e).lower() or "type mismatch" in str(e).lower() for e in semantics.errors)
+    assert any(
+        "argument" in str(e).lower() or "type mismatch" in str(e).lower()
+        for e in semantics.errors
+    )
 
 
 def test_function_return_type_mismatch():
@@ -294,7 +305,10 @@ des vala() {
 }
 """
     semantics = run_program(src)
-    assert any("return" in str(e).lower() or "type mismatch" in str(e).lower() for e in semantics.errors)
+    assert any(
+        "return" in str(e).lower() or "type mismatch" in str(e).lower()
+        for e in semantics.errors
+    )
 
 
 # ---------- array/list operations (if supported) ----------
@@ -339,7 +353,10 @@ si "hello" {
 """
     semantics = run_program(src)
     # Condition should be bool, not int
-    assert any("bool" in str(e).lower() or "condition" in str(e).lower() for e in semantics.errors)
+    assert any(
+        "bool" in str(e).lower() or "condition" in str(e).lower()
+        for e in semantics.errors
+    )
 
 
 # ---------- loop type checking ----------
@@ -383,7 +400,7 @@ def test_parenthesized_expressions_preserve_type():
     t1, sem1 = infer_type("(42)")
     t2, sem2 = infer_type("((1 + 2))")
     t3, sem3 = infer_type('("hello")')
-    
+
     assert t1 == "int"
     assert t2 == "int"
     assert t3 == "string"
@@ -397,7 +414,7 @@ def test_parenthesized_expressions_preserve_type():
 
 def test_null_or_void_type():
     # If your language has null/void
-    #TODO
+    # TODO
     pass
 
 
@@ -428,7 +445,7 @@ des testa() {
 }
 xa := "global"
 """
-    semantics = run_program(src)
+    run_program(src)
     # Function local xa should be int, global xa should be string
 
 
@@ -439,6 +456,7 @@ def test_operator_precedence_with_types():
     t, sem = infer_type("1 + 2 * 3")
     assert t == "int"
     assert sem.errors == []
+
 
 def test_operator_precedence_with_types_electric_boogaloo():
     t, sem = infer_type("1 + 2.2 * 3.3")
@@ -469,7 +487,8 @@ def test_modulo_with_floats():
     t, sem = infer_type("5.5 % 2.2")
 
     assert t == "float"
-    assert sem.errors == [] 
+    assert sem.errors == []
+
 
 # ---------- string comparison ----------
 

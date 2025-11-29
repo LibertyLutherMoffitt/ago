@@ -398,8 +398,12 @@ class AgoSemanticChecker:
             return "int"
 
         if op in ("==", "!=", "<", ">", "<=", ">="):
-            if left_type != right_type and not (left_type in NUMERIC_TYPES and right_type in NUMERIC_TYPES):
-                self.report_error(f"{left_type} {op} {right_type} is an invalid comparision between types.")
+            if left_type != right_type and not (
+                left_type in NUMERIC_TYPES and right_type in NUMERIC_TYPES
+            ):
+                self.report_error(
+                    f"{left_type} {op} {right_type} is an invalid comparision between types."
+                )
 
             return "bool"
 
