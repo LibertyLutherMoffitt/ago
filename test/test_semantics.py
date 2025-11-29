@@ -3,7 +3,7 @@
 import pytest
 
 from src.AgoSemanticChecker import AgoSemantics
-from src.AgoParser import parser   # make sure this exposes `parser`
+from src.AgoParser import parser  # make sure this exposes `parser`
 
 
 def run_semantics(source: str):

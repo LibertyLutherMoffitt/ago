@@ -40,6 +40,8 @@ class SymbolTable:
 
     def get_symbol(self, n: str) -> Symbol | None:
         return self.scopes.get(self.current_scope).get(n)
-    
+
     def change_symbol_type(self, n: str, new_type: str, scope: int = None):
-        self.scopes.get(self.current_scope if scope is None else scope).get(n).type_t = new_type
+        self.scopes.get(self.current_scope if scope is None else scope).get(
+            n
+        ).type_t = new_type
