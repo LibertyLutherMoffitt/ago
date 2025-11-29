@@ -1,9 +1,12 @@
 //! Integration tests for the ago_stdlib crate.
 
-use ago_stdlib::{
-    add, aequalem, and, bitwise_and, bitwise_or, bitwise_xor, claverum, contains, divide, elvis,
-    get, greater_equal, greater_than, insero, less_equal, less_than, modulo, multiply, not, or,
-    removeo, set, species, subtract, unary_minus, unary_plus, AgoType, TargetType,
+use ago_stdlib::types::{AgoRange, AgoType, TargetType};
+use ago_stdlib::collections::{get, set, insero, removeo};
+use ago_stdlib::functions::{aequalem, claverum, species};
+use ago_stdlib::operators::{
+    add, and, bitwise_and, bitwise_or, bitwise_xor, contains, divide, elvis, greater_equal,
+    greater_than, less_equal, less_than, modulo, multiply, not, or, slice, sliceto, subtract, unary_minus,
+    unary_plus,
 };
 use std::collections::HashMap;
 
@@ -74,6 +77,10 @@ fn test_species() {
     assert_eq!(
         species(&AgoType::Null),
         AgoType::String("Null".to_string())
+    );
+    assert_eq!(
+        species(&AgoType::Range(AgoRange { start: 1, end: 5, inclusive: true })),
+        AgoType::String("Range".to_string())
     );
 }
 
@@ -453,6 +460,95 @@ fn test_elvis() {
 #[should_panic(expected = "Cannot coalesce two null values")]
 fn test_elvis_panic() {
     elvis(&AgoType::Null, &AgoType::Null);
+}
+
+#[test]
+fn test_slice_operator_creation() {
+    let range = slice(&AgoType::Int(1), &AgoType::Int(5));
+    assert_eq!(range, AgoType::Range(AgoRange { start: 1, end: 5, inclusive: true }));
+
+    let range_reverse = slice(&AgoType::Int(5), &AgoType::Int(1));
+    assert_eq!(range_reverse, AgoType::Range(AgoRange { start: 5, end: 1, inclusive: true }));
+}
+
+#[test]
+fn test_sliceto_operator_creation() {
+    let range = sliceto(&AgoType::Int(1), &AgoType::Int(5));
+    assert_eq!(range, AgoType::Range(AgoRange { start: 1, end: 5, inclusive: false }));
+
+    let range_reverse = sliceto(&AgoType::Int(5), &AgoType::Int(1));
+    assert_eq!(range_reverse, AgoType::Range(AgoRange { start: 5, end: 1, inclusive: false }));
+}
+
+#[test]
+#[should_panic(expected = "Range operators can only be used with integers")]
+fn test_range_operator_panic_non_int_slice() {
+    slice(&AgoType::Float(1.0), &AgoType::Int(5));
+}
+
+#[test]
+#[should_panic(expected = "Range operators can only be used with integers")]
+fn test_range_operator_panic_non_int_sliceto() {
+    sliceto(&AgoType::Int(1), &AgoType::String("5".to_string()));
+}
+
+#[test]
+fn test_range_as_type_to_string() {
+    let inclusive_range = AgoType::Range(AgoRange { start: 1, end: 5, inclusive: true });
+    assert_eq!(inclusive_range.as_type(TargetType::String), AgoType::String("1..5".to_string()));
+
+    let exclusive_range = AgoType::Range(AgoRange { start: 1, end: 5, inclusive: false });
+    assert_eq!(exclusive_range.as_type(TargetType::String), AgoType::String("1.<5".to_string()));
+}
+
+#[test]
+fn test_range_as_type_to_bool() {
+    // Valid ranges
+    let inclusive_valid = AgoType::Range(AgoRange { start: 1, end: 5, inclusive: true });
+    assert_eq!(inclusive_valid.as_type(TargetType::Bool), AgoType::Bool(true));
+
+    let exclusive_valid = AgoType::Range(AgoRange { start: 1, end: 5, inclusive: false });
+    assert_eq!(exclusive_valid.as_type(TargetType::Bool), AgoType::Bool(true));
+
+    let single_point_inclusive = AgoType::Range(AgoRange { start: 5, end: 5, inclusive: true });
+    assert_eq!(single_point_inclusive.as_type(TargetType::Bool), AgoType::Bool(true));
+
+    // Invalid ranges (start > end)
+    let inclusive_invalid = AgoType::Range(AgoRange { start: 5, end: 1, inclusive: true });
+    assert_eq!(inclusive_invalid.as_type(TargetType::Bool), AgoType::Bool(false));
+
+    let exclusive_invalid = AgoType::Range(AgoRange { start: 5, end: 1, inclusive: false });
+    assert_eq!(exclusive_invalid.as_type(TargetType::Bool), AgoType::Bool(false));
+}
+
+#[test]
+fn test_range_as_type_to_intlist() {
+    // Inclusive ranges
+    let inclusive_range = AgoType::Range(AgoRange { start: 1, end: 5, inclusive: true });
+    assert_eq!(inclusive_range.as_type(TargetType::IntList), AgoType::IntList(vec![1, 2, 3, 4, 5]));
+
+    let single_point_inclusive = AgoType::Range(AgoRange { start: 5, end: 5, inclusive: true });
+    assert_eq!(single_point_inclusive.as_type(TargetType::IntList), AgoType::IntList(vec![5]));
+
+    let inclusive_negative = AgoType::Range(AgoRange { start: -2, end: 2, inclusive: true });
+    assert_eq!(inclusive_negative.as_type(TargetType::IntList), AgoType::IntList(vec![-2, -1, 0, 1, 2]));
+
+    // Exclusive ranges
+    let exclusive_range = AgoType::Range(AgoRange { start: 1, end: 5, inclusive: false });
+    assert_eq!(exclusive_range.as_type(TargetType::IntList), AgoType::IntList(vec![1, 2, 3, 4]));
+
+    let exclusive_empty = AgoType::Range(AgoRange { start: 5, end: 5, inclusive: false });
+    assert_eq!(exclusive_empty.as_type(TargetType::IntList), AgoType::IntList(vec![]));
+
+    let exclusive_negative = AgoType::Range(AgoRange { start: -2, end: 2, inclusive: false });
+    assert_eq!(exclusive_negative.as_type(TargetType::IntList), AgoType::IntList(vec![-2, -1, 0, 1]));
+
+    // Invalid ranges (start > end)
+    let inclusive_invalid = AgoType::Range(AgoRange { start: 5, end: 1, inclusive: true });
+    assert_eq!(inclusive_invalid.as_type(TargetType::IntList), AgoType::IntList(vec![]));
+
+    let exclusive_invalid = AgoType::Range(AgoRange { start: 5, end: 1, inclusive: false });
+    assert_eq!(exclusive_invalid.as_type(TargetType::IntList), AgoType::IntList(vec![]));
 }
 
 // Note: Testing `dico` is complex as it prints to stdout.

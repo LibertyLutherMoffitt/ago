@@ -5,7 +5,6 @@ edition = "2021"
 
 [lib]
 name = "ago_stdlib"
-path = "lib.rs"
 
 [dependencies]
 # No external dependencies for now, but they would go here.
