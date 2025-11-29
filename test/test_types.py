@@ -1,7 +1,7 @@
 import pytest
 
 from src.AgoParser import parser
-from src.AgoSemanticChecker import AgoSemantics
+from src.GeminiAgoSemanticChecker import AgoSemanticChecker
 
 # ---------- helpers ----------
 
@@ -10,7 +10,7 @@ def infer_type(expr_src: str, semantics=None):
     """
     Parse a single expression and ask the semantic checker for its type.
     """
-    semantics = AgoSemantics() if not semantics else semantics
+    semantics = AgoSemanticChecker() if not semantics else semantics
     ast = parser.parse(expr_src + "\n", rule_name="expression", semantics=semantics)
     t = semantics.infer_expr_type(ast)
     return t, semantics
@@ -21,7 +21,7 @@ def run_program(src: str):
     Parse a full program (principio rule) and return the semantics object
     so we can inspect symbols, function types, and errors.
     """
-    semantics = AgoSemantics()
+    semantics = AgoSemanticChecker()
     parser.parse(src, semantics=semantics)  # uses 'principio' by default
     return semantics
 

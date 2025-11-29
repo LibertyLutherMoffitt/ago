@@ -116,6 +116,7 @@ class AgoSemantics:
         already did that during parse). It's just for walking deeper into
         child nodes when a semantic method wants to keep exploring.
         """
+        # self.report_error(str(node), node)
         if node is None:
             return None
 
@@ -362,7 +363,7 @@ class AgoSemantics:
         # condition
         self.walk(ast.cond)
 
-        if t := self.infer_expr_type(ast.cond) != "bool":
+        if (t := self.infer_expr_type(ast.cond)) != "bool":
             self.report_error(
                 f"Expression {str(ast.cond)} is not a bool, but a {str(t)}", ast.cond
             )
@@ -396,12 +397,17 @@ class AgoSemantics:
         - check condition
         - enter a loop context for break/continue validation
         """
+        self.report_error(
+                f"{str(ast)}", ast.cond
+            )
+
         self.walk(ast.cond)
         if t := self.infer_expr_type(ast.cond) != "bool":
             self.report_error(
                 f"Expression {str(ast.cond)} is not a bool, but a {str(t)}", ast.cond
             )
 
+        self.enter_scope()
         self.loop_depth += 1
         try:
             self.walk(ast.body)
@@ -420,7 +426,7 @@ class AgoSemantics:
         # If iterator is a bare identifier, you might treat it as a new loop var.
         iterator = ast.iterator
         # Very simple heuristic: TatSu 'expression' node might be just an identifier string
-        if hasattr(iterator, "id"):  # if you later normalize AST nodes
+        if iterator.get("id"):
             self.declare_symbol(
                 iterator.id, type_t="unknown", category="var", node=iterator
             )

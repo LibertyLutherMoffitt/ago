@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.AgoSemanticChecker import AgoSemantics
+from src.GeminiAgoSemanticChecker import AgoSemanticChecker
 from src.AgoParser import parser  # make sure this exposes `parser`
 
 
@@ -11,7 +11,7 @@ def run_semantics(source: str):
     Helper: parse `source` with AgoSemantics and return the list of errors.
     Assumes `source` is syntactically valid according to the grammar.
     """
-    semantics = AgoSemantics()
+    semantics = AgoSemanticChecker()
     parser.parse(source, semantics=semantics)
     return semantics.errors
 
