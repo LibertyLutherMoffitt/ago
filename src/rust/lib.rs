@@ -157,7 +157,7 @@ impl AgoType {
                 Err(_) => Err(format!("Cannot cast string '{}' to Float", val)),
             },
             // String to Bool ("" is false)
-            (AgoType::String(val), TargetType::Bool) => Ok(AgoType::Bool(val.is_empty())),
+            (AgoType::String(val), TargetType::Bool) => Ok(AgoType::Bool(!val.is_empty())),
             // String to StringList (list of characters)
             (AgoType::String(val), TargetType::StringList) => Ok(AgoType::StringList(
                 val.chars().map(|c| c.to_string()).collect(),
@@ -230,6 +230,29 @@ impl AgoType {
                     .collect();
                 string_items.map(|items| AgoType::String(items.join("\n\n")))
 >>>>>>> a410c22 (list conversion functions)
+            }
+
+            // --- List/Struct to Bool ---
+            (AgoType::IntList(val), TargetType::Bool) => Ok(AgoType::Bool(!val.is_empty())),
+            (AgoType::FloatList(val), TargetType::Bool) => Ok(AgoType::Bool(!val.is_empty())),
+            (AgoType::BoolList(val), TargetType::Bool) => Ok(AgoType::Bool(!val.is_empty())),
+            (AgoType::StringList(val), TargetType::Bool) => Ok(AgoType::Bool(!val.is_empty())),
+            (AgoType::ListAny(val), TargetType::Bool) => Ok(AgoType::Bool(!val.is_empty())),
+            (AgoType::Struct(val), TargetType::Bool) => Ok(AgoType::Bool(!val.is_empty())),
+
+            // --- Struct to String ---
+            (AgoType::Struct(val), TargetType::String) => {
+                let mut parts = Vec::new();
+                for (key, value) in val.iter() {
+                    match value.as_type(TargetType::String) {
+                        Ok(AgoType::String(s)) => {
+                            parts.push(format!("{}: {}", key, s));
+                        }
+                        Ok(_) => unreachable!(), // as_type for String should only return String
+                        Err(e) => return Err(e), // Propagate error
+                    }
+                }
+                Ok(AgoType::String(format!("{{ {} }}", parts.join(",\n"))))
             }
 
             // --- List Conversions ---
