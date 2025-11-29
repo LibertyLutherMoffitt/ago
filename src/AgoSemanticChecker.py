@@ -10,6 +10,7 @@ This module implements a Tatsu semantic actions class that validates:
 """
 
 from dataclasses import dataclass
+from turtle import left, right
 from typing import Any, Optional
 
 from src.AgoSymbolTable import Symbol, SymbolTable, SymbolTableError
@@ -124,6 +125,7 @@ def is_type_compatible(from_type: str, to_type: str) -> bool:
 
 def result_type_for_arithmetic(left: str, right: str) -> str:
     """Determine the result type for arithmetic operations."""
+
     if left == "float" or right == "float":
         return "float"
     return "int"
@@ -396,11 +398,15 @@ class AgoSemanticChecker:
             return "int"
 
         if op in ("==", "!=", "<", ">", "<=", ">="):
+            if left_type != right_type and not (left_type in NUMERIC_TYPES and right_type in NUMERIC_TYPES):
+                self.report_error(f"{left_type} {op} {right_type} is an invalid comparision between types.")
+
             return "bool"
 
         if op in ("+", "-", "*", "/", "%"):
             if op == "+" and (left_type == "string" or right_type == "string"):
                 return "string"
+
             if left_type not in NUMERIC_TYPES and left_type not in ("Any", "unknown"):
                 self.report_error(
                     f"'{left_type}' is not a numeric type, but you're trying to use it in a numeric expression.",

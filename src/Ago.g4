@@ -146,7 +146,7 @@ pb
 
 pc
     =
-    | left:pd op:(EQ | GT | GE | LT | LE) right:pd
+    | left:pd op:(EQ | GE | LE | LT | GT) right:pd
     | pd
     ;
 
