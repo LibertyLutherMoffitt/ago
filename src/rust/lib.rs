@@ -45,6 +45,12 @@ pub enum TargetType {
     Null,
 }
 
+pub struct FileStruct {
+    pub filename: AgoString,
+    pub content: AgoString,
+    pub filesize: AgoInt,
+}
+
 impl AgoType {
     // This function will perform the actual conversion.
     // It now panics on error instead of returning a Result.
@@ -599,3 +605,32 @@ pub fn set(iter: &mut AgoType, n: &AgoType, value: AgoType) {
         (other, _) => panic!("Cannot call 'set' on type {:?}", other),
     }
 }
+
+pub fn dico(val: AgoType) {
+    match val {
+        AgoType::String(val) => {
+            println!("{}", val);
+        }
+        _ => panic!("dico function expects a String type"),
+    }
+}
+
+pub fn aperto(val: AgoType) -> FileStruct {
+    match val {
+        AgoType::String(val) => match std::fs::read_to_string(&val) {
+            Ok(content) => {
+                let metadata = std::fs::metadata(&val).expect("Unable to read file metadata");
+                let filesize = metadata.len() as AgoInt;
+                FileStruct {
+                    filename: val,
+                    content,
+                    filesize,
+                }
+            }
+            Err(e) => panic!("Failed to open file '{}': {}", val, e),
+        },
+        _ => panic!("aperto function expects a String type"),
+    }
+}
+
+pub fn main() {}
