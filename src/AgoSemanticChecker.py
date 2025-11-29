@@ -1,14 +1,12 @@
-from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, List, Optional
 
-from tatsu.ast import AST  # this is TatSu's dict-like AST node
+from tatsu.walkers import NodeWalker
 
 from src.AgoSymbolTable import Symbol, SymbolTable
 
+# --- Provided Data Structures & Helpers ---
 NUMERIC_TYPES = ["int", "float"]
-
-# ---------- Error types ----------
 
 
 @dataclass
@@ -26,12 +24,7 @@ class SemanticError:
 
 
 class AgoSemanticException(Exception):
-    """Use this if you ever want to abort immediately on first semantic error."""
-
     pass
-
-
-# --------- Helper functs ---------
 
 
 def ending_to_type(ending: str) -> str:
@@ -47,12 +40,17 @@ def ending_to_type(ending: str) -> str:
         "u": "struct",
         "uum": "list_list",
     }
-    return endings_to_str[ending]
+    assert (t := endings_to_str.get(ending)) is not None
+    return t
 
 
 def type_to_type_check(current: str, to: str) -> bool:
     if current == to:
         return True
+
+    if current == "Any" or to == "Any":
+        return True
+
     acceptables = {
         "int": ["float", "bool", "string"],
         "float": ["int", "bool", "string"],
@@ -67,77 +65,52 @@ def type_to_type_check(current: str, to: str) -> bool:
     }
 
     if current not in acceptables:
-        raise AgoSemanticException(
-            f"{current} is not an acceptable type ({','.join(acceptables.keys())})"
-        )
+        return False
 
-    if to not in acceptables:
-        raise AgoSemanticException(
-            f"{to} is not an acceptable type ({','.join(acceptables.keys())})"
-        )
+    if to not in acceptables and to not in acceptables.get(current, []):
+        return False
 
     if to not in acceptables[current]:
         raise AgoSemanticException(
-            f"{to} is not a valid conversion for {current}. Acceptable conversion: [{','.join(acceptables[current])}]"
+            f"Type mismatch: cannot convert '{current}' to '{to}'. Accepted: {acceptables[current]}"
         )
 
     return True
 
 
-# ---------- Semantics class ----------
+# --- Semantic Checker (Walker) ---
 
 
-class AgoSemantics:
-    """
-    TatSu semantics class that performs semantic checking while the parse runs.
-
-    - Manages a SymbolTable with scopes.
-    - Collects SemanticError instances in self.errors.
-    - Provides hooks for rule-specific checks (declaration, assignment, calls, etc).
-
-    This is meant to be extended and filled in as your language spec solidifies.
-    """
-
-    def __init__(self, symtab: Optional[SymbolTable] = None, fail_fast: bool = False):
-        super().__init__()
-        self.symtab: SymbolTable = symtab or SymbolTable()
+class AgoSemanticChecker(NodeWalker):
+    def __init__(self):
+        self.sym_table = SymbolTable()
+        self.loop_depth = 0
         self.errors: List[SemanticError] = []
-        self.fail_fast: bool = fail_fast
 
-        # optional: track context
-        self.current_function: Optional[str] = None
-        self.loop_depth: int = 0  # to validate BREAK/CONTINUE
+        self.current_function: Optional[Symbol] = None
 
-    def walk(self, node):
-        """
-        Generic recursive walker over TatSu AST structures.
+    def report_error(self, msg: str, node: Any = None):
+        self.errors.append(SemanticError(msg, node=node))
 
-        It *doesn't* call rule-specific semantic methods again (TatSu
-        already did that during parse). It's just for walking deeper into
-        child nodes when a semantic method wants to keep exploring.
-        """
-        # self.report_error(str(node), node)
-        if node is None:
-            return None
+    def _infer_type_from_name(self, name: str) -> str:
+        endings = sorted(
+            ["a", "ae", "am", "aem", "arum", "as", "es", "erum", "u", "uum"],
+            key=len,
+            reverse=True,
+        )
+        for ending in endings:
+            if name.endswith(ending):
+                return ending_to_type(ending)
+        raise AgoSemanticException(
+            f"Variable '{name}' does not have a valid type suffix."
+        )
 
-        # Primitive leaf nodes: nothing to recurse into
-        if isinstance(node, (str, int, float, bool)):
-            return node
-
-        # Lists/tuples: walk each element
-        if isinstance(node, (list, tuple)):
-            for elem in node:
-                self.walk(elem)
-            return node
-
-        # TatSu AST or any dict-like: walk all values
-        if isinstance(node, (AST, Mapping)):
-            for value in node.values():
-                self.walk(value)
-            return node
-
-        # Fallback: unknown type, just return it
-        return node
+    def require_symbol(self, var_name) -> Symbol:
+        sym = self.sym_table.get_symbol(var_name)
+        if not sym:
+            self.report_error(f"Variable '{var_name}' not defined.")
+            return Symbol(var_name, "unknown")
+        return sym
 
     def infer_expr_type(self, expr) -> str:
         if type(expr) is str:
@@ -172,7 +145,7 @@ class AgoSemantics:
 
         # 2) Identifier
         if expr.get("id"):
-            sym = self.require_symbol(expr.get("id"), expr)
+            sym = self.require_symbol(expr.get("id"))
             return sym.type_t if sym and sym.type_t else "bad_sym"
 
         # 3) Parenthesized: (expr)
@@ -236,436 +209,307 @@ class AgoSemantics:
 
         return expr
 
-    # ---------- helper methods ----------
+    # --- Scope & Context Management ---
 
-    def location_of(self, node: Any) -> tuple[Optional[int], Optional[int]]:
-        """Extract (line, col) from TatSu's parseinfo if available."""
-        parseinfo = getattr(node, "parseinfo", None)
-        if parseinfo is None:
-            return None, None
-        return getattr(parseinfo, "line", None), getattr(parseinfo, "col", None)
+    def walk_method_decl(self, node):
+        func_name = node.name
+        return_type = self._infer_type_from_name(func_name)
+        param_symbols = self._get_params_as_symbols(node.params)
+        param_types = [p.type_t for p in param_symbols]
 
-    def report_error(self, message: str, node: Any) -> None:
-        line, col = self.location_of(node)
-        err = SemanticError(message=message, line=line, col=col, node=node)
-        self.errors.append(err)
-        if self.fail_fast:
-            raise AgoSemanticException(str(err))
-
-    # --- scope management ---
-
-    def enter_scope(self) -> None:
-        self.symtab.increment_scope()
-
-    def exit_scope(self) -> None:
-        # You might want to do additional checks on exiting scope later
-        self.symtab.decrement_scope()
-
-    # --- symbol helpers ---
-
-    def declare_symbol(
-        self,
-        name: str,
-        type_t: str = "default_declare_symbol",
-        category: str = "var",
-        node: Any = None,
-    ) -> None:
-        """Declare a new symbol in the current scope, recording errors for duplicates."""
-        try:
-            sym = Symbol(
-                name=name,
-                type_t=type_t,
-                category=category,
-                scope=self.symtab.current_scope,
-            )
-            self.symtab.add_symbol(sym)
-        except Exception as ex:
-            # SymbolTable should already raise on duplicates
-            self.report_error(str(ex), node or name)
-
-    def require_symbol(self, name: str, node: Any) -> Optional[Symbol]:
-        """Ensure a symbol exists in the current scope (or possibly outer scopes if you extend)."""
-        # Right now SymbolTable.get_symbol only checks current scope.
-        # If you implement outer-scope lookup, call that here instead.
-        sym = self.symtab.get_symbol(name)
-        if sym is None:
-            self.report_error(f"Use of undeclared identifier '{name}'", node)
-        return sym
-
-    # ---------- top-level rule ----------
-
-    def principio(self, ast):
-        """
-        Entry point for the program.
-
-        TatSu will already walk subrules; here you can:
-        - reset semantic state
-        - perform post-pass checks if needed
-        """
-        # Optionally reset state each parse:
-        self.symtab = self.symtab or SymbolTable()
-        self.current_function = None
-        self.loop_depth = 0
-
-        # Let default walker handle children
-        return self.walk(ast)
-
-    # ---------- declarations & assignments ----------
-
-    def declaration_stmt(self, ast):
-        """
-        name:identifier ASSIGNMENT_OP value:expression
-
-        Here we:
-        - declare the name in the current scope
-
-        """
-        name = ast.name
-        type = self.infer_expr_type(ast.value)
-        self.declare_symbol(name=name, type_t=type, category="var", node=ast)
-        self.walk(ast.value)
-        return ast
-
-    def reassignment_stmt(self, ast):
-        """
-        target:identifier [ index:indexing ] REASSIGNMENT_OP value:expression
-
-        Here we:
-        - ensure the identifier was declared
-        - eventually do type compatibility checks (TODO)
-        """
-        target_name = ast.target
-        current_symbol = self.require_symbol(target_name, node=ast)
-
-        if current_symbol is not None:
-            if not type_to_type_check(
-                current_symbol.type_t, new_t := self.infer_expr_type(ast.value)
-            ):
-                self.report_error(
-                    f"Type {current_symbol.type_t} cannot be converted to {new_t}", ast
-                )
-
-            self.symtab.change_symbol_type(target_name, new_t)
-
-        if ast.index is not None:
-            self.walk(ast.index)
-        self.walk(ast.value)
-        return ast
-
-    # ---------- control flow ----------
-
-    def if_stmt(self, ast):
-        """
-        IF cond:expression then:block
-            elifs:{ ELSE elif_cond:expression elif_body:block }*
-            [ ELSE else_body:block ]
-        """
-        # condition
-        self.walk(ast.cond)
-
-        if (t := self.infer_expr_type(ast.cond)) != "bool":
-            self.report_error(
-                f"Expression {str(ast.cond)} is not a bool, but a {str(t)}", ast.cond
-            )
-
-        # then branch (new block)
-        self.walk(ast.then)
-
-        # elif branches
-        for elif_pair in ast.elifs or []:
-            # each element is something like {'elif_cond': ..., 'elif_body': ...}
-            self.walk(elif_pair.elif_cond)
-            if t := self.infer_expr_type(elif_pair.elif_cond) != "bool":
-                self.report_error(
-                    f"Expression {str(elif_pair.elif_cond)} is not a bool, but a {str(t)}",
-                    elif_pair.elif_cond,
-                )
-
-            self.walk(elif_pair.elif_body)
-
-        # else branch
-        if ast.else_body is not None:
-            self.walk(ast.else_body)
-
-        return ast
-
-    def while_stmt(self, ast):
-        """
-        WHILE cond:expression body:block
-
-        We:
-        - check condition
-        - enter a loop context for break/continue validation
-        """
-        self.report_error(f"{str(ast)}", ast.cond)
-
-        self.walk(ast.cond)
-        if t := self.infer_expr_type(ast.cond) != "bool":
-            self.report_error(
-                f"Expression {str(ast.cond)} is not a bool, but a {str(t)}", ast.cond
-            )
-
-        self.enter_scope()
-        self.loop_depth += 1
-        try:
-            self.walk(ast.body)
-        finally:
-            self.loop_depth -= 1
-        return ast
-
-    def for_stmt(self, ast):
-        """
-        FOR iterator:expression IN iterable:expression body:block
-
-        Common pattern:
-        - treat `iterator` as a declaration (if it's an identifier)
-        - check iterable expression
-        """
-        # If iterator is a bare identifier, you might treat it as a new loop var.
-        iterator = ast.iterator
-        # Very simple heuristic: TatSu 'expression' node might be just an identifier string
-        if iterator.get("id"):
-            self.declare_symbol(
-                iterator.id, type_t="unknown", category="var", node=iterator
-            )
-
-        self.walk(ast.iterable)
-
-        if "list" not in (t := self.infer_expr_type(ast.iterable)):
-            self.report_error(
-                f"{str(ast.iterable)} is not a list, but a {t}", ast.iterable
-            )
-
-        self.loop_depth += 1
-        try:
-            self.walk(ast.body)
-        finally:
-            self.loop_depth -= 1
-        return ast
-
-    # ---------- function & lambda declarations ----------
-
-    def method_decl(self, ast):
-        """
-        DEF name:identifier LPAREN [ params:expression_list ] RPAREN body:block
-
-        Here we:
-        - declare the function name in the current (outer) scope
-        - open a new scope for parameters + body
-        - register parameters as symbols
-        """
-        func_name = ast.name
-        self.declare_symbol(
+        func_symbol = Symbol(
             name=func_name,
-            type_t="func",
-            category="function",
-            node=ast,
+            type_t="function",
+            category="func",
+            return_type=return_type,
+            param_types=param_types,
+            num_of_params=len(param_symbols),
+        )
+        self.sym_table.add_symbol(func_symbol)
+
+        previous_function = self.current_function
+        self.current_function = func_symbol
+        self.sym_table.increment_scope()
+
+        for p_sym in param_symbols:
+            self.sym_table.add_symbol(p_sym)
+
+        self.walk(node.body)
+
+        self.sym_table.decrement_scope()
+        self.current_function = previous_function
+
+    def _get_params_as_symbols(self, params_node) -> list[Symbol]:
+        if not params_node:
+            return []
+        items = []
+        if hasattr(params_node, "first"):
+            items.append(params_node.first)
+        if hasattr(params_node, "rest"):
+            for item in params_node.rest:
+                items.append(item.expr)
+        symbols = []
+        for item in items:
+            name = item.id if hasattr(item, "id") else str(item)
+            t_type = self._infer_type_from_name(name)
+            symbols.append(Symbol(name=name, type_t=t_type))
+        return symbols
+
+    def walk_if_stmt(self, node):
+        cond_type = self.walk(node.cond)
+        type_to_type_check(cond_type, "bool")
+
+        self.sym_table.increment_scope()
+        self.walk(node.then)
+        self.sym_table.decrement_scope()
+
+        if node.elifs:
+            for elif_block in node.elifs:
+                cond_t = self.walk(elif_block.elif_cond)
+                type_to_type_check(cond_t, "bool")
+                self.sym_table.increment_scope()
+                self.walk(elif_block.elif_body)
+                self.sym_table.decrement_scope()
+
+        if node.else_fragment:
+            self.sym_table.increment_scope()
+            self.walk(node.else_fragment.else_body)
+            self.sym_table.decrement_scope()
+
+    def walk_while_stmt(self, node):
+        cond_type = self.walk(node.cond)
+        type_to_type_check(cond_type, "bool")
+
+        self.loop_depth += 1
+        self.sym_table.increment_scope()
+        self.walk(node.body)
+        self.sym_table.decrement_scope()
+        self.loop_depth -= 1
+
+    def walk_for_stmt(self, node):
+        iterable_type = self.walk(node.iterable)
+        if "list" not in iterable_type:
+            raise AgoSemanticException(
+                f"Cannot iterate over non-list type '{iterable_type}'."
+            )
+
+        iterator_type = (
+            "list"
+            if iterable_type == "list_list"
+            else iterable_type.replace("_list", "")
         )
 
-        # Enter function scope
-        prev_function = self.current_function
-        self.current_function = func_name
-        self.enter_scope()
-        try:
-            # register parameters (TODO: a real param node instead of expression_list)
-            if ast.params is not None:
-                self._declare_params_from_expression_list(ast.params)
+        self.loop_depth += 1
+        self.sym_table.increment_scope()
 
-            # walk the body
-            self.walk(ast.body)
-        finally:
-            self.exit_scope()
-            self.current_function = prev_function
+        iterator_name = (
+            node.iterator.id if hasattr(node.iterator, "id") else str(node.iterator)
+        )
+        expected_iterator_type = self._infer_type_from_name(iterator_name)
+        if expected_iterator_type != iterator_type:
+            raise AgoSemanticException(
+                f"Iterator '{iterator_name}' suffix implies type '{expected_iterator_type}', but iterable is type '{iterator_type}'."
+            )
+        self.sym_table.add_symbol(Symbol(name=iterator_name, type_t=iterator_type))
 
-        return ast
+        self.walk(node.body)
 
-    def lambda_decl(self, ast):
-        """
-        DEF [ LPAREN [ params:expression_list ] RPAREN ] body:block
+        self.sym_table.decrement_scope()
+        self.loop_depth -= 1
 
-        Similar to method_decl but anonymous.
-        Usually creates a new scope for params + body.
-        """
-        self.enter_scope()
-        try:
-            if getattr(ast, "params", None) is not None:
-                self._declare_params_from_expression_list(ast.params)
-            self.walk(ast.body)
-        finally:
-            self.exit_scope()
-        return ast
+    # --- Statements ---
 
-    def _declare_params_from_expression_list(self, expr_list):
-        """
-        Helper: your grammar uses `expression_list` for params, but in practice,
-        you'll probably restrict it to identifiers. For now, we just try to register
-        plain identifiers and ignore more complex expressions.
-        """
-        # expr_list has .first and .rest according to grammar
-        to_visit = [expr_list.first]
-        to_visit.extend(rest.expr for rest in (expr_list.rest or []))
+    def walk_declaration_stmt(self, node):
+        var_name = node.name
+        expected_type = self._infer_type_from_name(var_name)
+        actual_type = self.walk(node.value)
+        type_to_type_check(actual_type, expected_type)
+        self.sym_table.add_symbol(Symbol(name=var_name, type_t=expected_type))
 
-        for expr in to_visit:
-            # TODO: tighten this: treat only identifiers as params, error otherwise.
-            if hasattr(expr, "id"):  # if you normalize AST items
-                param_name = expr.id
-                self.declare_symbol(
-                    param_name, type_t="unknown", category="param", node=expr
+    def walk_reassignment_stmt(self, node):
+        var_name = node.target
+        sym = self.require_symbol(var_name)
+        target_type = sym.type_t
+        if node.index:
+            if "_list" in target_type:
+                target_type = target_type.replace("_list", "")
+            else:
+                raise AgoSemanticException(
+                    f"Cannot index non-list type '{sym.type_t}'."
                 )
-            # else: you might want to emit an error for non-identifier params
 
-    # ---------- calls ----------
+        rhs_type = self.walk(node.value)
+        type_to_type_check(rhs_type, target_type)
 
-    def call_stmt(self, ast):
-        """
-        [ recv:(receiver:item) PERIOD ]
-        first:nodotcall_stmt
-        chain:{ PERIOD more:nodotcall_stmt }*
-        """
-        # receiver may be something like an identifier or more complex expression
-        if ast.recv is not None:
-            self.walk(ast.recv)
-
-        self.walk(ast.first)
-
-        for c in ast.chain or []:
-            self.walk(c.more)
-
-        return ast
-
-    def nodotcall_stmt(self, ast):
-        """
-        func:identifier LPAREN [ args:expression_list ] RPAREN
-        """
-        func_name = ast.func
-        self.require_symbol(func_name, node=ast)
-
-        if ast.args is not None:
-            self.walk(ast.args)
-
-        # TODO: add arity/type checks when you track function signatures in Symbol
-        return ast
-
-    # ---------- blocks & statement lists ----------
-
-    def block(self, ast):
-        """
-        LBRACE [ nl ] [ stmts:statement_list ] [ nl ] RBRACE
-
-        You can choose whether a block implies a new scope or not.
-        In this framework, we *do not* automatically open a new scope here,
-        because functions already do it in method_decl/lambda_decl/loops/etc.
-        If you want block scope (like C), you can uncomment scope handling.
-        """
-        # If you want every block to have its own scope, uncomment:
-        # self.enter_scope()
-        # try:
-        #     if ast.stmts is not None:
-        #         self.walk(ast.stmts)
-        # finally:
-        #     self.exit_scope()
-
-        if ast.stmts is not None:
-            self.walk(ast.stmts)
-        return ast
-
-    def statement_list(self, ast):
-        """
-        first:statement
-        rest:{ { nl }+ statement }*
-        """
-        self.walk(ast.first)
-        for r in ast.rest or []:
-            self.walk(r)
-        return ast
-
-    # ---------- simple statements ----------
-
-    def PASS(self, ast):
-        # 'omitto' – usually no semantic effect.
-        return ast
-
-    def BREAK(self, ast):
-        # 'frio' – must be inside a loop.
-        if self.loop_depth <= 0:
-            self.report_error("'frio' (break) outside of loop", ast)
-        return ast
-
-    def CONTINUE(self, ast):
-        # 'pergo' – must be inside a loop.
-        if self.loop_depth <= 0:
-            self.report_error("'pergo' (continue) outside of loop", ast)
-        return ast
-
-    def return_stmt(self, ast):
-        """
-        RETURN value:expression
-
-        Optionally verify we're inside a function/lambda.
-        """
+    def walk_return_stmt(self, node):
         if self.current_function is None:
-            self.report_error("'redeo' (return) outside of function", ast)
-        else:
-            self.report_error(str(self.current_function), ast)
-        self.walk(ast.value)
-        # TODO: record return type / check against function signature
-        return ast
+            raise AgoSemanticException(
+                "'redeo' (return) cannot be used outside a function."
+            )
 
-    # ---------- expressions ----------
+        if node.value:
+            returned_type = self.walk(node.value)
+            expected_type = self.current_function.return_type
+            assert expected_type is not None
+            type_to_type_check(returned_type, expected_type)
+        elif (
+            self.current_function.return_type != "void"
+        ):  # Assuming 'void' type for functions with no return value
+            raise AgoSemanticException(
+                f"Function '{self.current_function.name}' expects return type '{self.current_function.return_type}', but got no value."
+            )
 
-    # You can override specific expression-level rules if you want to do
-    # type propagation; for now we just walk them so child semantics run.
+    def walk_BREAK(self, _):
+        if self.loop_depth <= 0:
+            raise AgoSemanticException("'frio' (break) cannot be used outside a loop.")
 
-    def expression(self, ast):
-        return self.walk(ast)
+    def walk_CONTINUE(self, _):
+        if self.loop_depth <= 0:
+            raise AgoSemanticException(
+                "'pergo' (continue) cannot be used outside a loop."
+            )
 
-    def pa(self, ast):
-        return self.walk(ast)
+    # --- Expressions & Types (MUST return a type string) ---
 
-    def pb(self, ast):
-        return self.walk(ast)
+    def walk_identifier(self, node):
+        sym = self.sym_table.get_symbol(str(node))
+        if not sym:
+            raise AgoSemanticException(f"Undefined variable used: {node}")
+        return sym.type_t
 
-    def pc(self, ast):
-        return self.walk(ast)
+    def walk_INTLIT(self, _):
+        return "int"
 
-    def pd(self, ast):
-        return self.walk(ast)
+    def walk_FLOATLIT(self, _):
+        return "float"
 
-    def pe(self, ast):
-        return self.walk(ast)
+    def walk_STR_LIT(self, _):
+        return "string"
 
-    def pf(self, ast):
-        return self.walk(ast)
+    def walk_TRUE(self, _):
+        return "bool"
 
-    def pg(self, ast):
-        return self.walk(ast)
+    def walk_FALSE(self, _):
+        return "bool"
 
-    def ph(self, ast):
-        return self.walk(ast)
+    def walk_list(self, node):
+        if not node.items:
+            return "list_list"
+        elem_types = {self.walk(it) for it in node.items}
+        return f"{elem_types.pop()}_list" if len(elem_types) == 1 else "list_list"
 
-    def list(self, ast):
-        # List literal – walk items for their semantics.
-        for it in ast:
-            self.walk(it)
-        return ast
+    def walk_nodotcall_stmt(self, node):
+        func_name = node.func
+        func_sym = self.sym_table.get_symbol(func_name)
+        if not func_sym or func_sym.category != "func":
+            raise AgoSemanticException(f"'{func_name}' is not a function.")
 
-    def mapstruct(self, ast):
-        self.walk(ast.mapcontent)
-        return ast
+        arg_types = []
+        if node.args:
+            arg_nodes = [node.args.first] + [
+                item.expr for item in (node.args.rest or [])
+            ]
+            arg_types = [self.walk(arg_node) for arg_node in arg_nodes]
 
-    def mapcontent(self, ast):
-        """
-        | (STR_LIT | identifier) COLON item COMMA mapcontent
-        | (STR_LIT | identifier) COLON item
-        """
-        # KEY: ast[0], VALUE: ast[1] in TatSu's default AST, or named attributes if you define them.
-        # For now, just walk value and recurse if present.
-        # Exact field names depend on how TatSu built the AST; adjust as needed.
-        # This is just a framework placeholder.
-        for v in ast.values() if isinstance(ast, dict) else []:
-            self.walk(v)
-        return ast
+        if len(arg_types) != func_sym.num_of_params:
+            raise AgoSemanticException(
+                f"Function '{func_name}' expects {func_sym.num_of_params} arguments, but got {len(arg_types)}."
+            )
 
-    def item(self, ast):
-        # Default: walk everything inside. Fill in special cases as needed.
-        return self.walk(ast)
+        for arg_t, param_t in zip(arg_types, func_sym.param_types or []):
+            type_to_type_check(arg_t, param_t)
+
+        return func_sym.return_type
+
+    def _walk_binop(self, node, valid_ops, next_level, type_rule):
+        if not hasattr(node, "op"):
+            return self.walk(getattr(node, next_level))
+
+        left_type = self.walk(node.left)
+        right_type = self.walk(node.right)
+        return type_rule(left_type, right_type, node.op)
+
+    def walk_pa(self, node):  # et, vel
+        return self._walk_binop(
+            node,
+            ["et", "vel"],
+            "pb",
+            lambda left, right, op: "bool"
+            if left == "bool" and right == "bool"
+            else AgoSemanticException(
+                f"Boolean op '{op}' requires bools, got '{left}' and '{right}'."
+            ),
+        )
+
+    def walk_pb(self, node):  # Comparisons
+        return self._walk_binop(
+            node,
+            ["==", "!=", "<", ">", "<=", ">="],
+            "pc",
+            lambda left, right, op: "bool"
+            if (left in ["int", "float"] and right in ["int", "float"]) or left == right
+            else AgoSemanticException(f"Cannot compare '{left}' and '{right}'."),
+        )
+
+    def walk_pc(self, node):  # +, -
+        def rule(left, right, op):
+            if op == "+" and ("string" in left or "string" in right):
+                return "string"
+            if left in ["int", "float"] and right in ["int", "float"]:
+                return "float" if "float" in left or "float" in right else "int"
+            raise AgoSemanticException(f"Cannot use '{op}' on '{left}' and '{right}'.")
+
+        return self._walk_binop(node, ["+", "-"], "pd", rule)
+
+    def walk_pd(self, node):  # *, /, %
+        def rule(left, right, op):
+            if left in ["int", "float"] and right in ["int", "float"]:
+                return "float" if "float" in left or "float" in right else "int"
+            raise AgoSemanticException(f"Cannot use '{op}' on '{left}' and '{right}'.")
+
+        return self._walk_binop(node, ["*", "/", "%"], "pe", rule)
+
+    def walk_pe(self, node):  # Unary
+        if node.op:
+            right_type = self.walk(node.right)
+            if node.op == "non" and right_type == "bool":
+                return "bool"
+            if node.op in ["+", "-"] and right_type in ["int", "float"]:
+                return right_type
+            raise AgoSemanticException(
+                f"Cannot apply unary '{node.op}' to '{right_type}'."
+            )
+        return self.walk(node.pf)
+
+    def walk_pf(self, node):  # item, call, index
+        # This level is more complex, might not be a simple binop
+        # Assuming grammar is `item (call_op | index_op)*`
+        # For now, just walk the item
+        return self.walk(node.item)
+
+    def walk_item(self, node):
+        if hasattr(node, "id"):
+            return self.walk_identifier(node.id)
+        if hasattr(node, "int"):
+            return "int"
+        if hasattr(node, "float"):
+            return "float"
+        if hasattr(node, "str"):
+            return "string"
+        if hasattr(node, "paren"):
+            return self.walk(node.paren.expr)
+        if hasattr(node, "list"):
+            return self.walk_list(node.list)
+        if hasattr(node, "call"):
+            return self.walk_nodotcall_stmt(node.call)
+
+        # Fallback for simple literals wrapped in item
+        if hasattr(node, "TRUE"):
+            return "bool"
+        if hasattr(node, "FALSE"):
+            return "bool"
+
+        # Default walk if structure is unknown
+        if node.children:
+            return self.walk(node.children[0])
+        return "Any"
