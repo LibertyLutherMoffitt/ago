@@ -381,3 +381,199 @@ impl AgoType {
         }
     }
 }
+
+/// Gets a value from an indexable AgoType.
+/// For Lists, `n` must be an Int.
+/// For Structs, `n` must be a String.
+/// For Strings, `n` must be an Int.
+pub fn get(iter: &AgoType, n: &AgoType) -> Result<AgoType, String> {
+    match (iter, n) {
+        // --- List Access ---
+        (AgoType::IntList(list), AgoType::Int(index)) => {
+            let idx = *index as usize;
+            list.get(idx)
+                .map(|val| AgoType::Int(*val))
+                .ok_or_else(|| format!("Index out of bounds: {}", idx))
+        }
+        (AgoType::FloatList(list), AgoType::Int(index)) => {
+            let idx = *index as usize;
+            list.get(idx)
+                .map(|val| AgoType::Float(*val))
+                .ok_or_else(|| format!("Index out of bounds: {}", idx))
+        }
+        (AgoType::BoolList(list), AgoType::Int(index)) => {
+            let idx = *index as usize;
+            list.get(idx)
+                .map(|val| AgoType::Bool(*val))
+                .ok_or_else(|| format!("Index out of bounds: {}", idx))
+        }
+        (AgoType::StringList(list), AgoType::Int(index)) => {
+            let idx = *index as usize;
+            list.get(idx)
+                .map(|val| AgoType::String(val.clone()))
+                .ok_or_else(|| format!("Index out of bounds: {}", idx))
+        }
+        (AgoType::ListAny(list), AgoType::Int(index)) => {
+            let idx = *index as usize;
+            list.get(idx)
+                .map(|val| val.clone())
+                .ok_or_else(|| format!("Index out of bounds: {}", idx))
+        }
+
+        // --- String Access (get character at byte index) ---
+        (AgoType::String(s), AgoType::Int(index)) => {
+            let idx = *index as usize;
+            s.chars()
+                .nth(idx)
+                .map(|c| AgoType::String(c.to_string()))
+                .ok_or_else(|| format!("Index out of bounds: {}", idx))
+        }
+
+        // --- Struct Access ---
+        (AgoType::Struct(map), AgoType::String(key)) => map
+            .get(key)
+            .map(|val| val.clone())
+            .ok_or_else(|| format!("Key not found: {}", key)),
+
+        // --- Error Cases ---
+        (AgoType::Struct(_), other) => {
+            Err(format!("Struct key must be a String, but got {:?}", other))
+        }
+        (
+            AgoType::IntList(_)
+            | AgoType::FloatList(_)
+            | AgoType::BoolList(_)
+            | AgoType::StringList(_)
+            | AgoType::ListAny(_)
+            | AgoType::String(_),
+            other,
+        ) => Err(format!("Index must be an Int, but got {:?}", other)),
+        (other, _) => Err(format!("Cannot call 'get' on type {:?}", other)),
+    }
+}
+
+/// Sets a value in a mutable, indexable AgoType.
+/// For Lists, `n` must be an Int, and `value` must match the list's type.
+/// For Structs, `n` must be a String.
+pub fn set(iter: &mut AgoType, n: &AgoType, value: AgoType) -> Result<(), String> {
+    match (iter, n) {
+        // --- List Mutation ---
+        (AgoType::IntList(list), AgoType::Int(index)) => {
+            let idx = *index as usize;
+            if let Some(elem) = list.get_mut(idx) {
+                if let AgoType::Int(new_val) = value {
+                    *elem = new_val;
+                    Ok(())
+                } else {
+                    Err(format!(
+                        "Cannot set value of type {:?} in an IntList",
+                        value
+                    ))
+                }
+            } else {
+                Err(format!("Index out of bounds: {}", idx))
+            }
+        }
+        (AgoType::FloatList(list), AgoType::Int(index)) => {
+            let idx = *index as usize;
+            if let Some(elem) = list.get_mut(idx) {
+                if let AgoType::Float(new_val) = value {
+                    *elem = new_val;
+                    Ok(())
+                } else {
+                    Err(format!(
+                        "Cannot set value of type {:?} in a FloatList",
+                        value
+                    ))
+                }
+            } else {
+                Err(format!("Index out of bounds: {}", idx))
+            }
+        }
+        (AgoType::BoolList(list), AgoType::Int(index)) => {
+            let idx = *index as usize;
+            if let Some(elem) = list.get_mut(idx) {
+                if let AgoType::Bool(new_val) = value {
+                    *elem = new_val;
+                    Ok(())
+                } else {
+                    Err(format!(
+                        "Cannot set value of type {:?} in a BoolList",
+                        value
+                    ))
+                }
+            } else {
+                Err(format!("Index out of bounds: {}", idx))
+            }
+        }
+        (AgoType::StringList(list), AgoType::Int(index)) => {
+            let idx = *index as usize;
+            if let Some(elem) = list.get_mut(idx) {
+                if let AgoType::String(new_val) = value {
+                    *elem = new_val;
+                    Ok(())
+                } else {
+                    Err(format!(
+                        "Cannot set value of type {:?} in a StringList",
+                        value
+                    ))
+                }
+            } else {
+                Err(format!("Index out of bounds: {}", idx))
+            }
+        }
+        (AgoType::ListAny(list), AgoType::Int(index)) => {
+            let idx = *index as usize;
+            if let Some(elem) = list.get_mut(idx) {
+                *elem = value; // ListAny can hold any AgoType
+                Ok(())
+            } else {
+                Err(format!("Index out of bounds: {}", idx))
+            }
+        }
+
+        // --- Struct Mutation ---
+        (AgoType::Struct(map), AgoType::String(key)) => {
+            map.insert(key.clone(), value);
+            Ok(())
+        }
+
+        (AgoType::String(s), AgoType::Int(index)) => {
+            let idx = *index as usize;
+            if let AgoType::String(char_to_set) = value {
+                if char_to_set.chars().count() != 1 {
+                    return Err(format!(
+                        "Cannot set string with value '{}' that is not a single character",
+                        char_to_set
+                    ));
+                }
+                let mut chars: Vec<char> = s.chars().collect();
+                if idx < chars.len() {
+                    chars[idx] = char_to_set.chars().next().unwrap(); // Safe because we checked count() == 1
+                    *s = chars.into_iter().collect();
+                    Ok(())
+                } else {
+                    Err(format!("Index out of bounds: {}", idx))
+                }
+            } else {
+                Err(format!(
+                    "Cannot set string character with value of type {:?}",
+                    value
+                ))
+            }
+        }
+        // --- Error Cases ---
+        (AgoType::Struct(_), other) => {
+            Err(format!("Struct key must be a String, but got {:?}", other))
+        }
+        (
+            AgoType::IntList(_)
+            | AgoType::FloatList(_)
+            | AgoType::BoolList(_)
+            | AgoType::StringList(_)
+            | AgoType::ListAny(_),
+            other,
+        ) => Err(format!("Index must be an Int, but got {:?}", other)),
+        (other, _) => Err(format!("Cannot call 'set' on type {:?}", other)),
+    }
+}
