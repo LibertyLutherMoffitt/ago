@@ -633,4 +633,149 @@ pub fn aperto(val: AgoType) -> FileStruct {
     }
 }
 
+/// Inserts a value into an indexable AgoType. Panics on error.
+pub fn insero(coll: &mut AgoType, key: &AgoType, value: AgoType) {
+    match (coll, key) {
+        // --- List Insertion ---
+        (AgoType::IntList(list), AgoType::Int(index)) => {
+            let idx = *index as usize;
+            if let AgoType::Int(new_val) = value {
+                list.insert(idx, new_val);
+            } else {
+                panic!("Cannot insert value of type {:?} into an IntList", value);
+            }
+        }
+        (AgoType::FloatList(list), AgoType::Int(index)) => {
+            let idx = *index as usize;
+            if let AgoType::Float(new_val) = value {
+                list.insert(idx, new_val);
+            } else {
+                panic!("Cannot insert value of type {:?} into a FloatList", value);
+            }
+        }
+        (AgoType::BoolList(list), AgoType::Int(index)) => {
+            let idx = *index as usize;
+            if let AgoType::Bool(new_val) = value {
+                list.insert(idx, new_val);
+            } else {
+                panic!("Cannot insert value of type {:?} into a BoolList", value);
+            }
+        }
+        (AgoType::StringList(list), AgoType::Int(index)) => {
+            let idx = *index as usize;
+            if let AgoType::String(new_val) = value {
+                list.insert(idx, new_val);
+            } else {
+                panic!("Cannot insert value of type {:?} into a StringList", value);
+            }
+        }
+        (AgoType::ListAny(list), AgoType::Int(index)) => {
+            let idx = *index as usize;
+            list.insert(idx, value);
+        }
+
+        // --- Struct Insertion (same as set) ---
+        (AgoType::Struct(map), AgoType::String(key)) => {
+            map.insert(key.clone(), value);
+        }
+
+        // --- Error Cases ---
+        (AgoType::Struct(_), other) => panic!("Struct key must be a String, but got {:?}", other),
+        (
+            AgoType::IntList(_)
+            | AgoType::FloatList(_)
+            | AgoType::BoolList(_)
+            | AgoType::StringList(_)
+            | AgoType::ListAny(_),
+            other,
+        ) => {
+            panic!("Index must be an Int, but got {:?}", other)
+        }
+        (other, _) => panic!("Cannot call 'insero' on type {:?}", other),
+    }
+}
+
+/// Removes a value from an indexable AgoType and returns it. Panics on error.
+pub fn removeo(coll: &mut AgoType, key: &AgoType) -> AgoType {
+    match (coll, key) {
+        // --- List Removal ---
+        (AgoType::IntList(list), AgoType::Int(index)) => {
+            let idx = *index as usize;
+            AgoType::Int(list.remove(idx))
+        }
+        (AgoType::FloatList(list), AgoType::Int(index)) => {
+            let idx = *index as usize;
+            AgoType::Float(list.remove(idx))
+        }
+        (AgoType::BoolList(list), AgoType::Int(index)) => {
+            let idx = *index as usize;
+            AgoType::Bool(list.remove(idx))
+        }
+        (AgoType::StringList(list), AgoType::Int(index)) => {
+            let idx = *index as usize;
+            AgoType::String(list.remove(idx))
+        }
+        (AgoType::ListAny(list), AgoType::Int(index)) => {
+            let idx = *index as usize;
+            list.remove(idx)
+        }
+
+        // --- Struct Removal ---
+        (AgoType::Struct(map), AgoType::String(key)) => map
+            .remove(key)
+            .expect(&format!("Key not found: {}", key)),
+
+        // --- Error Cases ---
+        (AgoType::Struct(_), other) => panic!("Struct key must be a String, but got {:?}", other),
+        (
+            AgoType::IntList(_)
+            | AgoType::FloatList(_)
+            | AgoType::BoolList(_)
+            | AgoType::StringList(_)
+            | AgoType::ListAny(_),
+            other,
+        ) => {
+            panic!("Index must be an Int, but got {:?}", other)
+        }
+        (other, _) => panic!("Cannot call 'removeo' on type {:?}", other),
+    }
+}
+
+/// Returns the string name of an AgoType.
+pub fn species(val: &AgoType) -> AgoType {
+    let type_name = match val {
+        AgoType::Int(_) => "Int",
+        AgoType::Float(_) => "Float",
+        AgoType::Bool(_) => "Bool",
+        AgoType::String(_) => "String",
+        AgoType::IntList(_) => "IntList",
+        AgoType::FloatList(_) => "FloatList",
+        AgoType::BoolList(_) => "BoolList",
+        AgoType::StringList(_) => "StringList",
+        AgoType::Struct(_) => "Struct",
+        AgoType::ListAny(_) => "ListAny",
+        AgoType::Null => "Null",
+    };
+    AgoType::String(type_name.to_string())
+}
+
+/// Exits the program with the given exit code.
+pub fn exeo(code: &AgoType) {
+    if let AgoType::Int(exit_code) = code {
+        std::process::exit(*exit_code as i32);
+    } else {
+        panic!("exeo function expects an Int exit code, but got {:?}", code);
+    }
+}
+
+pub fn claverum(val: AgoType) -> AgoType {
+    match val {
+        AgoType::Struct(map) => {
+            let keys = map.keys().cloned().collect();
+            AgoType::StringList(keys)
+        }
+        _ => panic!("claverum function expects a Struct type"),
+    }
+}
+
 pub fn main() {}
