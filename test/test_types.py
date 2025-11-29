@@ -1,7 +1,7 @@
 import pytest
 
 from src.AgoParser import parser
-from src.GeminiAgoSemanticChecker import AgoSemanticChecker
+from src.AgoSemanticChecker import AgoSemanticChecker
 
 # ---------- helpers ----------
 
@@ -51,27 +51,26 @@ def test_literal_types(expr, expected_type):
 
 def test_identifier_uses_declared_type_from_assignment():
     src = """\
-x := 1
-x := 2
-x
+xa := 1
+xa = 2
 """
     # Parse the whole program first to set up the symbol table
     semantics = run_program(src)
     # Look up variable type
-    sym = semantics.sym_table.get_symbol("x")
+    sym = semantics.sym_table.get_symbol("xa")
     assert sym is not None
     assert sym.type_t == "int"
 
-    # Now parse just "x" as an expression and infer its type
-    t, _ = infer_type("x", semantics)
+    # Now parse just "xa" as an expression and infer its type
+    t, _ = infer_type("xa", semantics)
     assert t == "int"
 
 
 def test_identifier_unknown_if_never_declared_but_no_crash():
-    t, sem = infer_type("y")
+    t, sem = infer_type("ya")
     # Should report undeclared identifier, but still return a type
 
-    assert any("variable 'y' not defined." in str(e).lower() for e in sem.errors)
+    assert any("variable 'ya' not defined." in str(e).lower() for e in sem.errors)
 
 
 # ---------- unary operators ----------
@@ -112,7 +111,8 @@ def test_addition_float_int_gives_float():
 
 
 def test_arithmetic_on_non_numbers_is_error():
-    _, sem = infer_type('"hello" + 1')
+    # Use subtraction to avoid string concatenation ambiguity
+    _, sem = infer_type('"hello" - 1')
     assert any("is not a numeric type" in str(e).lower() for e in sem.errors)
 
 

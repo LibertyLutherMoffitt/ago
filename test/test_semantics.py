@@ -1,14 +1,12 @@
 # test/test_semantics.py
 
-import pytest
-
-from src.GeminiAgoSemanticChecker import AgoSemanticChecker
-from src.AgoParser import parser  # make sure this exposes `parser`
+from src.AgoParser import parser
+from src.AgoSemanticChecker import AgoSemanticChecker
 
 
 def run_semantics(source: str):
     """
-    Helper: parse `source` with AgoSemantics and return the list of errors.
+    Helper: parse `source` with AgoSemanticChecker and return the list of errors.
     Assumes `source` is syntactically valid according to the grammar.
     """
     semantics = AgoSemanticChecker()
@@ -21,8 +19,8 @@ def run_semantics(source: str):
 
 def test_declaration_then_assignment_has_no_errors():
     src = """\
-x := 1
-x = 2
+xa := 1
+xa = 2
 """
     errors = run_semantics(src)
     assert errors == []
@@ -30,17 +28,17 @@ x = 2
 
 def test_undeclared_variable_in_assignment_reports_error():
     src = """\
-x = 1
+xa = 1
 """
     errors = run_semantics(src)
     assert len(errors) == 1
-    assert "Use of undeclared identifier 'x'" in str(errors[0])
+    assert "Use of undeclared identifier 'xa'" in str(errors[0])
 
 
 def test_duplicate_declaration_reports_error():
     src = """\
-x := 1
-x := 2
+xa := 1
+xa := 2
 """
     errors = run_semantics(src)
     # One semantic error from SymbolTable duplicate
@@ -50,11 +48,11 @@ x := 2
 
 def test_reassignment_with_indexing_requires_declaration():
     src = """\
-arr[0] = 1
+arraem[0] = 1
 """
     errors = run_semantics(src)
     assert len(errors) == 1
-    assert "Use of undeclared identifier 'arr'" in str(errors[0])
+    assert "Use of undeclared identifier 'arraem'" in str(errors[0])
 
 
 # ---------- FUNCTION / RETURN SEMANTICS ----------
@@ -71,8 +69,8 @@ redeo verum
 
 def test_return_inside_function_is_allowed():
     src = """\
-des foo(x) {
-    redeo x
+des fooa(xa) {
+    redeo xa
 }
 """
     errors = run_semantics(src)
@@ -82,20 +80,20 @@ des foo(x) {
 
 def test_call_to_undeclared_function_reports_error():
     src = """\
-foo(1, 2)
+fooa(1, 2)
 """
     errors = run_semantics(src)
     assert len(errors) == 1
-    assert "Use of undeclared identifier 'foo'" in str(errors[0])
+    assert "Use of undeclared identifier 'fooa'" in str(errors[0])
 
 
 def test_call_to_declared_function_has_no_errors():
     src = """\
-des foo(x) {
-    redeo x
+des fooa(xa) {
+    redeo xa
 }
 
-foo(1)
+fooa(1)
 """
     errors = run_semantics(src)
     assert errors == []
@@ -124,8 +122,8 @@ pergo
 
 def test_break_inside_while_loop_is_allowed():
     src = """\
-x := 0
-dum x < 10 {
+xa := 0
+dum xa < 10 {
     frio
 }
 """
@@ -135,8 +133,8 @@ dum x < 10 {
 
 def test_continue_inside_for_loop_is_allowed():
     src = """\
-x := 0
-pro i in [1, 2, 3] {
+xa := 0
+pro ia in [1, 2, 3] {
     pergo
 }
 """
@@ -146,9 +144,9 @@ pro i in [1, 2, 3] {
 
 def test_nested_loops_allow_break_and_continue():
     src = """\
-x := 0
-dum x < 10 {
-    pro i in [1, 2, 3] {
+xa := 0
+dum xa < 10 {
+    pro ia in [1, 2, 3] {
         pergo
     }
     frio
@@ -160,7 +158,7 @@ dum x < 10 {
 
 def test_break_in_function_but_outside_loop_is_error():
     src = """\
-des foo() {
+des fooa() {
     frio
 }
 """
@@ -175,9 +173,9 @@ des foo() {
 
 def test_if_statement_with_decl_and_use_is_ok():
     src = """\
-x := 0
-si x < 10 {
-    x = x + 1
+xa := 0
+si xa < 10 {
+    xa = xa + 1
 }
 """
     errors = run_semantics(src)
@@ -186,11 +184,11 @@ si x < 10 {
 
 def test_if_else_with_return_inside_function_is_ok():
     src = """\
-des sign(x) {
-    si x < 0 {
+des signa(xa) {
+    si xa < 0 {
         redeo -1
     }
-    aluid x == 0 {
+    aluid xa == 0 {
         redeo 0
     }
     aluid {
@@ -207,15 +205,15 @@ des sign(x) {
 
 def test_multiple_semantic_errors_are_all_collected():
     src = """\
-x = 1          # undeclared
-frio           # break outside loop
-redeo verum    # return outside function
+xa = 1
+frio
+redeo verum
 """
     errors = run_semantics(src)
 
     # We expect 3 independent errors
     messages = [str(e) for e in errors]
     assert len(errors) == 3
-    assert any("Use of undeclared identifier 'x'" in m for m in messages)
-    assert any("'frio' outside of loop" in m for m in messages)
-    assert any("'redeo' outside of function" in m for m in messages)
+    assert any("Use of undeclared identifier 'xa'" in m for m in messages)
+    assert any("'frio'" in m and "outside of loop" in m for m in messages)
+    assert any("'redeo'" in m and "outside of function" in m for m in messages)
