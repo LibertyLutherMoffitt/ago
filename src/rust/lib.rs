@@ -49,7 +49,7 @@ impl AgoType {
     // This function will perform the actual conversion.
     // It returns a Result, which allows us to handle invalid casts
     // (like converting a struct to an integer) gracefully.
-    pub fn as_type(&self, target: TargetType) -> Result<AgoType, String> {
+    pub fn as_type_not_unwrapped(&self, target: TargetType) -> Result<AgoType, String> {
         match (self, target) {
             // --- Identity Conversions ---
             (AgoType::Int(val), TargetType::Int) => Ok(AgoType::Int(*val)),
@@ -123,7 +123,7 @@ impl AgoType {
                     .iter()
                     .map(|&item| {
                         AgoType::Int(item)
-                            .as_type(TargetType::String)
+                            .as_type_not_unwrapped(TargetType::String)
                             .map(|v| match v {
                                 AgoType::String(s) => s,
                                 _ => unreachable!(),
@@ -137,7 +137,7 @@ impl AgoType {
                     .iter()
                     .map(|&item| {
                         AgoType::Float(item)
-                            .as_type(TargetType::String)
+                            .as_type_not_unwrapped(TargetType::String)
                             .map(|v| match v {
                                 AgoType::String(s) => s,
                                 _ => unreachable!(),
@@ -151,7 +151,7 @@ impl AgoType {
                     .iter()
                     .map(|&item| {
                         AgoType::Bool(item)
-                            .as_type(TargetType::String)
+                            .as_type_not_unwrapped(TargetType::String)
                             .map(|v| match v {
                                 AgoType::String(s) => s,
                                 _ => unreachable!(),
@@ -167,10 +167,11 @@ impl AgoType {
                 let string_items: Result<Vec<String>, String> = val
                     .iter()
                     .map(|item| {
-                        item.as_type(TargetType::String).map(|v| match v {
-                            AgoType::String(s) => s,
-                            _ => unreachable!(),
-                        })
+                        item.as_type_not_unwrapped(TargetType::String)
+                            .map(|v| match v {
+                                AgoType::String(s) => s,
+                                _ => unreachable!(),
+                            })
                     })
                     .collect();
                 string_items.map(|items| AgoType::String(items.join("\n\n")))
@@ -188,7 +189,7 @@ impl AgoType {
             (AgoType::Struct(val), TargetType::String) => {
                 let mut parts = Vec::new();
                 for (key, value) in val.iter() {
-                    match value.as_type(TargetType::String) {
+                    match value.as_type_not_unwrapped(TargetType::String) {
                         Ok(AgoType::String(s)) => {
                             parts.push(format!("{}: {}", key, s));
                         }
@@ -206,7 +207,7 @@ impl AgoType {
                     .iter()
                     .map(|&item| {
                         AgoType::Int(item)
-                            .as_type(TargetType::Float)
+                            .as_type_not_unwrapped(TargetType::Float)
                             .map(|v| match v {
                                 AgoType::Float(f) => f,
                                 _ => unreachable!(),
@@ -220,7 +221,7 @@ impl AgoType {
                     .iter()
                     .map(|&item| {
                         AgoType::Int(item)
-                            .as_type(TargetType::Bool)
+                            .as_type_not_unwrapped(TargetType::Bool)
                             .map(|v| match v {
                                 AgoType::Bool(b) => b,
                                 _ => unreachable!(),
@@ -234,7 +235,7 @@ impl AgoType {
                     .iter()
                     .map(|&item| {
                         AgoType::Int(item)
-                            .as_type(TargetType::String)
+                            .as_type_not_unwrapped(TargetType::String)
                             .map(|v| match v {
                                 AgoType::String(s) => s,
                                 _ => unreachable!(),
@@ -250,7 +251,7 @@ impl AgoType {
                     .iter()
                     .map(|&item| {
                         AgoType::Float(item)
-                            .as_type(TargetType::Int)
+                            .as_type_not_unwrapped(TargetType::Int)
                             .map(|v| match v {
                                 AgoType::Int(i) => i,
                                 _ => unreachable!(),
@@ -264,7 +265,7 @@ impl AgoType {
                     .iter()
                     .map(|&item| {
                         AgoType::Float(item)
-                            .as_type(TargetType::Bool)
+                            .as_type_not_unwrapped(TargetType::Bool)
                             .map(|v| match v {
                                 AgoType::Bool(b) => b,
                                 _ => unreachable!(),
@@ -278,7 +279,7 @@ impl AgoType {
                     .iter()
                     .map(|&item| {
                         AgoType::Float(item)
-                            .as_type(TargetType::String)
+                            .as_type_not_unwrapped(TargetType::String)
                             .map(|v| match v {
                                 AgoType::String(s) => s,
                                 _ => unreachable!(),
@@ -294,7 +295,7 @@ impl AgoType {
                     .iter()
                     .map(|&item| {
                         AgoType::Bool(item)
-                            .as_type(TargetType::Int)
+                            .as_type_not_unwrapped(TargetType::Int)
                             .map(|v| match v {
                                 AgoType::Int(i) => i,
                                 _ => unreachable!(),
@@ -308,7 +309,7 @@ impl AgoType {
                     .iter()
                     .map(|&item| {
                         AgoType::Bool(item)
-                            .as_type(TargetType::Float)
+                            .as_type_not_unwrapped(TargetType::Float)
                             .map(|v| match v {
                                 AgoType::Float(f) => f,
                                 _ => unreachable!(),
@@ -322,7 +323,7 @@ impl AgoType {
                     .iter()
                     .map(|&item| {
                         AgoType::Bool(item)
-                            .as_type(TargetType::String)
+                            .as_type_not_unwrapped(TargetType::String)
                             .map(|v| match v {
                                 AgoType::String(s) => s,
                                 _ => unreachable!(),
@@ -338,7 +339,7 @@ impl AgoType {
                     .iter()
                     .map(|item| {
                         AgoType::String(item.clone())
-                            .as_type(TargetType::Int)
+                            .as_type_not_unwrapped(TargetType::Int)
                             .map(|v| match v {
                                 AgoType::Int(i) => i,
                                 _ => unreachable!(),
@@ -352,7 +353,7 @@ impl AgoType {
                     .iter()
                     .map(|item| {
                         AgoType::String(item.clone())
-                            .as_type(TargetType::Float)
+                            .as_type_not_unwrapped(TargetType::Float)
                             .map(|v| match v {
                                 AgoType::Float(f) => f,
                                 _ => unreachable!(),
@@ -366,7 +367,7 @@ impl AgoType {
                     .iter()
                     .map(|item| {
                         AgoType::String(item.clone())
-                            .as_type(TargetType::Bool)
+                            .as_type_not_unwrapped(TargetType::Bool)
                             .map(|v| match v {
                                 AgoType::Bool(b) => b,
                                 _ => unreachable!(),
@@ -380,13 +381,18 @@ impl AgoType {
             _ => Err(format!("Unsupported cast from {:?} to {:?}", self, target)),
         }
     }
+
+    /// Calls as_type() and unwraps the result, panicking on error.
+    pub fn as_type(&self, target: TargetType) -> Self {
+        self.as_type_not_unwrapped(target).unwrap()
+    }
 }
 
 /// Gets a value from an indexable AgoType.
 /// For Lists, `n` must be an Int.
 /// For Structs, `n` must be a String.
 /// For Strings, `n` must be an Int.
-pub fn get(iter: &AgoType, n: &AgoType) -> Result<AgoType, String> {
+pub fn get_not_unwrapped(iter: &AgoType, n: &AgoType) -> Result<AgoType, String> {
     match (iter, n) {
         // --- List Access ---
         (AgoType::IntList(list), AgoType::Int(index)) => {
@@ -452,10 +458,15 @@ pub fn get(iter: &AgoType, n: &AgoType) -> Result<AgoType, String> {
     }
 }
 
+/// Calls get() and unwraps the result, panicking on error.
+pub fn get(iter: &AgoType, n: &AgoType) -> AgoType {
+    get_not_unwrapped(iter, n).unwrap()
+}
+
 /// Sets a value in a mutable, indexable AgoType.
 /// For Lists, `n` must be an Int, and `value` must match the list's type.
 /// For Structs, `n` must be a String.
-pub fn set(iter: &mut AgoType, n: &AgoType, value: AgoType) -> Result<(), String> {
+pub fn set_not_unwrapped(iter: &mut AgoType, n: &AgoType, value: AgoType) -> Result<(), String> {
     match (iter, n) {
         // --- List Mutation ---
         (AgoType::IntList(list), AgoType::Int(index)) => {
@@ -566,14 +577,11 @@ pub fn set(iter: &mut AgoType, n: &AgoType, value: AgoType) -> Result<(), String
         (AgoType::Struct(_), other) => {
             Err(format!("Struct key must be a String, but got {:?}", other))
         }
-        (
-            AgoType::IntList(_)
-            | AgoType::FloatList(_)
-            | AgoType::BoolList(_)
-            | AgoType::StringList(_)
-            | AgoType::ListAny(_),
-            other,
-        ) => Err(format!("Index must be an Int, but got {:?}", other)),
-        (other, _) => Err(format!("Cannot call 'set' on type {:?}", other)),
+        (_, other) => Err(format!("Index must be an Int, but got {:?}", other)),
     }
+}
+
+/// Calls set_not_unwrapped() and unwraps the result, panicking on error.
+pub fn set(iter: &mut AgoType, n: &AgoType, value: AgoType) {
+    set_not_unwrapped(iter, n, value).unwrap()
 }
