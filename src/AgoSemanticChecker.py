@@ -56,13 +56,13 @@ def type_to_type_check(current: str, to: str) -> bool:
         "int": ["float", "bool", "string"],
         "float": ["int", "bool", "string"],
         "bool": ["int", "float", "string"],
-        "int_list": ["int", "string", "float_list", "bool_list", "string_list"],
-        "float_list": ["int", "string", "int_list", "bool_list", "string_list"],
-        "bool_list": ["int", "string", "int_list", "float_list", "string_list"],
-        "string_list": ["int", "string", "int_list", "float_list", "bool_list"],
+        "int_list": ["int", "string", "float_list", "bool_list", "string_list", "bool"],
+        "float_list": ["int", "string", "int_list", "bool_list", "string_list", "bool"],
+        "bool_list": ["int", "string", "int_list", "float_list", "string_list", "bool"],
+        "string_list": ["int", "string", "int_list", "float_list", "bool_list", "bool"],
         "string": ["int", "float", "bool", "string_list"],
-        "struct": ["string", "int"],
-        "list_list": ["int"],
+        "struct": ["string", "int", "bool"],
+        "list_list": ["int", "string", "bool"],
     }
 
     if current not in acceptables:

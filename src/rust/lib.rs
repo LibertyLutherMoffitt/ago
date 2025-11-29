@@ -101,9 +101,80 @@ impl AgoType {
                 Ok(num) => Ok(AgoType::Float(num)),
                 Err(_) => Err(format!("Cannot cast string '{}' to Float", val)),
             },
-            // String to Bool (empty string is false, "true" is true, "false" is false, others error?)
-            // For now, let's say "true" (case-insensitive) is true, "false" is false, others error.
+            // String to Bool ("" is false)
             (AgoType::String(val), TargetType::Bool) => Ok(AgoType::Bool(val.is_empty())),
+            // String to StringList (list of characters)
+            (AgoType::String(val), TargetType::StringList) => Ok(AgoType::StringList(
+                val.chars().map(|c| c.to_string()).collect(),
+            )),
+
+            // --- List to Primitive Conversions ---
+
+            // List to Int (size of list)
+            (AgoType::IntList(val), TargetType::Int) => Ok(AgoType::Int(val.len() as i128)),
+            (AgoType::FloatList(val), TargetType::Int) => Ok(AgoType::Int(val.len() as i128)),
+            (AgoType::BoolList(val), TargetType::Int) => Ok(AgoType::Int(val.len() as i128)),
+            (AgoType::StringList(val), TargetType::Int) => Ok(AgoType::Int(val.len() as i128)),
+            (AgoType::ListAny(val), TargetType::Int) => Ok(AgoType::Int(val.len() as i128)),
+
+            // List to String (join with newline)
+            (AgoType::IntList(val), TargetType::String) => {
+                let string_items: Result<Vec<String>, String> = val
+                    .iter()
+                    .map(|&item| {
+                        AgoType::Int(item)
+                            .as_type(TargetType::String)
+                            .map(|v| match v {
+                                AgoType::String(s) => s,
+                                _ => unreachable!(),
+                            })
+                    })
+                    .collect();
+                string_items.map(|items| AgoType::String(items.join("\n")))
+            }
+            (AgoType::FloatList(val), TargetType::String) => {
+                let string_items: Result<Vec<String>, String> = val
+                    .iter()
+                    .map(|&item| {
+                        AgoType::Float(item)
+                            .as_type(TargetType::String)
+                            .map(|v| match v {
+                                AgoType::String(s) => s,
+                                _ => unreachable!(),
+                            })
+                    })
+                    .collect();
+                string_items.map(|items| AgoType::String(items.join("\n")))
+            }
+            (AgoType::BoolList(val), TargetType::String) => {
+                let string_items: Result<Vec<String>, String> = val
+                    .iter()
+                    .map(|&item| {
+                        AgoType::Bool(item)
+                            .as_type(TargetType::String)
+                            .map(|v| match v {
+                                AgoType::String(s) => s,
+                                _ => unreachable!(),
+                            })
+                    })
+                    .collect();
+                string_items.map(|items| AgoType::String(items.join("\n")))
+            }
+            (AgoType::StringList(val), TargetType::String) => {
+                Ok(AgoType::String(val.join("\n"))) // Already strings, just join
+            }
+            (AgoType::ListAny(val), TargetType::String) => {
+                let string_items: Result<Vec<String>, String> = val
+                    .iter()
+                    .map(|item| {
+                        item.as_type(TargetType::String).map(|v| match v {
+                            AgoType::String(s) => s,
+                            _ => unreachable!(),
+                        })
+                    })
+                    .collect();
+                string_items.map(|items| AgoType::String(items.join("\n\n")))
+            }
 
             // --- List Conversions ---
             // IntList to other lists
