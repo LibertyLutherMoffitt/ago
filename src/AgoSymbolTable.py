@@ -39,5 +39,7 @@ class SymbolTable:
         return True
 
     def get_symbol(self, n: str) -> Symbol | None:
-        assert (sym := self.scopes.get(self.current_scope)) is not None
-        return sym.get(n)
+        return self.scopes.get(self.current_scope).get(n)
+    
+    def change_symbol_type(self, n: str, new_type: str, scope: int = None):
+        self.scopes.get(self.current_scope if scope is None else scope).get(n).type_t = new_type

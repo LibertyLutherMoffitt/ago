@@ -1,9 +1,12 @@
 from dataclasses import dataclass
 from typing import Any, List, Optional
 
-from tatsu.semantics import Semantics
+from collections.abc import Mapping
+from tatsu.ast import AST  # this is TatSu's dict-like AST node
 
-from symbol_table import Symbol, SymbolTable
+from src.AgoSymbolTable import Symbol, SymbolTable
+
+NUMERIC_TYPES = ['int', 'float']
 
 # ---------- Error types ----------
 
@@ -48,6 +51,7 @@ def ending_to_type(ending: str) -> str:
 
 
 def type_to_type_check(current: str, to: str) -> bool:
+    if current == to: return True
     acceptables = {
         "int": ["float", "bool", "string"],
         "float": ["int", "bool", "string"],
@@ -82,7 +86,7 @@ def type_to_type_check(current: str, to: str) -> bool:
 # ---------- Semantics class ----------
 
 
-class AgoSemantics(Semantics):
+class AgoSemantics:
     """
     TatSu semantics class that performs semantic checking while the parse runs.
 
@@ -102,6 +106,127 @@ class AgoSemantics(Semantics):
         # optional: track context
         self.current_function: Optional[str] = None
         self.loop_depth: int = 0  # to validate BREAK/CONTINUE
+
+
+    def walk(self, node):
+        """
+        Generic recursive walker over TatSu AST structures.
+
+        It *doesn't* call rule-specific semantic methods again (TatSu
+        already did that during parse). It's just for walking deeper into
+        child nodes when a semantic method wants to keep exploring.
+        """
+        if node is None:
+            return None
+
+        # Primitive leaf nodes: nothing to recurse into
+        if isinstance(node, (str, int, float, bool)):
+            return node
+
+        # Lists/tuples: walk each element
+        if isinstance(node, (list, tuple)):
+            for elem in node:
+                self.walk(elem)
+            return node
+
+        # TatSu AST or any dict-like: walk all values
+        if isinstance(node, (AST, Mapping)):
+            for value in node.values():
+                self.walk(value)
+            return node
+
+        # Fallback: unknown type, just return it
+        return node
+
+    def infer_expr_type(self, expr) -> str:
+
+        if type(expr) == str:
+            if expr == 'verum' or expr == 'falsus':
+                return 'bool'
+            return expr
+        
+        expr = dict(expr)
+
+        expr = expr.get("value") if expr.get("value") is not None else expr
+
+        if type(expr) == str:
+            if expr == 'verum' or expr == 'falsus':
+                return 'bool'
+            return expr
+
+        # 1) Base literals
+        if expr.get('int'):
+            return "int"
+        if expr.get('float'):
+            return "float"
+        if expr.get('str'):
+            return "string"
+        if expr.get('value') == 'verum':
+            return "bool"
+        if expr.get('value') == 'falsus':
+            return "bool"
+        if expr.get('roman'):
+            return "int"   # treat ROMAN_NUMERAL as int
+
+        # 2) Identifier
+        if expr.get('id'):
+            sym = self.require_symbol(expr.get('id'), expr)
+            return sym.type_t if sym and sym.type_t else "bad_sym"
+
+        # 3) Parenthesized: (expr)
+        if getattr(expr, 'paren', None):
+            return self.infer_expr_type(dict(expr.get('paren')[1]))
+
+        # 4) Lists
+        if getattr(expr, 'list', None):
+            items = expr.list  # depends on your actual AST
+            elem_types = { self.infer_expr_type(it) for it in items }
+            if len(elem_types) == 1:
+                return f"{elem_types[0]}_list"
+            return "list_list"  # heterogeneous for now
+
+        # 5) Maps
+        if expr.get('mapstruct', None) is not None:
+            # you’ll need to dig into mapcontent for key/value types
+            # for now, just Map[Unknown, Unknown]
+            return "table"
+
+        # binary ops
+        if expr.get('op') and expr.get('left'):
+            op = expr.get('op')
+            if op in ["et", "vel"]: return 'bool'
+            if op in ["+", "-", "*", "/", "%"]:
+                left = self.infer_expr_type(dict(expr.get("left")))
+                right = self.infer_expr_type(dict(expr.get("right")))
+                if left not in NUMERIC_TYPES:
+                    self.report_error(f"{left} is not a numeric type, but you're trying to use it in a numeric expression.", expr)
+                if right not in NUMERIC_TYPES:
+                    self.report_error(f"{right} is not a numeric type, but you're trying to use it in a numeric expression.", expr)
+
+                if left == 'float': return 'float'
+                return right
+            if op in [">", "<", "<=", ">=", "=="]:
+                return "bool"
+            
+        # Unary ops (pg)
+        if expr.get('op') and expr.get('right'):
+            op = expr.get('op')
+            right_t = self.infer_expr_type(expr.get('right'))
+            # e.g., '-' on floats/ints
+            if op in ('-', '+'):   # or store actual tokens
+                # simple numeric rule: int/float stays numeric
+                if right_t in NUMERIC_TYPES:
+                    return right_t
+                self.report_error("Unary +/- on non-number", expr)
+                return "bad_unary"
+            if op == 'non':
+                if right_t != "bool":
+                    self.report_error("Unary 'non' on non-bool", expr)
+                return "bool"
+
+
+        return expr
+
 
     # ---------- helper methods ----------
 
@@ -133,7 +258,7 @@ class AgoSemantics(Semantics):
     def declare_symbol(
         self,
         name: str,
-        type_t: str = "unknown",
+        type_t: str = "default_declare_symbol",
         category: str = "var",
         node: Any = None,
     ) -> None:
@@ -188,9 +313,8 @@ class AgoSemantics(Semantics):
 
         """
         name = ast.name
-
-        # TODO: infer type from ast.value later
-        self.declare_symbol(name=name, type_t="unknown", category="var", node=ast)
+        type = self.infer_expr_type(ast.value)
+        self.declare_symbol(name=name, type_t=type, category="var", node=ast)
         self.walk(ast.value)
         return ast
 
@@ -203,7 +327,14 @@ class AgoSemantics(Semantics):
         - eventually do type compatibility checks (TODO)
         """
         target_name = ast.target
-        self.require_symbol(target_name, node=ast)
+        current_symbol = self.require_symbol(target_name, node=ast)
+
+        if current_symbol is not None:
+            if not type_to_type_check(current_symbol.type_t, new_t:=self.infer_expr_type(ast.value)):
+                self.report_error(f"Type {current_symbol.type_t} cannot be converted to {new_t}", ast)
+
+            self.symtab.change_symbol_type(target_name, new_t)
+
         if ast.index is not None:
             self.walk(ast.index)
         self.walk(ast.value)
@@ -220,6 +351,9 @@ class AgoSemantics(Semantics):
         # condition
         self.walk(ast.cond)
 
+        if t:=self.infer_expr_type(ast.cond) != "bool":
+            self.report_error(f"Expression {str(ast.cond)} is not a bool, but a {str(t)}", ast.cond)
+
         # then branch (new block)
         self.walk(ast.then)
 
@@ -227,6 +361,9 @@ class AgoSemantics(Semantics):
         for elif_pair in ast.elifs or []:
             # each element is something like {'elif_cond': ..., 'elif_body': ...}
             self.walk(elif_pair.elif_cond)
+            if t:=self.infer_expr_type(elif_pair.elif_cond) != "bool":
+                self.report_error(f"Expression {str(elif_pair.elif_cond)} is not a bool, but a {str(t)}", elif_pair.elif_cond)
+
             self.walk(elif_pair.elif_body)
 
         # else branch
@@ -244,6 +381,9 @@ class AgoSemantics(Semantics):
         - enter a loop context for break/continue validation
         """
         self.walk(ast.cond)
+        if t:=self.infer_expr_type(ast.cond) != "bool":
+            self.report_error(f"Expression {str(ast.cond)} is not a bool, but a {str(t)}", ast.cond)
+
         self.loop_depth += 1
         try:
             self.walk(ast.body)
@@ -268,6 +408,9 @@ class AgoSemantics(Semantics):
             )
 
         self.walk(ast.iterable)
+
+        if "list" not in (t:=self.infer_expr_type(ast.iterable)):
+            self.report_error(f"{str(ast.iterable)} is not a list, but a {t}", ast.iterable)
 
         self.loop_depth += 1
         try:
@@ -438,6 +581,8 @@ class AgoSemantics(Semantics):
         """
         if self.current_function is None:
             self.report_error("'redeo' (return) outside of function", ast)
+        else:
+            self.report_error(str(self.current_function), ast)
         self.walk(ast.value)
         # TODO: record return type / check against function signature
         return ast

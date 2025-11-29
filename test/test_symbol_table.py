@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.symbol_table import Symbol, SymbolTable
+from src.AgoSymbolTable import Symbol, SymbolTable
 
 
 def test_symbol_defaults():
