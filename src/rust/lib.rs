@@ -721,9 +721,9 @@ pub fn removeo(coll: &mut AgoType, key: &AgoType) -> AgoType {
         }
 
         // --- Struct Removal ---
-        (AgoType::Struct(map), AgoType::String(key)) => map
-            .remove(key)
-            .expect(&format!("Key not found: {}", key)),
+        (AgoType::Struct(map), AgoType::String(key)) => {
+            map.remove(key).expect(&format!("Key not found: {}", key))
+        }
 
         // --- Error Cases ---
         (AgoType::Struct(_), other) => panic!("Struct key must be a String, but got {:?}", other),
@@ -928,7 +928,10 @@ pub fn contains(haystack: &AgoType, needle: &AgoType) -> AgoType {
             if let AgoType::String(n) = needle {
                 h.contains_key(n)
             } else {
-                panic!("Struct keys must be Strings, cannot search for {:?}", needle);
+                panic!(
+                    "Struct keys must be Strings, cannot search for {:?}",
+                    needle
+                );
             }
         }
         AgoType::IntList(h) => h.contains(match needle {
@@ -937,7 +940,10 @@ pub fn contains(haystack: &AgoType, needle: &AgoType) -> AgoType {
         }),
         AgoType::FloatList(h) => h.contains(match needle {
             AgoType::Float(n) => n,
-            _ => panic!("Can only search for a Float in a FloatList, not {:?}", needle),
+            _ => panic!(
+                "Can only search for a Float in a FloatList, not {:?}",
+                needle
+            ),
         }),
         AgoType::BoolList(h) => h.contains(match needle {
             AgoType::Bool(n) => n,
@@ -945,7 +951,10 @@ pub fn contains(haystack: &AgoType, needle: &AgoType) -> AgoType {
         }),
         AgoType::StringList(h) => h.contains(match needle {
             AgoType::String(n) => n,
-            _ => panic!("Can only search for a String in a StringList, not {:?}", needle),
+            _ => panic!(
+                "Can only search for a String in a StringList, not {:?}",
+                needle
+            ),
         }),
         AgoType::ListAny(h) => h.contains(needle), // relies on AgoType's PartialEq
         _ => panic!("The 'in' operator is not supported for {:?}", haystack),
