@@ -513,12 +513,15 @@ fn test_range_as_type_to_bool() {
     let single_point_inclusive = AgoType::Range(AgoRange { start: 5, end: 5, inclusive: true });
     assert_eq!(single_point_inclusive.as_type(TargetType::Bool), AgoType::Bool(true));
 
-    // Invalid ranges (start > end)
+    // Invalid ranges (start > end or start == end for exclusive)
     let inclusive_invalid = AgoType::Range(AgoRange { start: 5, end: 1, inclusive: true });
     assert_eq!(inclusive_invalid.as_type(TargetType::Bool), AgoType::Bool(false));
 
     let exclusive_invalid = AgoType::Range(AgoRange { start: 5, end: 1, inclusive: false });
     assert_eq!(exclusive_invalid.as_type(TargetType::Bool), AgoType::Bool(false));
+
+    let exclusive_empty = AgoType::Range(AgoRange { start: 5, end: 5, inclusive: false });
+    assert_eq!(exclusive_empty.as_type(TargetType::Bool), AgoType::Bool(false));
 }
 
 #[test]

@@ -88,7 +88,14 @@ impl AgoType {
             (AgoType::StringList(val), TargetType::Bool) => AgoType::Bool(!val.is_empty()),
             (AgoType::ListAny(val), TargetType::Bool) => AgoType::Bool(!val.is_empty()),
             (AgoType::Struct(val), TargetType::Bool) => AgoType::Bool(!val.is_empty()),
-            (AgoType::Range(val), TargetType::Bool) => AgoType::Bool(val.start <= val.end),
+            (AgoType::Range(val), TargetType::Bool) => {
+                let is_empty = if val.inclusive {
+                    val.start > val.end
+                } else {
+                    val.start >= val.end
+                };
+                AgoType::Bool(!is_empty)
+            }
 
             // --- Struct to String ---
             (AgoType::Struct(val), TargetType::String) => {
