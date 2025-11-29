@@ -953,6 +953,19 @@ pub fn contains(haystack: &AgoType, needle: &AgoType) -> AgoType {
     AgoType::Bool(result)
 }
 
+/// Implements the null-coalescing '?:' operator.
+/// Returns the left value if it is not Null. Otherwise, returns the right value.
+/// Panics if both values are Null.
+pub fn elvis(left: &AgoType, right: &AgoType) -> AgoType {
+    if !matches!(left, AgoType::Null) {
+        return left.clone();
+    }
+    if !matches!(right, AgoType::Null) {
+        return right.clone();
+    }
+    panic!("Cannot coalesce two null values with '?:' operator");
+}
+
 pub fn claverum(val: AgoType) -> AgoType {
     match val {
         AgoType::Struct(map) => {

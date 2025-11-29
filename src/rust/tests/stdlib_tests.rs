@@ -1,9 +1,9 @@
 //! Integration tests for the ago_stdlib crate.
 
 use ago_stdlib::{
-    add, aequalem, and, bitwise_and, bitwise_or, bitwise_xor, claverum, contains, divide, get,
-    greater_equal, greater_than, insero, less_equal, less_than, modulo, multiply, not, or, removeo,
-    set, species, subtract, unary_minus, unary_plus, AgoType, TargetType,
+    add, aequalem, and, bitwise_and, bitwise_or, bitwise_xor, claverum, contains, divide, elvis,
+    get, greater_equal, greater_than, insero, less_equal, less_than, modulo, multiply, not, or,
+    removeo, set, species, subtract, unary_minus, unary_plus, AgoType, TargetType,
 };
 use std::collections::HashMap;
 
@@ -433,6 +433,26 @@ fn test_contains() {
     assert_eq!(contains(&AgoType::IntList(vec![1, 2, 3]), &AgoType::Int(2)), AgoType::Bool(true));
     assert_eq!(contains(&AgoType::IntList(vec![1, 2, 3]), &AgoType::Int(4)), AgoType::Bool(false));
     assert_eq!(contains(&sample_any_list(), &AgoType::String("two".to_string())), AgoType::Bool(true));
+}
+
+#[test]
+fn test_elvis() {
+    let val = AgoType::Int(10);
+    let default = AgoType::Int(20);
+    let null = AgoType::Null;
+
+    // Returns left if not null
+    assert_eq!(elvis(&val, &default), val);
+    assert_eq!(elvis(&val, &null), val);
+
+    // Returns right if left is null
+    assert_eq!(elvis(&null, &default), default);
+}
+
+#[test]
+#[should_panic(expected = "Cannot coalesce two null values")]
+fn test_elvis_panic() {
+    elvis(&AgoType::Null, &AgoType::Null);
 }
 
 // Note: Testing `dico` is complex as it prints to stdout.

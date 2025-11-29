@@ -206,6 +206,25 @@ These functions operate only on `AgoType::Int` values and panic on any other typ
   - **Struct**: Checks if `needle` (String) is a key in `haystack` (Struct).
   - **List**: Checks if `needle` (Any) is an element in `haystack` (List).
 
+### Elvis Operator (`?:`)
+
+- **`elvis(left, right)`**: Implements the null-coalescing operator. It returns the left value if it is not `AgoType::Null`. If the left value is `Null`, it returns the right value.
+- **Errors**: Panics if both `left` and `right` values are `AgoType::Null`.
+- **Example**:
+  ```rust
+  let user_name = AgoType::String("Cato".to_string());
+  let default_name = AgoType::String("Anonymous".to_string());
+  let null_val = AgoType::Null;
+
+  // user_name is not null, so it is returned.
+  let result1 = elvis(&user_name, &default_name);
+  assert_eq!(result1, user_name);
+
+  // nickname is null, so the default is returned.
+  let result2 = elvis(&null_val, &default_name);
+  assert_eq!(result2, default_name);
+  ```
+
 ---
 
 ### claverum
