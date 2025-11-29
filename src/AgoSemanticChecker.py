@@ -116,6 +116,12 @@ def is_type_compatible(from_type: str, to_type: str) -> bool:
         return True
     if from_type == "string" and to_type in NUMERIC_TYPES:
         return True
+    if from_type == "range" and to_type == "bool":
+        return True
+    if from_type == "range" and to_type == "int_list":
+        return True
+    if from_type in LIST_TYPES and to_type == "range":
+        return True
     if from_type in LIST_TYPES and to_type in LIST_TYPES:
         from_elem = get_element_type(from_type)
         to_elem = get_element_type(to_type)
