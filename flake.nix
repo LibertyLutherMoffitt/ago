@@ -82,6 +82,7 @@
             pkgs.rustc
             pkgs.ruff
             pkgs.pyright
+            pkgs.rustfmt
           ];
         };
       };
