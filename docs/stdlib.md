@@ -159,6 +159,55 @@ Performs a strict equality comparison between two `AgoType` values. This functio
 
 ---
 
+## Operator Functions
+
+These functions are the Rust implementations for the operators available in the Ago language (e.g., `+`, `-`, `et`, `>`). The transpiler is responsible for generating calls to these functions when it encounters an operator in Ago source code.
+
+### Arithmetic Operators
+
+- **`add(left, right)`**: Performs numeric addition. If types are mixed (`Int`, `Float`), the result is promoted to `Float`. Also performs concatenation for two `String`s or two `List`s of the same type.
+- **`subtract(left, right)`**: Performs numeric subtraction. Promotes to `Float` for mixed types.
+- **`multiply(left, right)`**: Performs numeric multiplication. Promotes to `Float` for mixed types.
+- **`divide(left, right)`**: Performs numeric division. Promotes to `Float` for mixed types. Division of two `Int`s results in a truncated `Int`.
+- **`modulo(left, right)`**: Performs the remainder operation. Promotes to `Float` for mixed types.
+
+### Comparison Operators
+
+These functions compare two values and return an `AgoType::Bool`.
+- **`greater_than(left, right)`**
+- **`greater_equal(left, right)`**
+- **`less_than(left, right)`**
+- **`less_equal(left, right)`**
+- **Behavior**: They operate on numeric types (promoting to `Float` if mixed) and `String` types (lexicographical comparison). Panics on other type combinations.
+
+### Logical Operators
+
+- **`and(left, right)`**: Returns `AgoType::Bool(true)` if both inputs are `AgoType::Bool(true)`, otherwise `false`. Panics if inputs are not `Bool`.
+- **`or(left, right)`**: Returns `AgoType::Bool(true)` if either input is `AgoType::Bool(true)`, otherwise `false`. Panics if inputs are not `Bool`.
+- **`not(value)`**: A unary operator that flips a `Bool` value. Panics if the input is not a `Bool`.
+
+### Bitwise Operators
+
+These functions operate only on `AgoType::Int` values and panic on any other type.
+- **`bitwise_and(left, right)`**
+- **`bitwise_or(left, right)`**
+- **`bitwise_xor(left, right)`**
+
+### Unary Operators
+
+- **`unary_minus(value)`**: Negates an `Int` or `Float` value.
+- **`unary_plus(value)`**: Returns the `Int` or `Float` value unmodified. (A semantic no-op).
+
+### Membership Operator
+
+- **`contains(haystack, needle)`**: Implements the `in` operator. Returns `AgoType::Bool(true)` if the `needle` is found in the `haystack`.
+- **Behavior**:
+  - **String**: Checks if `needle` (String) is a substring of `haystack` (String).
+  - **Struct**: Checks if `needle` (String) is a key in `haystack` (Struct).
+  - **List**: Checks if `needle` (Any) is an element in `haystack` (List).
+
+---
+
 ### claverum
 
 Returns a list of all keys within a `Struct`.

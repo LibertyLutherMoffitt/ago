@@ -1,6 +1,10 @@
 //! Integration tests for the ago_stdlib crate.
 
-use ago_stdlib::{aequalam, claverum, get, insero, removeo, set, species, AgoType, TargetType};
+use ago_stdlib::{
+    add, aequalem, and, bitwise_and, bitwise_or, bitwise_xor, claverum, contains, divide, get,
+    greater_equal, greater_than, insero, less_equal, less_than, modulo, multiply, not, or, removeo,
+    set, species, subtract, unary_minus, unary_plus, AgoType, TargetType,
+};
 use std::collections::HashMap;
 
 // --- Helpers ---
@@ -299,34 +303,141 @@ fn test_claverum_on_non_struct() {
 
 
 
+
 #[test]
-fn test_aequalam() {
+fn test_aequalem() {
     // Same type, same value
-    assert_eq!(aequalam(&AgoType::Int(5), &AgoType::Int(5)), AgoType::Bool(true));
-    assert_eq!(aequalam(&AgoType::Float(5.0), &AgoType::Float(5.0)), AgoType::Bool(true));
-    assert_eq!(aequalam(&AgoType::String("hello".to_string()), &AgoType::String("hello".to_string())), AgoType::Bool(true));
-    assert_eq!(aequalam(&AgoType::Bool(true), &AgoType::Bool(true)), AgoType::Bool(true));
-    assert_eq!(aequalam(&AgoType::Null, &AgoType::Null), AgoType::Bool(true));
+    assert_eq!(aequalem(&AgoType::Int(5), &AgoType::Int(5)), AgoType::Bool(true));
+    assert_eq!(aequalem(&AgoType::Float(5.0), &AgoType::Float(5.0)), AgoType::Bool(true));
+    assert_eq!(aequalem(&AgoType::String("hello".to_string()), &AgoType::String("hello".to_string())), AgoType::Bool(true));
+    assert_eq!(aequalem(&AgoType::Bool(true), &AgoType::Bool(true)), AgoType::Bool(true));
+    assert_eq!(aequalem(&AgoType::Null, &AgoType::Null), AgoType::Bool(true));
 
     // Same type, different value
-    assert_eq!(aequalam(&AgoType::Int(5), &AgoType::Int(6)), AgoType::Bool(false));
-    assert_eq!(aequalam(&AgoType::Float(5.0), &AgoType::Float(5.1)), AgoType::Bool(false));
-    assert_eq!(aequalam(&AgoType::String("hello".to_string()), &AgoType::String("world".to_string())), AgoType::Bool(false));
-    assert_eq!(aequalam(&AgoType::Bool(true), &AgoType::Bool(false)), AgoType::Bool(false));
+    assert_eq!(aequalem(&AgoType::Int(5), &AgoType::Int(6)), AgoType::Bool(false));
+    assert_eq!(aequalem(&AgoType::Float(5.0), &AgoType::Float(5.1)), AgoType::Bool(false));
+    assert_eq!(aequalem(&AgoType::String("hello".to_string()), &AgoType::String("world".to_string())), AgoType::Bool(false));
+    assert_eq!(aequalem(&AgoType::Bool(true), &AgoType::Bool(false)), AgoType::Bool(false));
 
     // Different types, same conceptual value (should be false due to strict equality)
-    assert_eq!(aequalam(&AgoType::Int(5), &AgoType::Float(5.0)), AgoType::Bool(false));
-    assert_eq!(aequalam(&AgoType::Int(1), &AgoType::Bool(true)), AgoType::Bool(false));
-    assert_eq!(aequalam(&AgoType::String("5".to_string()), &AgoType::Int(5)), AgoType::Bool(false));
+    assert_eq!(aequalem(&AgoType::Int(5), &AgoType::Float(5.0)), AgoType::Bool(false));
+    assert_eq!(aequalem(&AgoType::Int(1), &AgoType::Bool(true)), AgoType::Bool(false));
+    assert_eq!(aequalem(&AgoType::String("5".to_string()), &AgoType::Int(5)), AgoType::Bool(false));
 
     // Different types, different values
-    assert_eq!(aequalam(&AgoType::Int(5), &AgoType::String("hello".to_string())), AgoType::Bool(false));
-    assert_eq!(aequalam(&AgoType::Float(1.0), &AgoType::Bool(false)), AgoType::Bool(false));
+    assert_eq!(aequalem(&AgoType::Int(5), &AgoType::String("hello".to_string())), AgoType::Bool(false));
+    assert_eq!(aequalem(&AgoType::Float(1.0), &AgoType::Bool(false)), AgoType::Bool(false));
 }
 
+// --- Operator Tests ---
+
+#[test]
+fn test_arithmetic_operators() {
+    // Int, Int
+    assert_eq!(add(&AgoType::Int(5), &AgoType::Int(2)), AgoType::Int(7));
+    assert_eq!(subtract(&AgoType::Int(5), &AgoType::Int(2)), AgoType::Int(3));
+    assert_eq!(multiply(&AgoType::Int(5), &AgoType::Int(2)), AgoType::Int(10));
+    assert_eq!(divide(&AgoType::Int(5), &AgoType::Int(2)), AgoType::Int(2));
+    assert_eq!(modulo(&AgoType::Int(5), &AgoType::Int(2)), AgoType::Int(1));
+
+    // Float, Float
+    assert_eq!(add(&AgoType::Float(5.0), &AgoType::Float(2.0)), AgoType::Float(7.0));
+    assert_eq!(subtract(&AgoType::Float(5.0), &AgoType::Float(2.0)), AgoType::Float(3.0));
+    assert_eq!(multiply(&AgoType::Float(5.0), &AgoType::Float(2.0)), AgoType::Float(10.0));
+    assert_eq!(divide(&AgoType::Float(5.0), &AgoType::Float(2.0)), AgoType::Float(2.5));
+
+    // Mixed
+    assert_eq!(add(&AgoType::Int(5), &AgoType::Float(2.5)), AgoType::Float(7.5));
+    assert_eq!(subtract(&AgoType::Float(5.0), &AgoType::Int(2)), AgoType::Float(3.0));
+}
+
+#[test]
+fn test_add_concatenation() {
+    // String
+    let s1 = AgoType::String("hello".to_string());
+    let s2 = AgoType::String(" world".to_string());
+    assert_eq!(add(&s1, &s2), AgoType::String("hello world".to_string()));
+
+    // List
+    let l1 = AgoType::IntList(vec![1, 2]);
+    let l2 = AgoType::IntList(vec![3, 4]);
+    assert_eq!(add(&l1, &l2), AgoType::IntList(vec![1, 2, 3, 4]));
+}
+
+#[test]
+#[should_panic]
+fn test_arithmetic_panic() {
+    add(&AgoType::Int(5), &AgoType::String("hello".to_string()));
+}
+
+#[test]
+fn test_comparison_operators() {
+    // Numeric
+    assert_eq!(greater_than(&AgoType::Int(5), &AgoType::Int(2)), AgoType::Bool(true));
+    assert_eq!(less_than(&AgoType::Float(5.0), &AgoType::Int(2)), AgoType::Bool(false));
+    assert_eq!(greater_equal(&AgoType::Int(5), &AgoType::Float(5.0)), AgoType::Bool(true));
+    assert_eq!(less_equal(&AgoType::Int(5), &AgoType::Int(5)), AgoType::Bool(true));
+
+    // String
+    assert_eq!(greater_than(&AgoType::String("b".to_string()), &AgoType::String("a".to_string())), AgoType::Bool(true));
+    assert_eq!(less_than(&AgoType::String("b".to_string()), &AgoType::String("a".to_string())), AgoType::Bool(false));
+}
+
+#[test]
+fn test_logical_operators() {
+    assert_eq!(and(&AgoType::Bool(true), &AgoType::Bool(false)), AgoType::Bool(false));
+    assert_eq!(and(&AgoType::Bool(true), &AgoType::Bool(true)), AgoType::Bool(true));
+    assert_eq!(or(&AgoType::Bool(true), &AgoType::Bool(false)), AgoType::Bool(true));
+    assert_eq!(or(&AgoType::Bool(false), &AgoType::Bool(false)), AgoType::Bool(false));
+    assert_eq!(not(&AgoType::Bool(true)), AgoType::Bool(false));
+    assert_eq!(not(&AgoType::Bool(false)), AgoType::Bool(true));
+}
+
+#[test]
+#[should_panic]
+fn test_logical_panic() {
+    and(&AgoType::Bool(true), &AgoType::Int(1));
+}
+
+#[test]
+fn test_bitwise_operators() {
+    assert_eq!(bitwise_and(&AgoType::Int(6), &AgoType::Int(3)), AgoType::Int(2)); // 110 & 011 = 010
+    assert_eq!(bitwise_or(&AgoType::Int(6), &AgoType::Int(3)), AgoType::Int(7));  // 110 | 011 = 111
+    assert_eq!(bitwise_xor(&AgoType::Int(6), &AgoType::Int(3)), AgoType::Int(5)); // 110 ^ 011 = 101
+}
+
+#[test]
+#[should_panic]
+fn test_bitwise_panic() {
+    bitwise_and(&AgoType::Int(6), &AgoType::Float(3.0));
+}
+
+#[test]
+fn test_unary_operators() {
+    assert_eq!(unary_minus(&AgoType::Int(5)), AgoType::Int(-5));
+    assert_eq!(unary_minus(&AgoType::Float(5.0)), AgoType::Float(-5.0));
+    assert_eq!(unary_plus(&AgoType::Int(5)), AgoType::Int(5));
+}
+
+#[test]
+fn test_contains() {
+    // In String
+    assert_eq!(contains(&AgoType::String("hello".to_string()), &AgoType::String("ell".to_string())), AgoType::Bool(true));
+    assert_eq!(contains(&AgoType::String("hello".to_string()), &AgoType::String("z".to_string())), AgoType::Bool(false));
+
+    // In Struct (key)
+    assert_eq!(contains(&sample_struct(), &AgoType::String("a".to_string())), AgoType::Bool(true));
+    assert_eq!(contains(&sample_struct(), &AgoType::String("z".to_string())), AgoType::Bool(false));
+
+    // In List
+    assert_eq!(contains(&AgoType::IntList(vec![1, 2, 3]), &AgoType::Int(2)), AgoType::Bool(true));
+    assert_eq!(contains(&AgoType::IntList(vec![1, 2, 3]), &AgoType::Int(4)), AgoType::Bool(false));
+    assert_eq!(contains(&sample_any_list(), &AgoType::String("two".to_string())), AgoType::Bool(true));
+}
 
 // Note: Testing `dico` is complex as it prints to stdout.
 // It would require capturing stdout, which is possible but adds complexity.
+
 
 // Note: Testing `aperto` requires file I/O and setting up test files.
 // This can be done but is skipped here for simplicity.
