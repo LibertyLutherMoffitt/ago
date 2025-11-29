@@ -1,5 +1,5 @@
 # test/test_semantics.py
-
+import pytest
 from src.AgoParser import parser
 from src.AgoSemanticChecker import AgoSemanticChecker
 
@@ -217,3 +217,18 @@ redeo verum
     assert any("Use of undeclared identifier 'xa'" in m for m in messages)
     assert any("'frio'" in m and "outside of loop" in m for m in messages)
     assert any("'redeo'" in m and "outside of function" in m for m in messages)
+
+
+@pytest.mark.parametrize("filename", [
+    "./test/resources/temptare_lambda.ago",
+    "./test/resources/temptare_lego.ago",
+    "./test/resources/temptare_loop.ago",
+    "./test/resources/temptare_var.ago",
+    "./test/resources/temptare.ago"
+])
+def test_semantic_checker(filename):
+    """Test AgoSemanticChecker on individual files."""
+    with open(filename, 'r') as f:
+        semantics = AgoSemanticChecker()
+        parser.parse(f.read() + "\n", semantics=semantics)
+        assert len(semantics.errors) == 0, f"Semantic errors found: {semantics.errors}"
