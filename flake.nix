@@ -24,7 +24,7 @@
 
           # No build dependencies needed at this stage,
           # because we are just packaging the script and source.
-          nativeBuildInputs = [];
+          nativeBuildInputs = [pkgs.cargo];
 
           buildPhase = "true"; # Skip build phase
 
@@ -34,6 +34,14 @@
 
             # Copy the source code (src/main.py) to a permanent location in the store
             cp -r src $out/libexec/src
+
+            # Build the Rust standard library
+            # We need to change directory to src/rust where Cargo.toml is located
+            (cd $out/libexec/src/rust && ${pkgs.cargo}/bin/cargo build --release)
+
+            # Get the path to the compiled Rust library
+            # Assuming the library is named libago_stdlib.rlib
+            RUST_STDLIB_PATH=$out/libexec/src/rust/target/release/libago_stdlib.rlib
 
             # Generate the executable script 'ago'
             cat > $out/bin/ago <<EOF
@@ -56,7 +64,8 @@
 
             echo "Compiling Rust binary..."
             # Run rustc using the specific rustc from pkgs
-            ${pkgs.rustc}/bin/rustc "\$TEMP_RS" -o "\$OUTPUT_BIN"
+            # Link against the ago_stdlib
+            ${pkgs.rustc}/bin/rustc "\$TEMP_RS" -o "\$OUTPUT_BIN" --extern ago_stdlib="\$RUST_STDLIB_PATH"
 
             echo "Done! executable created at ./\$OUTPUT_BIN"
             rm "\$TEMP_RS"
