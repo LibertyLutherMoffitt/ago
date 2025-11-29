@@ -47,404 +47,331 @@ pub enum TargetType {
 
 impl AgoType {
     // This function will perform the actual conversion.
-    // It returns a Result, which allows us to handle invalid casts
-    // (like converting a struct to an integer) gracefully.
-    pub fn as_type_not_unwrapped(&self, target: TargetType) -> Result<AgoType, String> {
+    // It now panics on error instead of returning a Result.
+    pub fn as_type(&self, target: TargetType) -> AgoType {
         match (self, target) {
             // --- Identity Conversions ---
-            (AgoType::Int(val), TargetType::Int) => Ok(AgoType::Int(*val)),
-            (AgoType::Float(val), TargetType::Float) => Ok(AgoType::Float(*val)),
-            (AgoType::Bool(val), TargetType::Bool) => Ok(AgoType::Bool(*val)),
-            (AgoType::String(val), TargetType::String) => Ok(AgoType::String(val.clone())),
-            (AgoType::IntList(val), TargetType::IntList) => Ok(AgoType::IntList(val.clone())),
-            (AgoType::FloatList(val), TargetType::FloatList) => Ok(AgoType::FloatList(val.clone())),
-            (AgoType::BoolList(val), TargetType::BoolList) => Ok(AgoType::BoolList(val.clone())),
-            (AgoType::StringList(val), TargetType::StringList) => {
-                Ok(AgoType::StringList(val.clone()))
-            }
-            (AgoType::Struct(val), TargetType::Struct) => Ok(AgoType::Struct(val.clone())),
-            (AgoType::ListAny(val), TargetType::ListAny) => Ok(AgoType::ListAny(val.clone())),
-            (AgoType::Null, TargetType::Null) => Ok(AgoType::Null),
+            (AgoType::Int(val), TargetType::Int) => AgoType::Int(*val),
+            (AgoType::Float(val), TargetType::Float) => AgoType::Float(*val),
+            (AgoType::Bool(val), TargetType::Bool) => AgoType::Bool(*val),
+            (AgoType::String(val), TargetType::String) => AgoType::String(val.clone()),
+            (AgoType::IntList(val), TargetType::IntList) => AgoType::IntList(val.clone()),
+            (AgoType::FloatList(val), TargetType::FloatList) => AgoType::FloatList(val.clone()),
+            (AgoType::BoolList(val), TargetType::BoolList) => AgoType::BoolList(val.clone()),
+            (AgoType::StringList(val), TargetType::StringList) => AgoType::StringList(val.clone()),
+            (AgoType::Struct(val), TargetType::Struct) => AgoType::Struct(val.clone()),
+            (AgoType::ListAny(val), TargetType::ListAny) => AgoType::ListAny(val.clone()),
+            (AgoType::Null, TargetType::Null) => AgoType::Null,
 
             // --- Meaningful Conversions ---
+            (AgoType::Int(val), TargetType::Float) => AgoType::Float(*val as f64),
+            (AgoType::Int(val), TargetType::String) => AgoType::String(val.to_string()),
+            (AgoType::Int(val), TargetType::Bool) => AgoType::Bool(*val != 0),
 
-            // Int to Float
-            (AgoType::Int(val), TargetType::Float) => Ok(AgoType::Float(*val as f64)),
-            // Int to String
-            (AgoType::Int(val), TargetType::String) => Ok(AgoType::String(val.to_string())),
-            // Int to Bool (0 is false, anything else is true)
-            (AgoType::Int(val), TargetType::Bool) => Ok(AgoType::Bool(*val != 0)),
+            (AgoType::Float(val), TargetType::Int) => AgoType::Int(*val as i128),
+            (AgoType::Float(val), TargetType::String) => AgoType::String(val.to_string()),
+            (AgoType::Float(val), TargetType::Bool) => AgoType::Bool(*val != 0.0),
 
-            // Float to Int (truncates)
-            (AgoType::Float(val), TargetType::Int) => Ok(AgoType::Int(*val as i128)),
-            // Float to String
-            (AgoType::Float(val), TargetType::String) => Ok(AgoType::String(val.to_string())),
-            // Float to Bool (0.0 is false, anything else is true)
-            (AgoType::Float(val), TargetType::Bool) => Ok(AgoType::Bool(*val != 0.0)),
-
-            // Bool to Int (true=1, false=0)
-            (AgoType::Bool(val), TargetType::Int) => Ok(AgoType::Int(if *val { 1 } else { 0 })),
-            // Bool to Float (true=1.0, false=0.0)
+            (AgoType::Bool(val), TargetType::Int) => AgoType::Int(if *val { 1 } else { 0 }),
             (AgoType::Bool(val), TargetType::Float) => {
-                Ok(AgoType::Float(if *val { 4.2 } else { -3.9 }))
+                AgoType::Float(if *val { 4.2 } else { -3.9 })
             }
-            // Bool to String
-            (AgoType::Bool(val), TargetType::String) => Ok(AgoType::String(val.to_string())),
+            (AgoType::Bool(val), TargetType::String) => AgoType::String(val.to_string()),
 
-            // String to Int
-            (AgoType::String(val), TargetType::Int) => match val.parse::<i128>() {
-                Ok(num) => Ok(AgoType::Int(num)),
-                Err(_) => Err(format!("Cannot cast string '{}' to Int", val)),
-            },
-            // String to Float
-            (AgoType::String(val), TargetType::Float) => match val.parse::<f64>() {
-                Ok(num) => Ok(AgoType::Float(num)),
-                Err(_) => Err(format!("Cannot cast string '{}' to Float", val)),
-            },
-            // String to Bool ("" is false)
-            (AgoType::String(val), TargetType::Bool) => Ok(AgoType::Bool(!val.is_empty())),
-            // String to StringList (list of characters)
-            (AgoType::String(val), TargetType::StringList) => Ok(AgoType::StringList(
-                val.chars().map(|c| c.to_string()).collect(),
-            )),
+            (AgoType::String(val), TargetType::Int) => val
+                .parse::<i128>()
+                .map(AgoType::Int)
+                .unwrap_or_else(|_| panic!("Cannot cast string '{}' to Int", val)),
+            (AgoType::String(val), TargetType::Float) => val
+                .parse::<f64>()
+                .map(AgoType::Float)
+                .unwrap_or_else(|_| panic!("Cannot cast string '{}' to Float", val)),
+            (AgoType::String(val), TargetType::Bool) => AgoType::Bool(!val.is_empty()),
+            (AgoType::String(val), TargetType::StringList) => {
+                AgoType::StringList(val.chars().map(|c| c.to_string()).collect())
+            }
 
             // --- List to Primitive Conversions ---
+            (AgoType::IntList(val), TargetType::Int) => AgoType::Int(val.len() as i128),
+            (AgoType::FloatList(val), TargetType::Int) => AgoType::Int(val.len() as i128),
+            (AgoType::BoolList(val), TargetType::Int) => AgoType::Int(val.len() as i128),
+            (AgoType::StringList(val), TargetType::Int) => AgoType::Int(val.len() as i128),
+            (AgoType::ListAny(val), TargetType::Int) => AgoType::Int(val.len() as i128),
 
-            // List to Int (size of list)
-            (AgoType::IntList(val), TargetType::Int) => Ok(AgoType::Int(val.len() as i128)),
-            (AgoType::FloatList(val), TargetType::Int) => Ok(AgoType::Int(val.len() as i128)),
-            (AgoType::BoolList(val), TargetType::Int) => Ok(AgoType::Int(val.len() as i128)),
-            (AgoType::StringList(val), TargetType::Int) => Ok(AgoType::Int(val.len() as i128)),
-            (AgoType::ListAny(val), TargetType::Int) => Ok(AgoType::Int(val.len() as i128)),
-
-            // List to String (join with newline)
             (AgoType::IntList(val), TargetType::String) => {
-                let string_items: Result<Vec<String>, String> = val
-                    .iter()
-                    .map(|&item| {
-                        AgoType::Int(item)
-                            .as_type_not_unwrapped(TargetType::String)
-                            .map(|v| match v {
-                                AgoType::String(s) => s,
-                                _ => unreachable!(),
-                            })
-                    })
-                    .collect();
-                string_items.map(|items| AgoType::String(items.join("\n")))
+                let items: Vec<String> = val.iter().map(|i| i.to_string()).collect();
+                AgoType::String(items.join("\n"))
             }
             (AgoType::FloatList(val), TargetType::String) => {
-                let string_items: Result<Vec<String>, String> = val
-                    .iter()
-                    .map(|&item| {
-                        AgoType::Float(item)
-                            .as_type_not_unwrapped(TargetType::String)
-                            .map(|v| match v {
-                                AgoType::String(s) => s,
-                                _ => unreachable!(),
-                            })
-                    })
-                    .collect();
-                string_items.map(|items| AgoType::String(items.join("\n")))
+                let items: Vec<String> = val.iter().map(|f| f.to_string()).collect();
+                AgoType::String(items.join("\n"))
             }
             (AgoType::BoolList(val), TargetType::String) => {
-                let string_items: Result<Vec<String>, String> = val
-                    .iter()
-                    .map(|&item| {
-                        AgoType::Bool(item)
-                            .as_type_not_unwrapped(TargetType::String)
-                            .map(|v| match v {
-                                AgoType::String(s) => s,
-                                _ => unreachable!(),
-                            })
-                    })
-                    .collect();
-                string_items.map(|items| AgoType::String(items.join("\n")))
+                let items: Vec<String> = val.iter().map(|b| b.to_string()).collect();
+                AgoType::String(items.join("\n"))
             }
-            (AgoType::StringList(val), TargetType::String) => {
-                Ok(AgoType::String(val.join("\n"))) // Already strings, just join
-            }
+            (AgoType::StringList(val), TargetType::String) => AgoType::String(val.join("\n")),
             (AgoType::ListAny(val), TargetType::String) => {
-                let string_items: Result<Vec<String>, String> = val
+                let items: Vec<String> = val
                     .iter()
                     .map(|item| {
-                        item.as_type_not_unwrapped(TargetType::String)
-                            .map(|v| match v {
-                                AgoType::String(s) => s,
-                                _ => unreachable!(),
-                            })
+                        if let AgoType::String(s) = item.as_type(TargetType::String) {
+                            s
+                        } else {
+                            unreachable!()
+                        }
                     })
                     .collect();
-                string_items.map(|items| AgoType::String(items.join("\n\n")))
+                AgoType::String(items.join("\n\n"))
             }
 
             // --- List/Struct to Bool ---
-            (AgoType::IntList(val), TargetType::Bool) => Ok(AgoType::Bool(!val.is_empty())),
-            (AgoType::FloatList(val), TargetType::Bool) => Ok(AgoType::Bool(!val.is_empty())),
-            (AgoType::BoolList(val), TargetType::Bool) => Ok(AgoType::Bool(!val.is_empty())),
-            (AgoType::StringList(val), TargetType::Bool) => Ok(AgoType::Bool(!val.is_empty())),
-            (AgoType::ListAny(val), TargetType::Bool) => Ok(AgoType::Bool(!val.is_empty())),
-            (AgoType::Struct(val), TargetType::Bool) => Ok(AgoType::Bool(!val.is_empty())),
+            (AgoType::IntList(val), TargetType::Bool) => AgoType::Bool(!val.is_empty()),
+            (AgoType::FloatList(val), TargetType::Bool) => AgoType::Bool(!val.is_empty()),
+            (AgoType::BoolList(val), TargetType::Bool) => AgoType::Bool(!val.is_empty()),
+            (AgoType::StringList(val), TargetType::Bool) => AgoType::Bool(!val.is_empty()),
+            (AgoType::ListAny(val), TargetType::Bool) => AgoType::Bool(!val.is_empty()),
+            (AgoType::Struct(val), TargetType::Bool) => AgoType::Bool(!val.is_empty()),
 
             // --- Struct to String ---
             (AgoType::Struct(val), TargetType::String) => {
                 let mut parts = Vec::new();
                 for (key, value) in val.iter() {
-                    match value.as_type_not_unwrapped(TargetType::String) {
-                        Ok(AgoType::String(s)) => {
-                            parts.push(format!("{}: {}", key, s));
-                        }
-                        Ok(_) => unreachable!(), // as_type for String should only return String
-                        Err(e) => return Err(e), // Propagate error
+                    if let AgoType::String(s) = value.as_type(TargetType::String) {
+                        parts.push(format!("{}: {}", key, s));
+                    } else {
+                        unreachable!();
                     }
                 }
-                Ok(AgoType::String(format!("{{ {} }}", parts.join(",\n"))))
+                AgoType::String(format!("{{ {} }}", parts.join(",\n")))
             }
 
             // --- List Conversions ---
-            // IntList to other lists
             (AgoType::IntList(val), TargetType::FloatList) => {
-                let new_list: Result<Vec<f64>, String> = val
+                let new_list = val
                     .iter()
                     .map(|&item| {
-                        AgoType::Int(item)
-                            .as_type_not_unwrapped(TargetType::Float)
-                            .map(|v| match v {
-                                AgoType::Float(f) => f,
-                                _ => unreachable!(),
-                            })
+                        if let AgoType::Float(f) = AgoType::Int(item).as_type(TargetType::Float) {
+                            f
+                        } else {
+                            unreachable!()
+                        }
                     })
                     .collect();
-                new_list.map(AgoType::FloatList)
+                AgoType::FloatList(new_list)
             }
             (AgoType::IntList(val), TargetType::BoolList) => {
-                let new_list: Result<Vec<bool>, String> = val
+                let new_list = val
                     .iter()
                     .map(|&item| {
-                        AgoType::Int(item)
-                            .as_type_not_unwrapped(TargetType::Bool)
-                            .map(|v| match v {
-                                AgoType::Bool(b) => b,
-                                _ => unreachable!(),
-                            })
+                        if let AgoType::Bool(b) = AgoType::Int(item).as_type(TargetType::Bool) {
+                            b
+                        } else {
+                            unreachable!()
+                        }
                     })
                     .collect();
-                new_list.map(AgoType::BoolList)
+                AgoType::BoolList(new_list)
             }
             (AgoType::IntList(val), TargetType::StringList) => {
-                let new_list: Result<Vec<String>, String> = val
+                let new_list = val
                     .iter()
                     .map(|&item| {
-                        AgoType::Int(item)
-                            .as_type_not_unwrapped(TargetType::String)
-                            .map(|v| match v {
-                                AgoType::String(s) => s,
-                                _ => unreachable!(),
-                            })
+                        if let AgoType::String(s) = AgoType::Int(item).as_type(TargetType::String) {
+                            s
+                        } else {
+                            unreachable!()
+                        }
                     })
                     .collect();
-                new_list.map(AgoType::StringList)
+                AgoType::StringList(new_list)
             }
 
-            // FloatList to other lists
             (AgoType::FloatList(val), TargetType::IntList) => {
-                let new_list: Result<Vec<i128>, String> = val
+                let new_list = val
                     .iter()
                     .map(|&item| {
-                        AgoType::Float(item)
-                            .as_type_not_unwrapped(TargetType::Int)
-                            .map(|v| match v {
-                                AgoType::Int(i) => i,
-                                _ => unreachable!(),
-                            })
+                        if let AgoType::Int(i) = AgoType::Float(item).as_type(TargetType::Int) {
+                            i
+                        } else {
+                            unreachable!()
+                        }
                     })
                     .collect();
-                new_list.map(AgoType::IntList)
+                AgoType::IntList(new_list)
             }
             (AgoType::FloatList(val), TargetType::BoolList) => {
-                let new_list: Result<Vec<bool>, String> = val
+                let new_list = val
                     .iter()
                     .map(|&item| {
-                        AgoType::Float(item)
-                            .as_type_not_unwrapped(TargetType::Bool)
-                            .map(|v| match v {
-                                AgoType::Bool(b) => b,
-                                _ => unreachable!(),
-                            })
+                        if let AgoType::Bool(b) = AgoType::Float(item).as_type(TargetType::Bool) {
+                            b
+                        } else {
+                            unreachable!()
+                        }
                     })
                     .collect();
-                new_list.map(AgoType::BoolList)
+                AgoType::BoolList(new_list)
             }
             (AgoType::FloatList(val), TargetType::StringList) => {
-                let new_list: Result<Vec<String>, String> = val
+                let new_list = val
                     .iter()
                     .map(|&item| {
-                        AgoType::Float(item)
-                            .as_type_not_unwrapped(TargetType::String)
-                            .map(|v| match v {
-                                AgoType::String(s) => s,
-                                _ => unreachable!(),
-                            })
+                        if let AgoType::String(s) = AgoType::Float(item).as_type(TargetType::String)
+                        {
+                            s
+                        } else {
+                            unreachable!()
+                        }
                     })
                     .collect();
-                new_list.map(AgoType::StringList)
+                AgoType::StringList(new_list)
             }
 
-            // BoolList to other lists
             (AgoType::BoolList(val), TargetType::IntList) => {
-                let new_list: Result<Vec<i128>, String> = val
+                let new_list = val
                     .iter()
                     .map(|&item| {
-                        AgoType::Bool(item)
-                            .as_type_not_unwrapped(TargetType::Int)
-                            .map(|v| match v {
-                                AgoType::Int(i) => i,
-                                _ => unreachable!(),
-                            })
+                        if let AgoType::Int(i) = AgoType::Bool(item).as_type(TargetType::Int) {
+                            i
+                        } else {
+                            unreachable!()
+                        }
                     })
                     .collect();
-                new_list.map(AgoType::IntList)
+                AgoType::IntList(new_list)
             }
             (AgoType::BoolList(val), TargetType::FloatList) => {
-                let new_list: Result<Vec<f64>, String> = val
+                let new_list = val
                     .iter()
-                    .map(|&item| {
-                        AgoType::Bool(item)
-                            .as_type_not_unwrapped(TargetType::Float)
-                            .map(|v| match v {
-                                AgoType::Float(f) => f,
-                                _ => unreachable!(),
-                            })
-                    })
+                    .map(
+                        |&item| match AgoType::Bool(item).as_type(TargetType::Float) {
+                            AgoType::Float(f) => f,
+                            _ => unreachable!(),
+                        },
+                    )
                     .collect();
-                new_list.map(AgoType::FloatList)
+                AgoType::FloatList(new_list)
             }
             (AgoType::BoolList(val), TargetType::StringList) => {
-                let new_list: Result<Vec<String>, String> = val
+                let new_list = val
                     .iter()
                     .map(|&item| {
-                        AgoType::Bool(item)
-                            .as_type_not_unwrapped(TargetType::String)
-                            .map(|v| match v {
-                                AgoType::String(s) => s,
-                                _ => unreachable!(),
-                            })
+                        if let AgoType::String(s) = AgoType::Bool(item).as_type(TargetType::String)
+                        {
+                            s
+                        } else {
+                            unreachable!()
+                        }
                     })
                     .collect();
-                new_list.map(AgoType::StringList)
+                AgoType::StringList(new_list)
             }
 
-            // StringList to other lists
             (AgoType::StringList(val), TargetType::IntList) => {
-                let new_list: Result<Vec<i128>, String> = val
+                let new_list = val
                     .iter()
                     .map(|item| {
-                        AgoType::String(item.clone())
-                            .as_type_not_unwrapped(TargetType::Int)
-                            .map(|v| match v {
-                                AgoType::Int(i) => i,
-                                _ => unreachable!(),
-                            })
+                        if let AgoType::Int(i) =
+                            AgoType::String(item.clone()).as_type(TargetType::Int)
+                        {
+                            i
+                        } else {
+                            unreachable!()
+                        }
                     })
                     .collect();
-                new_list.map(AgoType::IntList)
+                AgoType::IntList(new_list)
             }
             (AgoType::StringList(val), TargetType::FloatList) => {
-                let new_list: Result<Vec<f64>, String> = val
+                let new_list = val
                     .iter()
                     .map(|item| {
-                        AgoType::String(item.clone())
-                            .as_type_not_unwrapped(TargetType::Float)
-                            .map(|v| match v {
-                                AgoType::Float(f) => f,
-                                _ => unreachable!(),
-                            })
+                        if let AgoType::Float(f) =
+                            AgoType::String(item.clone()).as_type(TargetType::Float)
+                        {
+                            f
+                        } else {
+                            unreachable!()
+                        }
                     })
                     .collect();
-                new_list.map(AgoType::FloatList)
+                AgoType::FloatList(new_list)
             }
             (AgoType::StringList(val), TargetType::BoolList) => {
-                let new_list: Result<Vec<bool>, String> = val
+                let new_list = val
                     .iter()
                     .map(|item| {
-                        AgoType::String(item.clone())
-                            .as_type_not_unwrapped(TargetType::Bool)
-                            .map(|v| match v {
-                                AgoType::Bool(b) => b,
-                                _ => unreachable!(),
-                            })
+                        if let AgoType::Bool(b) =
+                            AgoType::String(item.clone()).as_type(TargetType::Bool)
+                        {
+                            b
+                        } else {
+                            unreachable!()
+                        }
                     })
                     .collect();
-                new_list.map(AgoType::BoolList)
+                AgoType::BoolList(new_list)
             }
 
             // Default error for unsupported conversions
-            _ => Err(format!("Unsupported cast from {:?} to {:?}", self, target)),
+            _ => panic!("Unsupported cast from {:?} to {:?}", self, target),
         }
-    }
-
-    /// Calls as_type() and unwraps the result, panicking on error.
-    pub fn as_type(&self, target: TargetType) -> Self {
-        self.as_type_not_unwrapped(target).unwrap()
     }
 }
 
-/// Gets a value from an indexable AgoType.
-/// For Lists, `n` must be an Int.
-/// For Structs, `n` must be a String.
-/// For Strings, `n` must be an Int.
-pub fn get_not_unwrapped(iter: &AgoType, n: &AgoType) -> Result<AgoType, String> {
+/// Gets a value from an indexable AgoType. Panics on error.
+pub fn get(iter: &AgoType, n: &AgoType) -> AgoType {
     match (iter, n) {
         // --- List Access ---
         (AgoType::IntList(list), AgoType::Int(index)) => {
             let idx = *index as usize;
             list.get(idx)
                 .map(|val| AgoType::Int(*val))
-                .ok_or_else(|| format!("Index out of bounds: {}", idx))
+                .expect(&format!("Index out of bounds: {}", idx))
         }
         (AgoType::FloatList(list), AgoType::Int(index)) => {
             let idx = *index as usize;
             list.get(idx)
                 .map(|val| AgoType::Float(*val))
-                .ok_or_else(|| format!("Index out of bounds: {}", idx))
+                .expect(&format!("Index out of bounds: {}", idx))
         }
         (AgoType::BoolList(list), AgoType::Int(index)) => {
             let idx = *index as usize;
             list.get(idx)
                 .map(|val| AgoType::Bool(*val))
-                .ok_or_else(|| format!("Index out of bounds: {}", idx))
+                .expect(&format!("Index out of bounds: {}", idx))
         }
         (AgoType::StringList(list), AgoType::Int(index)) => {
             let idx = *index as usize;
             list.get(idx)
                 .map(|val| AgoType::String(val.clone()))
-                .ok_or_else(|| format!("Index out of bounds: {}", idx))
+                .expect(&format!("Index out of bounds: {}", idx))
         }
         (AgoType::ListAny(list), AgoType::Int(index)) => {
             let idx = *index as usize;
             list.get(idx)
                 .map(|val| val.clone())
-                .ok_or_else(|| format!("Index out of bounds: {}", idx))
+                .expect(&format!("Index out of bounds: {}", idx))
         }
 
-        // --- String Access (get character at byte index) ---
+        // --- String Access (get character) ---
         (AgoType::String(s), AgoType::Int(index)) => {
             let idx = *index as usize;
             s.chars()
                 .nth(idx)
                 .map(|c| AgoType::String(c.to_string()))
-                .ok_or_else(|| format!("Index out of bounds: {}", idx))
+                .expect(&format!("Index out of bounds: {}", idx))
         }
 
         // --- Struct Access ---
         (AgoType::Struct(map), AgoType::String(key)) => map
             .get(key)
             .map(|val| val.clone())
-            .ok_or_else(|| format!("Key not found: {}", key)),
+            .expect(&format!("Key not found: {}", key)),
 
         // --- Error Cases ---
-        (AgoType::Struct(_), other) => {
-            Err(format!("Struct key must be a String, but got {:?}", other))
-        }
+        (AgoType::Struct(_), other) => panic!("Struct key must be a String, but got {:?}", other),
         (
             AgoType::IntList(_)
             | AgoType::FloatList(_)
@@ -453,20 +380,15 @@ pub fn get_not_unwrapped(iter: &AgoType, n: &AgoType) -> Result<AgoType, String>
             | AgoType::ListAny(_)
             | AgoType::String(_),
             other,
-        ) => Err(format!("Index must be an Int, but got {:?}", other)),
-        (other, _) => Err(format!("Cannot call 'get' on type {:?}", other)),
+        ) => {
+            panic!("Index must be an Int, but got {:?}", other)
+        }
+        (other, _) => panic!("Cannot call 'get' on type {:?}", other),
     }
 }
 
-/// Calls get() and unwraps the result, panicking on error.
-pub fn get(iter: &AgoType, n: &AgoType) -> AgoType {
-    get_not_unwrapped(iter, n).unwrap()
-}
-
-/// Sets a value in a mutable, indexable AgoType.
-/// For Lists, `n` must be an Int, and `value` must match the list's type.
-/// For Structs, `n` must be a String.
-pub fn set_not_unwrapped(iter: &mut AgoType, n: &AgoType, value: AgoType) -> Result<(), String> {
+/// Sets a value in a mutable, indexable AgoType. Panics on error.
+pub fn set(iter: &mut AgoType, n: &AgoType, value: AgoType) {
     match (iter, n) {
         // --- List Mutation ---
         (AgoType::IntList(list), AgoType::Int(index)) => {
@@ -474,15 +396,11 @@ pub fn set_not_unwrapped(iter: &mut AgoType, n: &AgoType, value: AgoType) -> Res
             if let Some(elem) = list.get_mut(idx) {
                 if let AgoType::Int(new_val) = value {
                     *elem = new_val;
-                    Ok(())
                 } else {
-                    Err(format!(
-                        "Cannot set value of type {:?} in an IntList",
-                        value
-                    ))
+                    panic!("Cannot set value of type {:?} in an IntList", value);
                 }
             } else {
-                Err(format!("Index out of bounds: {}", idx))
+                panic!("Index out of bounds: {}", idx);
             }
         }
         (AgoType::FloatList(list), AgoType::Int(index)) => {
@@ -490,15 +408,11 @@ pub fn set_not_unwrapped(iter: &mut AgoType, n: &AgoType, value: AgoType) -> Res
             if let Some(elem) = list.get_mut(idx) {
                 if let AgoType::Float(new_val) = value {
                     *elem = new_val;
-                    Ok(())
                 } else {
-                    Err(format!(
-                        "Cannot set value of type {:?} in a FloatList",
-                        value
-                    ))
+                    panic!("Cannot set value of type {:?} in a FloatList", value);
                 }
             } else {
-                Err(format!("Index out of bounds: {}", idx))
+                panic!("Index out of bounds: {}", idx);
             }
         }
         (AgoType::BoolList(list), AgoType::Int(index)) => {
@@ -506,15 +420,11 @@ pub fn set_not_unwrapped(iter: &mut AgoType, n: &AgoType, value: AgoType) -> Res
             if let Some(elem) = list.get_mut(idx) {
                 if let AgoType::Bool(new_val) = value {
                     *elem = new_val;
-                    Ok(())
                 } else {
-                    Err(format!(
-                        "Cannot set value of type {:?} in a BoolList",
-                        value
-                    ))
+                    panic!("Cannot set value of type {:?} in a BoolList", value);
                 }
             } else {
-                Err(format!("Index out of bounds: {}", idx))
+                panic!("Index out of bounds: {}", idx);
             }
         }
         (AgoType::StringList(list), AgoType::Int(index)) => {
@@ -522,66 +432,61 @@ pub fn set_not_unwrapped(iter: &mut AgoType, n: &AgoType, value: AgoType) -> Res
             if let Some(elem) = list.get_mut(idx) {
                 if let AgoType::String(new_val) = value {
                     *elem = new_val;
-                    Ok(())
                 } else {
-                    Err(format!(
-                        "Cannot set value of type {:?} in a StringList",
-                        value
-                    ))
+                    panic!("Cannot set value of type {:?} in a StringList", value);
                 }
             } else {
-                Err(format!("Index out of bounds: {}", idx))
+                panic!("Index out of bounds: {}", idx);
             }
         }
         (AgoType::ListAny(list), AgoType::Int(index)) => {
             let idx = *index as usize;
             if let Some(elem) = list.get_mut(idx) {
                 *elem = value; // ListAny can hold any AgoType
-                Ok(())
             } else {
-                Err(format!("Index out of bounds: {}", idx))
+                panic!("Index out of bounds: {}", idx);
+            }
+        }
+
+        // --- String Mutation ---
+        (AgoType::String(s), AgoType::Int(index)) => {
+            let idx = *index as usize;
+            if let AgoType::String(char_to_set) = value {
+                if char_to_set.chars().count() != 1 {
+                    panic!(
+                        "Cannot set string with value '{}' that is not a single character",
+                        char_to_set
+                    );
+                }
+                let mut chars: Vec<char> = s.chars().collect();
+                if idx < chars.len() {
+                    chars[idx] = char_to_set.chars().next().unwrap(); // Safe because we checked count() == 1
+                    *s = chars.into_iter().collect();
+                } else {
+                    panic!("Index out of bounds: {}", idx);
+                }
+            } else {
+                panic!("Cannot set string character with value of type {:?}", value);
             }
         }
 
         // --- Struct Mutation ---
         (AgoType::Struct(map), AgoType::String(key)) => {
             map.insert(key.clone(), value);
-            Ok(())
         }
 
-        (AgoType::String(s), AgoType::Int(index)) => {
-            let idx = *index as usize;
-            if let AgoType::String(char_to_set) = value {
-                if char_to_set.chars().count() != 1 {
-                    return Err(format!(
-                        "Cannot set string with value '{}' that is not a single character",
-                        char_to_set
-                    ));
-                }
-                let mut chars: Vec<char> = s.chars().collect();
-                if idx < chars.len() {
-                    chars[idx] = char_to_set.chars().next().unwrap(); // Safe because we checked count() == 1
-                    *s = chars.into_iter().collect();
-                    Ok(())
-                } else {
-                    Err(format!("Index out of bounds: {}", idx))
-                }
-            } else {
-                Err(format!(
-                    "Cannot set string character with value of type {:?}",
-                    value
-                ))
-            }
-        }
         // --- Error Cases ---
-        (AgoType::Struct(_), other) => {
-            Err(format!("Struct key must be a String, but got {:?}", other))
+        (AgoType::Struct(_), other) => panic!("Struct key must be a String, but got {:?}", other),
+        (
+            AgoType::IntList(_)
+            | AgoType::FloatList(_)
+            | AgoType::BoolList(_)
+            | AgoType::StringList(_)
+            | AgoType::ListAny(_),
+            other,
+        ) => {
+            panic!("Index must be an Int, but got {:?}", other)
         }
-        (_, other) => Err(format!("Index must be an Int, but got {:?}", other)),
+        (other, _) => panic!("Cannot call 'set' on type {:?}", other),
     }
-}
-
-/// Calls set_not_unwrapped() and unwraps the result, panicking on error.
-pub fn set(iter: &mut AgoType, n: &AgoType, value: AgoType) {
-    set_not_unwrapped(iter, n, value).unwrap()
 }
