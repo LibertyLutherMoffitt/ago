@@ -249,6 +249,7 @@ xa = 30
 """
     semantics = run_program(src)
     sym = semantics.sym_table.get_symbol("xa")
+    assert sym is not None
     assert sym.type_t == "int"
     assert len(semantics.errors) == 0
 

@@ -14,7 +14,6 @@ from typing import Any, Optional
 
 from src.AgoSymbolTable import Symbol, SymbolTable, SymbolTableError
 
-
 # --- Type System Constants ---
 
 NUMERIC_TYPES = {"int", "float"}
@@ -287,6 +286,41 @@ class AgoSemanticChecker:
             sym = self.sym_table.get_symbol(name)
             if sym:
                 return sym.type_t
+
+            # On-the-fly casting based on stem name
+            # e.g., if 'xa' (int) is declared, 'xes' is a valid expression of type string.
+            req_stem = None
+            req_suffix_ending = None
+            for ending in ENDINGS_BY_LENGTH:
+                if name.endswith(ending):
+                    if len(name) > len(ending):
+                        req_stem = name[: -len(ending)]
+                        req_suffix_ending = ending
+                        break
+
+            if req_stem is not None:
+                visible_symbols = self.sym_table.get_all_visible_symbols()
+                base_sym = None
+                for sym_name in visible_symbols:
+                    if sym_name.startswith(req_stem):
+                        suffix_part = sym_name[len(req_stem) :]
+                        if suffix_part in ENDING_TO_TYPE:
+                            base_sym = visible_symbols[sym_name]
+                            break
+
+                if base_sym and req_suffix_ending is not None:
+                    source_type = base_sym.type_t
+                    target_type = ENDING_TO_TYPE[req_suffix_ending]
+                    if is_type_compatible(source_type, target_type):
+                        return target_type
+                    else:
+                        self.report_error(
+                            f"Cannot cast variable '{base_sym.name}' (type '{source_type}') "
+                            f"to '{target_type}' using identifier '{name}'",
+                            node,
+                        )
+                        return "unknown"
+
             self.report_error(f"Variable '{name}' not defined.", node)
             return "unknown"
 
@@ -567,7 +601,12 @@ class AgoSemanticChecker:
         """Handle function declaration."""
         d = to_dict(ast)
         func_name = str(d["name"])
-        return_type = self.require_type_from_name(func_name, ast)
+
+        return_type = "unknown"
+        if func_name.endswith("o"):
+            return_type = "function"
+        else:
+            return_type = self.require_type_from_name(func_name, ast)
 
         # Parse parameters
         param_symbols = self._parse_params(d.get("params"))
@@ -794,12 +833,13 @@ class AgoSemanticChecker:
         if iterator_name:
             expected_type = self.require_type_from_name(iterator_name, ast)
             if expected_type != "unknown" and iterator_type != "Any":
-                self.check_type_compatible(
-                    iterator_type,
-                    expected_type,
-                    f"for loop iterator '{iterator_name}'",
-                    ast,
-                )
+                # For loops require a stricter type match than assignment.
+                # The loop variable type must match the iterable's element type.
+                if iterator_type != expected_type:
+                    self.report_error(
+                        f"Type mismatch in for loop iterator '{iterator_name}': expected '{expected_type}', got '{iterator_type}'",
+                        ast,
+                    )
 
         self.loop_depth += 1
         self.sym_table.increment_scope()

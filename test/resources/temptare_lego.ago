@@ -1,6 +1,8 @@
-des satus() {
+des sato() {
+    xae := 4.2
+    yae := -3.9
     werum := lego().tondeo().decido(", ")
-    xae := xae & yae
+    xa := xa & ya
 }
 
-satus()
+sato()

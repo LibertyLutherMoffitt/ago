@@ -1,9 +1,9 @@
-des satus() {
+des sato() {
     xa := II
     yae := -1.2
-    yae := 1.3
-    listx := [1, 2, 3]
-    tabui := {"key":3, "abc":4, "efg":5}
+    yae = 1.3
+    listaem := [1, 2, 3]
+    tabu := {"key":3, "abc":4, "efg":5}
 }
 
-satus()
+sato()

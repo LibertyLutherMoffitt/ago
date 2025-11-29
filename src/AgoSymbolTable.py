@@ -98,6 +98,19 @@ class SymbolTable:
         """
         return self.scopes.get(self.current_scope, {}).get(name)
 
+    def get_all_visible_symbols(self) -> dict[str, Symbol]:
+        """
+        Get all symbols visible from the current scope up to global.
+        Symbols in inner scopes shadow those in outer scopes.
+        """
+        visible_symbols = {}
+        search_scope = 0
+        while search_scope <= self.current_scope:
+            if search_scope in self.scopes:
+                visible_symbols.update(self.scopes[search_scope])
+            search_scope += 1
+        return visible_symbols
+
     def update_symbol(self, symbol: Symbol) -> None:
         """
         Update an existing symbol. Searches all scopes.

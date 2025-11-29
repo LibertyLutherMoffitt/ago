@@ -1,9 +1,9 @@
-des satus(){
+des sato(){
     redeo des () {
         lego()
     }
 }
 
-des satus_du() {
+des sato_duo() {
     redeo des { lego() }
 }
