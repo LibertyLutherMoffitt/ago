@@ -768,6 +768,11 @@ pub fn exeo(code: &AgoType) {
     }
 }
 
+/// Performs a strict equality comparison between two AgoType values.
+pub fn aequalam(left: &AgoType, right: &AgoType) -> AgoType {
+    AgoType::Bool(left == right)
+}
+
 pub fn claverum(val: AgoType) -> AgoType {
     match val {
         AgoType::Struct(map) => {

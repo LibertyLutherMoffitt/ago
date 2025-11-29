@@ -1,6 +1,6 @@
 //! Integration tests for the ago_stdlib crate.
 
-use ago_stdlib::{claverum, get, insero, removeo, set, species, AgoType, TargetType};
+use ago_stdlib::{aequalam, claverum, get, insero, removeo, set, species, AgoType, TargetType};
 use std::collections::HashMap;
 
 // --- Helpers ---
@@ -295,6 +295,33 @@ fn test_claverum() {
 #[should_panic]
 fn test_claverum_on_non_struct() {
     claverum(AgoType::Int(1));
+}
+
+
+
+#[test]
+fn test_aequalam() {
+    // Same type, same value
+    assert_eq!(aequalam(&AgoType::Int(5), &AgoType::Int(5)), AgoType::Bool(true));
+    assert_eq!(aequalam(&AgoType::Float(5.0), &AgoType::Float(5.0)), AgoType::Bool(true));
+    assert_eq!(aequalam(&AgoType::String("hello".to_string()), &AgoType::String("hello".to_string())), AgoType::Bool(true));
+    assert_eq!(aequalam(&AgoType::Bool(true), &AgoType::Bool(true)), AgoType::Bool(true));
+    assert_eq!(aequalam(&AgoType::Null, &AgoType::Null), AgoType::Bool(true));
+
+    // Same type, different value
+    assert_eq!(aequalam(&AgoType::Int(5), &AgoType::Int(6)), AgoType::Bool(false));
+    assert_eq!(aequalam(&AgoType::Float(5.0), &AgoType::Float(5.1)), AgoType::Bool(false));
+    assert_eq!(aequalam(&AgoType::String("hello".to_string()), &AgoType::String("world".to_string())), AgoType::Bool(false));
+    assert_eq!(aequalam(&AgoType::Bool(true), &AgoType::Bool(false)), AgoType::Bool(false));
+
+    // Different types, same conceptual value (should be false due to strict equality)
+    assert_eq!(aequalam(&AgoType::Int(5), &AgoType::Float(5.0)), AgoType::Bool(false));
+    assert_eq!(aequalam(&AgoType::Int(1), &AgoType::Bool(true)), AgoType::Bool(false));
+    assert_eq!(aequalam(&AgoType::String("5".to_string()), &AgoType::Int(5)), AgoType::Bool(false));
+
+    // Different types, different values
+    assert_eq!(aequalam(&AgoType::Int(5), &AgoType::String("hello".to_string())), AgoType::Bool(false));
+    assert_eq!(aequalam(&AgoType::Float(1.0), &AgoType::Bool(false)), AgoType::Bool(false));
 }
 
 

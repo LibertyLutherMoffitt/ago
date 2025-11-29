@@ -136,6 +136,29 @@ Removes a value from a collection by its index or key and returns the removed va
 
 ---
 
+### aequalam
+
+Performs a strict equality comparison between two `AgoType` values. This function is used to implement the `==` operator in Ago, adhering to strict type equality (e.g., `Int(5)` is not equal to `Float(5.0)`).
+
+- **Rust Signature:** `pub fn aequalam(left: &AgoType, right: &AgoType) -> AgoType`
+- **Parameters:**
+  - `left` (`&AgoType`): The left-hand side value for comparison.
+  - `right` (`&AgoType`): The right-hand side value for comparison.
+- **Returns:** (`AgoType::Bool`): `true` if both values are of the same `AgoType` variant and have the same value, `false` otherwise.
+- **Example:**
+  ```rust
+  let int_five = AgoType::Int(5);
+  let float_five = AgoType::Float(5.0);
+  let string_five = AgoType::String("5".to_string());
+
+  assert_eq!(aequalam(&int_five, &AgoType::Int(5)), AgoType::Bool(true));
+  assert_eq!(aequalam(&int_five, &AgoType::Int(6)), AgoType::Bool(false));
+  assert_eq!(aequalam(&int_five, &float_five), AgoType::Bool(false)); // Strict equality
+  assert_eq!(aequalam(&int_five, &string_five), AgoType::Bool(false)); // Strict equality
+  ```
+
+---
+
 ### claverum
 
 Returns a list of all keys within a `Struct`.
