@@ -852,13 +852,10 @@ class AgoSemanticChecker:
             return
 
         for i, (arg, expected_type) in enumerate(zip(args, func_sym.param_types)):
+
             actual_type = self.infer_expr_type(arg)
-            self.check_type_compatible(
-                actual_type,
-                expected_type,
-                f"argument {i + 1} of '{func_sym.name}'",
-                call_node,
-            )
+            if actual_type != expected_type:
+                self.report_error(f"argument {i + 1} of '{func_sym.name} is a {actual_type}, should be a {expected_type}'")
 
     def _handle_return(self, ast):
         """Handle return statement."""
@@ -873,12 +870,8 @@ class AgoSemanticChecker:
             returned_type = self.infer_expr_type(return_value)
             expected_type = self.current_function.return_type
             if expected_type:
-                self.check_type_compatible(
-                    returned_type,
-                    expected_type,
-                    f"return from '{self.current_function.name}'",
-                    ast,
-                )
+                if returned_type != expected_type:
+                    self.report_error(f"return statement is a {returned_type}, should be a {expected_type}'")
 
     def _handle_break(self, ast):
         """Handle break statement."""
