@@ -146,7 +146,7 @@ pb
 
 pc
     =
-    | left:pd op:(EQ | GT | GE | LT | LE) right:pd
+    | left:pd op:(EQ | GE | LE | LT | GT) right:pd
     | pd
     ;
 
@@ -189,13 +189,13 @@ list
 
 mapstruct
     = 
-    LBRACE mapcontent RBRACE
+    LBRACE [nl] [mapcontent] [nl] RBRACE
     ;
 
 mapcontent
     =
-    | (STR_LIT | identifier) COLON item COMMA mapcontent
-    | (STR_LIT | identifier) COLON item
+    | [nl] (STR_LIT | identifier) COLON item COMMA [nl] [mapcontent]
+    | [nl] (STR_LIT | identifier) COLON item [nl]
     ;
 
 item
@@ -206,7 +206,12 @@ item
         chain:{ PERIOD method:nodotcall_stmt }+
       ) 
     | call:nodotcall_stmt
+    | mapstruct
     | indexed:(identifier idx:indexing)
+    | struct_indexed:(
+        base:item
+        chain:{ PERIOD sub_item:(identifier | STR_LIT)}+
+    )
     | lambda_decl
     | roman:ROMAN_NUMERAL
     | id:identifier

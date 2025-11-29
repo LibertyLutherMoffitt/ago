@@ -515,3 +515,126 @@ def test_string_with_invalid_escape_is_invalid(parser):
     src = r'"\x"' + "\n"
     with pytest.raises(FailedParse):
         parser.parse(src, rule_name="expression")
+
+# ---------- STRUCT TESTS ----------
+
+def test_struct_declaration(parser):
+    src = dedent("""
+        personu := {
+            "names": "Tom",
+            "agea": 30,
+        }
+    """)
+    ast = parser.parse(src)
+    assert ast is not None
+
+def test_struct_access(parser):
+    src = dedent("""
+        personu := {"names": "Alice", "agea": 25}
+        names := person.names
+        agea := person.agea
+    """)
+    ast = parser.parse(src)
+    assert ast is not None
+
+def test_struct_missing_comma_is_invalid(parser):
+    src = dedent("""
+        personu := {
+            "names": "Tom"
+            "agea": 30,
+        }
+    """)
+    with pytest.raises(FailedParse):
+        parser.parse(src)
+
+def test_struct_missing_colon_is_invalid(parser):
+    src = dedent("""
+        personu := {
+            "names" "Tom",
+            "agea": 30,
+        }
+    """)
+    with pytest.raises(FailedParse):
+        parser.parse(src)
+
+def test_struct_access_with_space(parser):
+    src = dedent("""
+        personu := {"first names": "Alice", "agea": 25}
+        names := personu."first names" 
+    """)
+    ast = parser.parse(src)
+    assert ast is not None
+
+def test_struct_declaration_empty(parser):
+    src = dedent("""
+        emptyStructu := {
+        }
+    """)
+    ast = parser.parse(src)
+    assert ast is not None
+
+def test_struct_with_nested_struct(parser):
+    src = dedent("""
+        addressu := {
+            "streetes": "123 Main St",
+            "cityes": "Anytown",
+            "owneru": {
+                "names": "Bob",
+                "agea": 40,
+            },
+        }
+    """)
+    ast = parser.parse(src)
+    assert ast is not None
+
+def test_struct_access_nested(parser):
+    src = dedent("""
+        addressu := {
+            "streetes": "123 Main St",
+            "cityes": "Anytown",
+            "owneru": {
+                "names": "Bob",
+                "agea": 40,
+            },
+        }
+        ownerNames := addressu.owneru.names
+    """)
+    ast = parser.parse(src)
+    assert ast is not None
+
+def test_struct_with_non_string_key_is_invalid(parser):
+    src = dedent("""
+        invalidStructu := {
+            123: "Invalid Key",
+            "agea": 30,
+        }
+    """)
+    with pytest.raises(FailedParse):
+        parser.parse(src)
+
+def test_struct_nested_with_space(parser):
+    src = dedent("""
+        complexStructu := {
+            "level one": {
+                "level two": {
+                    "level three": "Deep Value"
+                }
+            }
+        }
+    """)
+    ast = parser.parse(src)
+    assert ast is not None
+
+def test_struct_access_nested_with_space(parser):
+    src = dedent("""
+        complexStructu := {
+            "level one": {
+                "level two": {
+                    "level three": "Deep Value"
+                }
+            }
+        }
+        deepValues := complexStructu."level one"."level two"."level three"
+    """)
+    ast = parser.parse(src)
+    assert ast is not None

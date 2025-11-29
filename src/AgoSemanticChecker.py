@@ -1,18 +1,55 @@
-from collections.abc import Mapping
+"""
+Ago Semantic Checker - Performs semantic analysis on parsed Ago AST.
+
+This module implements a Tatsu semantic actions class that validates:
+- Variable declarations and usage
+- Type compatibility
+- Function definitions and calls
+- Control flow (break/continue in loops, return in functions)
+- Scope management
+"""
+
 from dataclasses import dataclass
-from typing import Any, List, Optional
+from turtle import left, right
+from typing import Any, Optional
 
-from tatsu.ast import AST  # this is TatSu's dict-like AST node
+from src.AgoSymbolTable import Symbol, SymbolTable, SymbolTableError
 
-from src.AgoSymbolTable import Symbol, SymbolTable
 
-NUMERIC_TYPES = ["int", "float"]
+# --- Type System Constants ---
 
-# ---------- Error types ----------
+NUMERIC_TYPES = {"int", "float"}
+LIST_TYPES = {"int_list", "float_list", "bool_list", "string_list", "list_any"}
+PRIMITIVE_TYPES = {"int", "float", "bool", "string"}
+ALL_TYPES = (
+    PRIMITIVE_TYPES | LIST_TYPES | {"struct", "function", "void", "Any", "unknown"}
+)
+
+# Maps variable name endings to types (Ago's type inference system)
+ENDING_TO_TYPE = {
+    "a": "int",
+    "ae": "float",
+    "am": "bool",
+    "aem": "int_list",
+    "arum": "float_list",
+    "as": "bool_list",
+    "es": "string",
+    "erum": "string_list",
+    "u": "struct",
+    "uum": "list_any",
+}
+
+# Sorted by length descending for proper matching
+ENDINGS_BY_LENGTH = sorted(ENDING_TO_TYPE.keys(), key=len, reverse=True)
+
+
+# --- Error Handling ---
 
 
 @dataclass
 class SemanticError:
+    """Represents a semantic error found during analysis."""
+
     message: str
     line: Optional[int] = None
     col: Optional[int] = None
@@ -22,646 +59,961 @@ class SemanticError:
         location = ""
         if self.line is not None and self.col is not None:
             location = f"(line {self.line}, col {self.col}) "
+        elif self.line is not None:
+            location = f"(line {self.line}) "
         return f"{location}{self.message}"
 
 
-class AgoSemanticException(Exception):
-    """Use this if you ever want to abort immediately on first semantic error."""
-
-    pass
+# --- Helper Functions ---
 
 
-# --------- Helper functs ---------
+def get_node_location(node: Any) -> tuple[Optional[int], Optional[int]]:
+    """Extract line and column from a Tatsu AST node if available."""
+    if hasattr(node, "parseinfo") and node.parseinfo:
+        info = node.parseinfo
+        return (getattr(info, "line", None), getattr(info, "col", None))
+    return (None, None)
 
 
-def ending_to_type(ending: str) -> str:
-    endings_to_str = {
-        "a": "int",
-        "ae": "float",
-        "am": "bool",
-        "aem": "int_list",
-        "arum": "float_list",
-        "as": "bool_list",
-        "es": "string",
-        "erum": "string_list",
-        "u": "struct",
-        "uum": "list_list",
-    }
-    return endings_to_str[ending]
+def infer_type_from_name(name: str) -> Optional[str]:
+    """
+    Infer type from variable name suffix.
+    Returns None if no valid suffix is found.
+    """
+    for ending in ENDINGS_BY_LENGTH:
+        if name.endswith(ending):
+            return ENDING_TO_TYPE[ending]
+    return None
 
 
-def type_to_type_check(current: str, to: str) -> bool:
-    if current == to:
+def get_element_type(list_type: str) -> str:
+    """Get the element type of a list type."""
+    if list_type == "list_any":
+        return "Any"
+    if list_type.endswith("_list"):
+        return list_type[:-5]  # Remove "_list" suffix
+    return "unknown"
+
+
+def is_type_compatible(from_type: str, to_type: str) -> bool:
+    """
+    Check if from_type can be used where to_type is expected.
+    This implements Ago's type coercion rules.
+    """
+    if from_type == to_type:
         return True
-    acceptables = {
-        "int": ["float", "bool", "string"],
-        "float": ["int", "bool", "string"],
-        "bool": ["int", "float", "string"],
-        "int_list": ["int", "string", "float_list", "bool_list", "string_list", "bool"],
-        "float_list": ["int", "string", "int_list", "bool_list", "string_list", "bool"],
-        "bool_list": ["int", "string", "int_list", "float_list", "string_list", "bool"],
-        "string_list": ["int", "string", "int_list", "float_list", "bool_list", "bool"],
-        "string": ["int", "float", "bool", "string_list"],
-        "struct": ["string", "int", "bool"],
-        "list_list": ["int", "string", "bool"],
-    }
-
-    if current not in acceptables:
-        raise AgoSemanticException(
-            f"{current} is not an acceptable type ({','.join(acceptables.keys())})"
-        )
-
-    if to not in acceptables:
-        raise AgoSemanticException(
-            f"{to} is not an acceptable type ({','.join(acceptables.keys())})"
-        )
-
-    if to not in acceptables[current]:
-        raise AgoSemanticException(
-            f"{to} is not a valid conversion for {current}. Acceptable conversion: [{','.join(acceptables[current])}]"
-        )
-
-    return True
+    if from_type == "Any" or to_type == "Any":
+        return True
+    if from_type == "unknown" or to_type == "unknown":
+        return True
+    if from_type in NUMERIC_TYPES and to_type in NUMERIC_TYPES:
+        return True
+    if from_type == "bool" and to_type in NUMERIC_TYPES:
+        return True
+    if from_type in NUMERIC_TYPES and to_type == "bool":
+        return True
+    if to_type == "string":
+        return True
+    if from_type == "string" and to_type in NUMERIC_TYPES:
+        return True
+    if from_type in LIST_TYPES and to_type in LIST_TYPES:
+        from_elem = get_element_type(from_type)
+        to_elem = get_element_type(to_type)
+        return is_type_compatible(from_elem, to_elem)
+    return False
 
 
-# ---------- Semantics class ----------
+def result_type_for_arithmetic(left: str, right: str) -> str:
+    """Determine the result type for arithmetic operations."""
+
+    if left == "float" or right == "float":
+        return "float"
+    return "int"
 
 
-class AgoSemantics:
-    """
-    TatSu semantics class that performs semantic checking while the parse runs.
-
-    - Manages a SymbolTable with scopes.
-    - Collects SemanticError instances in self.errors.
-    - Provides hooks for rule-specific checks (declaration, assignment, calls, etc).
-
-    This is meant to be extended and filled in as your language spec solidifies.
-    """
-
-    def __init__(self, symtab: Optional[SymbolTable] = None, fail_fast: bool = False):
-        super().__init__()
-        self.symtab: SymbolTable = symtab or SymbolTable()
-        self.errors: List[SemanticError] = []
-        self.fail_fast: bool = fail_fast
-
-        # optional: track context
-        self.current_function: Optional[str] = None
-        self.loop_depth: int = 0  # to validate BREAK/CONTINUE
-
-    def walk(self, node):
-        """
-        Generic recursive walker over TatSu AST structures.
-
-        It *doesn't* call rule-specific semantic methods again (TatSu
-        already did that during parse). It's just for walking deeper into
-        child nodes when a semantic method wants to keep exploring.
-        """
-        if node is None:
-            return None
-
-        # Primitive leaf nodes: nothing to recurse into
-        if isinstance(node, (str, int, float, bool)):
-            return node
-
-        # Lists/tuples: walk each element
-        if isinstance(node, (list, tuple)):
-            for elem in node:
-                self.walk(elem)
-            return node
-
-        # TatSu AST or any dict-like: walk all values
-        if isinstance(node, (AST, Mapping)):
-            for value in node.values():
-                self.walk(value)
-            return node
-
-        # Fallback: unknown type, just return it
+def to_dict(node: Any) -> dict:
+    """Convert an AST node to a dict for easier access."""
+    if isinstance(node, dict):
         return node
+    if hasattr(node, "items"):
+        return dict(node)
+    if hasattr(node, "__dict__"):
+        return node.__dict__
+    return {}
 
-    def infer_expr_type(self, expr) -> str:
-        if type(expr) is str:
-            if expr == "verum" or expr == "falsus":
-                return "bool"
-            return expr
 
-        expr = dict(expr)
+# --- Semantic Checker Class ---
 
-        expr = expr.get("value") if expr.get("value") is not None else expr
 
-        if type(expr) is str:
-            if expr == "verum" or expr == "falsus":
-                return "bool"
-            return expr
+class AgoSemanticChecker:
+    """
+    Tatsu semantic actions class for Ago language.
+    """
 
-        assert expr is not None, "Expr is None"
+    def __init__(self):
+        self.sym_table = SymbolTable()
+        self.errors: list[SemanticError] = []
+        self.loop_depth: int = 0
+        self.current_function: Optional[Symbol] = None
 
-        # 1) Base literals
-        if expr.get("int"):
-            return "int"
-        if expr.get("float"):
-            return "float"
-        if expr.get("str"):
-            return "string"
-        if expr.get("value") == "verum":
-            return "bool"
-        if expr.get("value") == "falsus":
-            return "bool"
-        if expr.get("roman"):
-            return "int"  # treat ROMAN_NUMERAL as int
+    # --- Error Reporting ---
 
-        # 2) Identifier
-        if expr.get("id"):
-            sym = self.require_symbol(expr.get("id"), expr)
-            return sym.type_t if sym and sym.type_t else "bad_sym"
+    def report_error(self, message: str, node: Any = None) -> None:
+        """Record a semantic error."""
+        line, col = get_node_location(node) if node else (None, None)
+        self.errors.append(SemanticError(message, line, col, node))
 
-        # 3) Parenthesized: (expr)
-        if getattr(expr, "paren", None):
-            return self.infer_expr_type(dict(expr.get("paren")[1]))
+    def has_errors(self) -> bool:
+        return len(self.errors) > 0
 
-        # 4) Lists
-        if getattr(expr, "list", None):
-            items = expr.list  # depends on your actual AST
-            elem_types = {self.infer_expr_type(it) for it in items}
-            if len(elem_types) == 1:
-                return f"{elem_types[0]}_list"
-            return "list_list"  # heterogeneous for now
+    # --- Type Inference ---
 
-        # 5) Maps
-        if expr.get("mapstruct", None) is not None:
-            # you’ll need to dig into mapcontent for key/value types
-            # for now, just Map[Unknown, Unknown]
-            return "table"
-
-        # binary ops
-        if expr.get("op") and expr.get("left"):
-            op = expr.get("op")
-            if op in ["et", "vel"]:
-                return "bool"
-            if op in ["+", "-", "*", "/", "%"]:
-                left = self.infer_expr_type(dict(expr.get("left")))
-                right = self.infer_expr_type(dict(expr.get("right")))
-                if left not in NUMERIC_TYPES:
-                    self.report_error(
-                        f"{left} is not a numeric type, but you're trying to use it in a numeric expression.",
-                        expr,
-                    )
-                if right not in NUMERIC_TYPES:
-                    self.report_error(
-                        f"{right} is not a numeric type, but you're trying to use it in a numeric expression.",
-                        expr,
-                    )
-
-                if left == "float":
-                    return "float"
-                return right
-            if op in [">", "<", "<=", ">=", "=="]:
-                return "bool"
-
-        # Unary ops (pg)
-        if expr.get("op") and expr.get("right"):
-            op = expr.get("op")
-            right_t = self.infer_expr_type(expr.get("right"))
-            # e.g., '-' on floats/ints
-            if op in ("-", "+"):  # or store actual tokens
-                # simple numeric rule: int/float stays numeric
-                if right_t in NUMERIC_TYPES:
-                    return right_t
-                self.report_error("Unary +/- on non-number", expr)
-                return "bad_unary"
-            if op == "non":
-                if right_t != "bool":
-                    self.report_error("Unary 'non' on non-bool", expr)
-                return "bool"
-
-        return expr
-
-    # ---------- helper methods ----------
-
-    def location_of(self, node: Any) -> tuple[Optional[int], Optional[int]]:
-        """Extract (line, col) from TatSu's parseinfo if available."""
-        parseinfo = getattr(node, "parseinfo", None)
-        if parseinfo is None:
-            return None, None
-        return getattr(parseinfo, "line", None), getattr(parseinfo, "col", None)
-
-    def report_error(self, message: str, node: Any) -> None:
-        line, col = self.location_of(node)
-        err = SemanticError(message=message, line=line, col=col, node=node)
-        self.errors.append(err)
-        if self.fail_fast:
-            raise AgoSemanticException(str(err))
-
-    # --- scope management ---
-
-    def enter_scope(self) -> None:
-        self.symtab.increment_scope()
-
-    def exit_scope(self) -> None:
-        # You might want to do additional checks on exiting scope later
-        self.symtab.decrement_scope()
-
-    # --- symbol helpers ---
-
-    def declare_symbol(
-        self,
-        name: str,
-        type_t: str = "default_declare_symbol",
-        category: str = "var",
-        node: Any = None,
-    ) -> None:
-        """Declare a new symbol in the current scope, recording errors for duplicates."""
-        try:
-            sym = Symbol(
-                name=name,
-                type_t=type_t,
-                category=category,
-                scope=self.symtab.current_scope,
+    def require_type_from_name(self, name: str, node: Any = None) -> str:
+        """Get type from name suffix, reporting error if invalid."""
+        type_t = infer_type_from_name(name)
+        if type_t is None:
+            self.report_error(
+                f"Variable '{name}' does not have a valid type suffix. "
+                f"Valid suffixes: {', '.join(ENDINGS_BY_LENGTH)}",
+                node,
             )
-            self.symtab.add_symbol(sym)
-        except Exception as ex:
-            # SymbolTable should already raise on duplicates
-            self.report_error(str(ex), node or name)
+            return "unknown"
+        return type_t
 
-    def require_symbol(self, name: str, node: Any) -> Optional[Symbol]:
-        """Ensure a symbol exists in the current scope (or possibly outer scopes if you extend)."""
-        # Right now SymbolTable.get_symbol only checks current scope.
-        # If you implement outer-scope lookup, call that here instead.
-        sym = self.symtab.get_symbol(name)
+    def check_type_compatible(
+        self, actual: str, expected: str, context: str, node: Any = None
+    ) -> bool:
+        """Check type compatibility and report error if incompatible."""
+        if not is_type_compatible(actual, expected):
+            self.report_error(
+                f"Type mismatch in {context}: expected '{expected}', got '{actual}'",
+                node,
+            )
+            return False
+        return True
+
+    # --- Symbol Management ---
+
+    def require_symbol(self, name: str, node: Any = None) -> Optional[Symbol]:
+        """Look up a symbol, reporting error if not found."""
+        sym = self.sym_table.get_symbol(name)
         if sym is None:
             self.report_error(f"Use of undeclared identifier '{name}'", node)
         return sym
 
-    # ---------- top-level rule ----------
+    def declare_symbol(self, symbol: Symbol, node: Any = None) -> bool:
+        """Declare a new symbol, reporting error if it already exists."""
+        try:
+            self.sym_table.add_symbol(symbol)
+            return True
+        except SymbolTableError as e:
+            self.report_error(str(e), node)
+            return False
+
+    # --- Expression Type Inference ---
+
+    def infer_expr_type(self, expr: Any) -> str:
+        """Infer the type of an expression."""
+        if expr is None:
+            return "void"
+
+        # String keywords
+        if isinstance(expr, str):
+            if expr == "verum":
+                return "bool"
+            if expr == "falsus":
+                return "bool"
+            if expr == "inanis":
+                return "void"
+            sym = self.sym_table.get_symbol(expr)
+            if sym:
+                return sym.type_t
+            return "unknown"
+
+        # AST nodes
+        if hasattr(expr, "parseinfo") or isinstance(expr, dict):
+            return self._infer_node_type(expr)
+
+        # Lists
+        if isinstance(expr, (list, tuple)):
+            if len(expr) == 0:
+                return "list_any"
+            elem_types = set()
+            for e in expr:
+                if e is not None and e != "," and not isinstance(e, str):
+                    elem_types.add(self.infer_expr_type(e))
+            if len(elem_types) == 1:
+                elem = elem_types.pop()
+                return f"{elem}_list" if elem not in LIST_TYPES else "list_any"
+            return "list_any"
+
+        return "unknown"
+
+    def _infer_node_type(self, node: Any) -> str:
+        """Infer type from an AST node."""
+        d = to_dict(node)
+
+        # Unwrap 'value' wrapper
+        if "value" in d and d.get("value") is not None:
+            inner = d["value"]
+            if isinstance(inner, str):
+                if inner in ("verum", "falsus"):
+                    return "bool"
+                if inner == "inanis":
+                    return "void"
+            if isinstance(inner, dict) or hasattr(inner, "parseinfo"):
+                return self._infer_node_type(inner)
+
+        # Literals
+        if d.get("int") is not None:
+            return "int"
+        if d.get("float") is not None:
+            return "float"
+        if d.get("str") is not None:
+            return "string"
+        if d.get("roman") is not None:
+            return "int"
+
+        # Identifier reference
+        if d.get("id") is not None:
+            name = str(d["id"])
+            sym = self.sym_table.get_symbol(name)
+            if sym:
+                return sym.type_t
+            self.report_error(f"Variable '{name}' not defined.", node)
+            return "unknown"
+
+        # Parenthesized expression
+        if d.get("paren") is not None:
+            paren = d["paren"]
+            if hasattr(paren, "expr"):
+                return self.infer_expr_type(paren.expr)
+            if isinstance(paren, (list, tuple)) and len(paren) >= 2:
+                return self.infer_expr_type(paren[1])
+            return self.infer_expr_type(paren)
+
+        # List literal
+        if d.get("list") is not None:
+            return self._infer_list_type(d["list"])
+
+        # Map/struct literal
+        if d.get("mapstruct") is not None:
+            return "struct"
+
+        # Function call
+        if d.get("call") is not None:
+            return self._infer_call_type(d["call"])
+
+        # Method chain
+        if d.get("mchain") is not None:
+            return "Any"
+
+        # Indexed access
+        if d.get("indexed") is not None:
+            return self._infer_indexed_type(d["indexed"])
+
+        # Lambda
+        if d.get("body") is not None and "name" not in d:
+            return "function"
+
+        # Binary operators
+        if d.get("op") is not None and d.get("left") is not None:
+            return self._infer_binary_op_type(d)
+
+        # Unary operators
+        if (
+            d.get("op") is not None
+            and d.get("right") is not None
+            and d.get("left") is None
+        ):
+            return self._infer_unary_op_type(d)
+
+        return "Any"
+
+    def _infer_list_type(self, list_node: Any) -> str:
+        """Infer type of a list literal."""
+        items = []
+        if hasattr(list_node, "__iter__") and not isinstance(list_node, str):
+            items = [i for i in list_node if i is not None and i != ","]
+        if not items:
+            return "list_any"
+
+        elem_types = {self.infer_expr_type(item) for item in items}
+
+        if len(elem_types) == 1:
+            elem = elem_types.pop()
+            if elem in LIST_TYPES:
+                return "list_any"
+            return f"{elem}_list"
+        return "list_any"
+
+    def _infer_call_type(self, call_node: Any) -> str:
+        """Infer return type of a function call."""
+        d = to_dict(call_node)
+        # call_stmt has structure: {recv, first, chain}
+        first = d.get("first")
+        if first:
+            first_d = to_dict(first)
+            func_name = first_d.get("func")
+            if func_name:
+                sym = self.sym_table.get_symbol(str(func_name))
+                if sym and sym.category == "func" and sym.return_type:
+                    return sym.return_type
+        return "Any"
+
+    def _infer_indexed_type(self, indexed: Any) -> str:
+        """Infer type of an indexed access."""
+        if hasattr(indexed, "__iter__"):
+            items = list(indexed)
+            if items:
+                base = items[0]
+                if isinstance(base, str):
+                    sym = self.sym_table.get_symbol(base)
+                    if sym:
+                        base_type = sym.type_t
+                        if base_type in LIST_TYPES:
+                            return get_element_type(base_type)
+                        if base_type == "string":
+                            return "string"
+        return "Any"
+
+    def _infer_binary_op_type(self, d: dict) -> str:
+        """Infer result type of a binary operation."""
+        op = d.get("op")
+        left_type = self.infer_expr_type(d.get("left"))
+        right_type = self.infer_expr_type(d.get("right"))
+
+        if op in ("et", "vel"):
+            if left_type != "bool" and left_type not in ("Any", "unknown"):
+                self.report_error(
+                    f"Left operand of '{op}' must be bool, got '{left_type}'", d
+                )
+            if right_type != "bool" and right_type not in ("Any", "unknown"):
+                self.report_error(
+                    f"Right operand of '{op}' must be bool, got '{right_type}'", d
+                )
+            return "bool"
+
+        if op in ("&", "|", "^"):
+            return "int"
+
+        if op in ("==", "!=", "<", ">", "<=", ">="):
+            if left_type != right_type and not (
+                left_type in NUMERIC_TYPES and right_type in NUMERIC_TYPES
+            ):
+                self.report_error(
+                    f"{left_type} {op} {right_type} is an invalid comparision between types."
+                )
+
+            return "bool"
+
+        if op in ("+", "-", "*", "/", "%"):
+            if op == "+" and (left_type == "string" or right_type == "string"):
+                return "string"
+
+            if left_type not in NUMERIC_TYPES and left_type not in ("Any", "unknown"):
+                self.report_error(
+                    f"'{left_type}' is not a numeric type, but you're trying to use it in a numeric expression.",
+                    d,
+                )
+            if right_type not in NUMERIC_TYPES and right_type not in ("Any", "unknown"):
+                self.report_error(
+                    f"'{right_type}' is not a numeric type, but you're trying to use it in a numeric expression.",
+                    d,
+                )
+            return result_type_for_arithmetic(left_type, right_type)
+
+        if op in ("..", ".<"):
+            if left_type == "string":
+                return "string"
+            if left_type in LIST_TYPES:
+                return left_type
+            return "list_any"
+
+        if op == "?:":
+            return left_type if left_type != "void" else right_type
+
+        return "Any"
+
+    def _infer_unary_op_type(self, d: dict) -> str:
+        """Infer result type of a unary operation."""
+        op = d.get("op")
+        right_type = self.infer_expr_type(d.get("right"))
+
+        if op == "non":
+            if right_type != "bool" and right_type not in ("Any", "unknown"):
+                self.report_error(
+                    f"Unary 'non' requires bool operand, got '{right_type}'", d
+                )
+            return "bool"
+
+        if op in ("+", "-"):
+            if right_type not in NUMERIC_TYPES and right_type not in ("Any", "unknown"):
+                self.report_error(
+                    f"Unary '{op}' requires numeric operand, got '{right_type}'", d
+                )
+                return "unknown"
+            return right_type
+
+        return "Any"
+
+    # --- Main AST Processing ---
 
     def principio(self, ast):
-        """
-        Entry point for the program.
+        """Entry point - process the entire program."""
+        if ast is None:
+            return ast
 
-        TatSu will already walk subrules; here you can:
-        - reset semantic state
-        - perform post-pass checks if needed
-        """
-        # Optionally reset state each parse:
-        self.symtab = self.symtab or SymbolTable()
-        self.current_function = None
-        self.loop_depth = 0
+        # ast is a list: [item, [[newlines]], more_items...]
+        for item in ast:
+            self._process_top_level_item(item)
 
-        # Let default walker handle children
-        return self.walk(ast)
+        return ast
 
-    # ---------- declarations & assignments ----------
+    def _process_top_level_item(self, item):
+        """Process a top-level item."""
+        if item is None:
+            return
+        if isinstance(item, str):
+            # Could be break/continue at top level (error)
+            if item == "frio":
+                self._handle_break(item)
+            elif item == "pergo":
+                self._handle_continue(item)
+            return
+        if isinstance(item, list):
+            # Nested list of items or newlines
+            for sub in item:
+                self._process_top_level_item(sub)
+            return
+
+        d = to_dict(item)
+
+        # Method declaration: has name, params, body
+        if "name" in d and "body" in d and "params" in d:
+            self._handle_method_decl(item)
+        # Statement
+        else:
+            self._process_statement(item)
+
+    def _process_statement(self, stmt):
+        """Process a single statement."""
+        if stmt is None:
+            return
+
+        # String tokens
+        if isinstance(stmt, str):
+            if stmt == "frio":
+                self._handle_break(stmt)
+            elif stmt == "pergo":
+                self._handle_continue(stmt)
+            elif stmt == "omitto":
+                pass  # Pass statement
+            return
+
+        # List of statements
+        if isinstance(stmt, list):
+            for sub in stmt:
+                self._process_statement(sub)
+            return
+
+        d = to_dict(stmt)
+
+        # Return statement: has return_stmt key
+        if "return_stmt" in d:
+            self._handle_return(stmt)
+        # Declaration: has name and value, no target
+        elif "name" in d and "value" in d and "target" not in d:
+            self._handle_declaration(stmt)
+        # Reassignment: has target and value
+        elif "target" in d and "value" in d:
+            self._handle_reassignment(stmt)
+        # If statement
+        elif "if_stmt" in d:
+            self._handle_if(d["if_stmt"])
+        elif "cond" in d and "then" in d:
+            self._handle_if(stmt)
+        # While statement
+        elif "while_stmt" in d:
+            self._handle_while(d["while_stmt"])
+        elif "cond" in d and "body" in d and "iterator" not in d:
+            self._handle_while(stmt)
+        # For statement
+        elif "for_stmt" in d:
+            self._handle_for(d["for_stmt"])
+        elif "iterator" in d and "iterable" in d:
+            self._handle_for(stmt)
+        # Call statement: has call key
+        elif "call" in d:
+            self._handle_call_stmt(d["call"])
+        # Break/Continue as dict keys
+        elif d.get("BREAK") is not None:
+            self._handle_break(stmt)
+        elif d.get("CONTINUE") is not None:
+            self._handle_continue(stmt)
+
+    def _handle_method_decl(self, ast):
+        """Handle function declaration."""
+        d = to_dict(ast)
+        func_name = str(d["name"])
+        return_type = self.require_type_from_name(func_name, ast)
+
+        # Parse parameters
+        param_symbols = self._parse_params(d.get("params"))
+        param_types = [p.type_t for p in param_symbols]
+
+        func_symbol = Symbol(
+            name=func_name,
+            type_t="function",
+            category="func",
+            return_type=return_type,
+            param_types=param_types,
+            num_of_params=len(param_symbols),
+        )
+
+        self.declare_symbol(func_symbol, ast)
+
+        # Enter function context
+        previous_function = self.current_function
+        self.current_function = func_symbol
+        self.sym_table.increment_scope()
+
+        # Declare parameters
+        for param in param_symbols:
+            param.category = "param"
+            self.declare_symbol(param, ast)
+
+        # Process body
+        body = d.get("body")
+        if body:
+            self._process_block(body)
+
+        # Exit function context
+        self.sym_table.decrement_scope()
+        self.current_function = previous_function
+
+    def _parse_params(self, params_node) -> list[Symbol]:
+        """Parse parameter list into Symbol objects."""
+        if params_node is None:
+            return []
+
+        d = to_dict(params_node)
+        symbols = []
+
+        first = d.get("first")
+        if first:
+            name = self._extract_identifier(first)
+            if name:
+                type_t = self.require_type_from_name(name, params_node)
+                symbols.append(Symbol(name=name, type_t=type_t))
+
+        rest = d.get("rest")
+        if rest:
+            for item in rest:
+                item_d = to_dict(item) if not isinstance(item, list) else {}
+                expr = item_d.get("expr") if item_d else None
+                if expr is None and isinstance(item, list) and len(item) >= 2:
+                    expr = item[1]
+                if expr:
+                    name = self._extract_identifier(expr)
+                    if name:
+                        type_t = self.require_type_from_name(name, params_node)
+                        symbols.append(Symbol(name=name, type_t=type_t))
+
+        return symbols
+
+    def _extract_identifier(self, node) -> Optional[str]:
+        """Extract identifier name from various node formats."""
+        if isinstance(node, str):
+            return node
+        d = to_dict(node)
+        if "id" in d:
+            return str(d["id"])
+        # Check value wrapper
+        if "value" in d:
+            inner = d["value"]
+            if isinstance(inner, dict) or hasattr(inner, "parseinfo"):
+                return self._extract_identifier(inner)
+        return None
+
+    def _process_block(self, block):
+        """Process statements in a block."""
+        if block is None:
+            return
+
+        d = to_dict(block)
+        stmts = d.get("stmts")
+        if stmts is None:
+            return
+
+        stmts_d = to_dict(stmts)
+        first = stmts_d.get("first")
+        if first:
+            self._process_statement(first)
+
+        rest = stmts_d.get("rest")
+        if rest:
+            for item in rest:
+                if isinstance(item, list):
+                    for sub in item:
+                        if (
+                            sub
+                            and sub != "\n"
+                            and not (isinstance(sub, str) and sub.strip() == "")
+                        ):
+                            self._process_statement(sub)
+                elif item and item != "\n":
+                    self._process_statement(item)
+
+    def _handle_declaration(self, ast):
+        """Handle variable declaration: name := value"""
+        d = to_dict(ast)
+        var_name = str(d["name"])
+        expected_type = self.require_type_from_name(var_name, ast)
+        actual_type = self.infer_expr_type(d.get("value"))
+
+        self.check_type_compatible(
+            actual_type, expected_type, f"declaration of '{var_name}'", ast
+        )
+
+        symbol = Symbol(name=var_name, type_t=expected_type, category="var")
+        self.declare_symbol(symbol, ast)
+
+    def _handle_reassignment(self, ast):
+        """Handle variable reassignment: target = value"""
+        d = to_dict(ast)
+        var_name = str(d["target"])
+        sym = self.require_symbol(var_name, ast)
+
+        if sym is None:
+            return
+
+        target_type = sym.type_t
+
+        # Handle indexed assignment
+        if d.get("index") is not None:
+            if target_type in LIST_TYPES:
+                target_type = get_element_type(target_type)
+            elif target_type == "string":
+                target_type = "string"
+            elif target_type == "struct":
+                target_type = "Any"
+            else:
+                self.report_error(
+                    f"Cannot index non-indexable type '{sym.type_t}'", ast
+                )
+
+        rhs_type = self.infer_expr_type(d.get("value"))
+        self.check_type_compatible(
+            rhs_type, target_type, f"assignment to '{var_name}'", ast
+        )
+
+    def _handle_if(self, ast):
+        """Handle if statement."""
+        d = to_dict(ast)
+
+        cond_type = self.infer_expr_type(d.get("cond"))
+        self.check_type_compatible(cond_type, "bool", "if condition", ast)
+
+        self.sym_table.increment_scope()
+        self._process_block(d.get("then"))
+        self.sym_table.decrement_scope()
+
+        # Elif blocks
+        elifs = d.get("elifs")
+        if elifs:
+            for elif_block in elifs:
+                elif_d = to_dict(elif_block)
+                elif_cond = elif_d.get("elif_cond")
+                if elif_cond:
+                    elif_cond_type = self.infer_expr_type(elif_cond)
+                    self.check_type_compatible(
+                        elif_cond_type, "bool", "elif condition", elif_block
+                    )
+                    self.sym_table.increment_scope()
+                    self._process_block(elif_d.get("elif_body"))
+                    self.sym_table.decrement_scope()
+
+        # Else block
+        else_frag = d.get("else_fragment")
+        if else_frag:
+            else_d = to_dict(else_frag)
+            self.sym_table.increment_scope()
+            self._process_block(else_d.get("else_body"))
+            self.sym_table.decrement_scope()
+
+    def _handle_while(self, ast):
+        """Handle while loop."""
+        d = to_dict(ast)
+
+        cond_type = self.infer_expr_type(d.get("cond"))
+        self.check_type_compatible(cond_type, "bool", "while condition", ast)
+
+        self.loop_depth += 1
+        self.sym_table.increment_scope()
+        self._process_block(d.get("body"))
+        self.sym_table.decrement_scope()
+        self.loop_depth -= 1
+
+    def _handle_for(self, ast):
+        """Handle for loop."""
+        d = to_dict(ast)
+
+        iterable_type = self.infer_expr_type(d.get("iterable"))
+        if iterable_type not in LIST_TYPES and iterable_type not in (
+            "string",
+            "Any",
+            "unknown",
+        ):
+            self.report_error(
+                f"Cannot iterate over non-iterable type '{iterable_type}'", ast
+            )
+
+        if iterable_type in LIST_TYPES:
+            iterator_type = get_element_type(iterable_type)
+        elif iterable_type == "string":
+            iterator_type = "string"
+        else:
+            iterator_type = "Any"
+
+        iterator_name = self._extract_identifier(d.get("iterator"))
+        if iterator_name:
+            expected_type = self.require_type_from_name(iterator_name, ast)
+            if expected_type != "unknown" and iterator_type != "Any":
+                self.check_type_compatible(
+                    iterator_type,
+                    expected_type,
+                    f"for loop iterator '{iterator_name}'",
+                    ast,
+                )
+
+        self.loop_depth += 1
+        self.sym_table.increment_scope()
+
+        if iterator_name:
+            iter_symbol = Symbol(
+                name=iterator_name, type_t=iterator_type, category="var"
+            )
+            self.declare_symbol(iter_symbol, ast)
+
+        self._process_block(d.get("body"))
+
+        self.sym_table.decrement_scope()
+        self.loop_depth -= 1
+
+    def _handle_call_stmt(self, call_node):
+        """Handle call statement."""
+        d = to_dict(call_node)
+
+        # call_stmt structure: {recv, first, chain}
+        first = d.get("first")
+        if first:
+            first_d = to_dict(first)
+            func_name = first_d.get("func")
+            if func_name:
+                func_name = str(func_name)
+                sym = self.sym_table.get_symbol(func_name)
+                if sym is None:
+                    self.report_error(
+                        f"Use of undeclared identifier '{func_name}'", call_node
+                    )
+                elif sym.category == "func":
+                    self._validate_call_args(first, sym)
+
+    def _validate_call_args(self, call_node, func_sym: Symbol):
+        """Validate function call arguments."""
+        d = to_dict(call_node)
+        args = []
+        args_node = d.get("args")
+        if args_node:
+            args_d = to_dict(args_node)
+            first = args_d.get("first")
+            if first:
+                args.append(first)
+            rest = args_d.get("rest")
+            if rest:
+                for item in rest:
+                    if isinstance(item, list) and len(item) >= 2:
+                        args.append(item[1])
+                    else:
+                        item_d = to_dict(item)
+                        if "expr" in item_d:
+                            args.append(item_d["expr"])
+
+        expected_count = func_sym.num_of_params
+        actual_count = len(args)
+
+        if actual_count != expected_count:
+            self.report_error(
+                f"Function '{func_sym.name}' expects {expected_count} arguments, "
+                f"but got {actual_count}",
+                call_node,
+            )
+            return
+
+        for i, (arg, expected_type) in enumerate(zip(args, func_sym.param_types)):
+
+            actual_type = self.infer_expr_type(arg)
+            if actual_type != expected_type:
+                self.report_error(f"argument {i + 1} of '{func_sym.name} is a {actual_type}, should be a {expected_type}'")
+
+    def _handle_return(self, ast):
+        """Handle return statement."""
+        if self.current_function is None:
+            self.report_error("'redeo' (return) outside of function", ast)
+            return
+
+        d = to_dict(ast)
+        # return_stmt is ["redeo", value] or value is directly available
+        return_value = d.get("value")
+        if return_value is not None:
+            returned_type = self.infer_expr_type(return_value)
+            expected_type = self.current_function.return_type
+            if expected_type:
+                if returned_type != expected_type:
+                    self.report_error(f"return statement is a {returned_type}, should be a {expected_type}'")
+
+    def _handle_break(self, ast):
+        """Handle break statement."""
+        if self.loop_depth <= 0:
+            self.report_error("'frio' (break) outside of loop", ast)
+
+    def _handle_continue(self, ast):
+        """Handle continue statement."""
+        if self.loop_depth <= 0:
+            self.report_error("'pergo' (continue) outside of loop", ast)
+
+    # --- Tatsu Semantic Action Stubs ---
+    # These just return the AST unchanged; actual processing is done in principio
+
+    def sub_principio(self, ast):
+        return ast
+
+    def statement(self, ast):
+        return ast
 
     def declaration_stmt(self, ast):
-        """
-        name:identifier ASSIGNMENT_OP value:expression
-
-        Here we:
-        - declare the name in the current scope
-
-        """
-        name = ast.name
-        type = self.infer_expr_type(ast.value)
-        self.declare_symbol(name=name, type_t=type, category="var", node=ast)
-        self.walk(ast.value)
         return ast
 
     def reassignment_stmt(self, ast):
-        """
-        target:identifier [ index:indexing ] REASSIGNMENT_OP value:expression
-
-        Here we:
-        - ensure the identifier was declared
-        - eventually do type compatibility checks (TODO)
-        """
-        target_name = ast.target
-        current_symbol = self.require_symbol(target_name, node=ast)
-
-        if current_symbol is not None:
-            if not type_to_type_check(
-                current_symbol.type_t, new_t := self.infer_expr_type(ast.value)
-            ):
-                self.report_error(
-                    f"Type {current_symbol.type_t} cannot be converted to {new_t}", ast
-                )
-
-            self.symtab.change_symbol_type(target_name, new_t)
-
-        if ast.index is not None:
-            self.walk(ast.index)
-        self.walk(ast.value)
         return ast
-
-    # ---------- control flow ----------
-
-    def if_stmt(self, ast):
-        """
-        IF cond:expression then:block
-            elifs:{ ELSE elif_cond:expression elif_body:block }*
-            [ ELSE else_body:block ]
-        """
-        # condition
-        self.walk(ast.cond)
-
-        if t := self.infer_expr_type(ast.cond) != "bool":
-            self.report_error(
-                f"Expression {str(ast.cond)} is not a bool, but a {str(t)}", ast.cond
-            )
-
-        # then branch (new block)
-        self.walk(ast.then)
-
-        # elif branches
-        for elif_pair in ast.elifs or []:
-            # each element is something like {'elif_cond': ..., 'elif_body': ...}
-            self.walk(elif_pair.elif_cond)
-            if t := self.infer_expr_type(elif_pair.elif_cond) != "bool":
-                self.report_error(
-                    f"Expression {str(elif_pair.elif_cond)} is not a bool, but a {str(t)}",
-                    elif_pair.elif_cond,
-                )
-
-            self.walk(elif_pair.elif_body)
-
-        # else branch
-        if ast.else_body is not None:
-            self.walk(ast.else_body)
-
-        return ast
-
-    def while_stmt(self, ast):
-        """
-        WHILE cond:expression body:block
-
-        We:
-        - check condition
-        - enter a loop context for break/continue validation
-        """
-        self.walk(ast.cond)
-        if t := self.infer_expr_type(ast.cond) != "bool":
-            self.report_error(
-                f"Expression {str(ast.cond)} is not a bool, but a {str(t)}", ast.cond
-            )
-
-        self.loop_depth += 1
-        try:
-            self.walk(ast.body)
-        finally:
-            self.loop_depth -= 1
-        return ast
-
-    def for_stmt(self, ast):
-        """
-        FOR iterator:expression IN iterable:expression body:block
-
-        Common pattern:
-        - treat `iterator` as a declaration (if it's an identifier)
-        - check iterable expression
-        """
-        # If iterator is a bare identifier, you might treat it as a new loop var.
-        iterator = ast.iterator
-        # Very simple heuristic: TatSu 'expression' node might be just an identifier string
-        if hasattr(iterator, "id"):  # if you later normalize AST nodes
-            self.declare_symbol(
-                iterator.id, type_t="unknown", category="var", node=iterator
-            )
-
-        self.walk(ast.iterable)
-
-        if "list" not in (t := self.infer_expr_type(ast.iterable)):
-            self.report_error(
-                f"{str(ast.iterable)} is not a list, but a {t}", ast.iterable
-            )
-
-        self.loop_depth += 1
-        try:
-            self.walk(ast.body)
-        finally:
-            self.loop_depth -= 1
-        return ast
-
-    # ---------- function & lambda declarations ----------
 
     def method_decl(self, ast):
-        """
-        DEF name:identifier LPAREN [ params:expression_list ] RPAREN body:block
-
-        Here we:
-        - declare the function name in the current (outer) scope
-        - open a new scope for parameters + body
-        - register parameters as symbols
-        """
-        func_name = ast.name
-        self.declare_symbol(
-            name=func_name,
-            type_t="func",
-            category="function",
-            node=ast,
-        )
-
-        # Enter function scope
-        prev_function = self.current_function
-        self.current_function = func_name
-        self.enter_scope()
-        try:
-            # register parameters (TODO: a real param node instead of expression_list)
-            if ast.params is not None:
-                self._declare_params_from_expression_list(ast.params)
-
-            # walk the body
-            self.walk(ast.body)
-        finally:
-            self.exit_scope()
-            self.current_function = prev_function
-
         return ast
 
     def lambda_decl(self, ast):
-        """
-        DEF [ LPAREN [ params:expression_list ] RPAREN ] body:block
-
-        Similar to method_decl but anonymous.
-        Usually creates a new scope for params + body.
-        """
-        self.enter_scope()
-        try:
-            if getattr(ast, "params", None) is not None:
-                self._declare_params_from_expression_list(ast.params)
-            self.walk(ast.body)
-        finally:
-            self.exit_scope()
         return ast
 
-    def _declare_params_from_expression_list(self, expr_list):
-        """
-        Helper: your grammar uses `expression_list` for params, but in practice,
-        you'll probably restrict it to identifiers. For now, we just try to register
-        plain identifiers and ignore more complex expressions.
-        """
-        # expr_list has .first and .rest according to grammar
-        to_visit = [expr_list.first]
-        to_visit.extend(rest.expr for rest in (expr_list.rest or []))
+    def if_stmt(self, ast):
+        return ast
 
-        for expr in to_visit:
-            # TODO: tighten this: treat only identifiers as params, error otherwise.
-            if hasattr(expr, "id"):  # if you normalize AST items
-                param_name = expr.id
-                self.declare_symbol(
-                    param_name, type_t="unknown", category="param", node=expr
-                )
-            # else: you might want to emit an error for non-identifier params
+    def while_stmt(self, ast):
+        return ast
 
-    # ---------- calls ----------
+    def for_stmt(self, ast):
+        return ast
 
     def call_stmt(self, ast):
-        """
-        [ recv:(receiver:item) PERIOD ]
-        first:nodotcall_stmt
-        chain:{ PERIOD more:nodotcall_stmt }*
-        """
-        # receiver may be something like an identifier or more complex expression
-        if ast.recv is not None:
-            self.walk(ast.recv)
-
-        self.walk(ast.first)
-
-        for c in ast.chain or []:
-            self.walk(c.more)
-
         return ast
 
     def nodotcall_stmt(self, ast):
-        """
-        func:identifier LPAREN [ args:expression_list ] RPAREN
-        """
-        func_name = ast.func
-        self.require_symbol(func_name, node=ast)
-
-        if ast.args is not None:
-            self.walk(ast.args)
-
-        # TODO: add arity/type checks when you track function signatures in Symbol
-        return ast
-
-    # ---------- blocks & statement lists ----------
-
-    def block(self, ast):
-        """
-        LBRACE [ nl ] [ stmts:statement_list ] [ nl ] RBRACE
-
-        You can choose whether a block implies a new scope or not.
-        In this framework, we *do not* automatically open a new scope here,
-        because functions already do it in method_decl/lambda_decl/loops/etc.
-        If you want block scope (like C), you can uncomment scope handling.
-        """
-        # If you want every block to have its own scope, uncomment:
-        # self.enter_scope()
-        # try:
-        #     if ast.stmts is not None:
-        #         self.walk(ast.stmts)
-        # finally:
-        #     self.exit_scope()
-
-        if ast.stmts is not None:
-            self.walk(ast.stmts)
-        return ast
-
-    def statement_list(self, ast):
-        """
-        first:statement
-        rest:{ { nl }+ statement }*
-        """
-        self.walk(ast.first)
-        for r in ast.rest or []:
-            self.walk(r)
-        return ast
-
-    # ---------- simple statements ----------
-
-    def PASS(self, ast):
-        # 'omitto' – usually no semantic effect.
-        return ast
-
-    def BREAK(self, ast):
-        # 'frio' – must be inside a loop.
-        if self.loop_depth <= 0:
-            self.report_error("'frio' (break) outside of loop", ast)
-        return ast
-
-    def CONTINUE(self, ast):
-        # 'pergo' – must be inside a loop.
-        if self.loop_depth <= 0:
-            self.report_error("'pergo' (continue) outside of loop", ast)
         return ast
 
     def return_stmt(self, ast):
-        """
-        RETURN value:expression
-
-        Optionally verify we're inside a function/lambda.
-        """
-        if self.current_function is None:
-            self.report_error("'redeo' (return) outside of function", ast)
-        else:
-            self.report_error(str(self.current_function), ast)
-        self.walk(ast.value)
-        # TODO: record return type / check against function signature
         return ast
 
-    # ---------- expressions ----------
+    def else_fragment(self, ast):
+        return ast
 
-    # You can override specific expression-level rules if you want to do
-    # type propagation; for now we just walk them so child semantics run.
+    def block(self, ast):
+        return ast
+
+    def statement_list(self, ast):
+        return ast
+
+    def expression_list(self, ast):
+        return ast
 
     def expression(self, ast):
-        return self.walk(ast)
+        return ast
 
     def pa(self, ast):
-        return self.walk(ast)
+        return ast
 
     def pb(self, ast):
-        return self.walk(ast)
+        return ast
 
     def pc(self, ast):
-        return self.walk(ast)
+        return ast
 
     def pd(self, ast):
-        return self.walk(ast)
+        return ast
 
     def pe(self, ast):
-        return self.walk(ast)
+        return ast
 
     def pf(self, ast):
-        return self.walk(ast)
+        return ast
 
     def pg(self, ast):
-        return self.walk(ast)
+        return ast
 
     def ph(self, ast):
-        return self.walk(ast)
-
-    def list(self, ast):
-        # List literal – walk items for their semantics.
-        for it in ast:
-            self.walk(it)
-        return ast
-
-    def mapstruct(self, ast):
-        self.walk(ast.mapcontent)
-        return ast
-
-    def mapcontent(self, ast):
-        """
-        | (STR_LIT | identifier) COLON item COMMA mapcontent
-        | (STR_LIT | identifier) COLON item
-        """
-        # KEY: ast[0], VALUE: ast[1] in TatSu's default AST, or named attributes if you define them.
-        # For now, just walk value and recurse if present.
-        # Exact field names depend on how TatSu built the AST; adjust as needed.
-        # This is just a framework placeholder.
-        for v in ast.values() if isinstance(ast, dict) else []:
-            self.walk(v)
         return ast
 
     def item(self, ast):
-        # Default: walk everything inside. Fill in special cases as needed.
-        return self.walk(ast)
+        return ast
+
+    def list(self, ast):
+        return ast
+
+    def mapstruct(self, ast):
+        return ast
+
+    def mapcontent(self, ast):
+        return ast
+
+    def indexing(self, ast):
+        return ast
+
+    def identifier(self, ast):
+        return ast
+
+    def INTLIT(self, ast):
+        return ast
+
+    def FLOATLIT(self, ast):
+        return ast
+
+    def STR_LIT(self, ast):
+        return ast
+
+    def ROMAN_NUMERAL(self, ast):
+        return ast
+
+    def TRUE(self, ast):
+        return ast
+
+    def FALSE(self, ast):
+        return ast
+
+    def NULL(self, ast):
+        return ast
+
+    def IT(self, ast):
+        return ast
+
+    def BREAK(self, ast):
+        return ast
+
+    def CONTINUE(self, ast):
+        return ast
+
+    def PASS(self, ast):
+        return ast
+
+    def nl(self, ast):
+        return ast
+
+    def CR(self, ast):
+        return ast
