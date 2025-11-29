@@ -22,10 +22,9 @@ NUMERIC_TYPES = {"int", "float"}
 LIST_TYPES = {"int_list", "float_list", "bool_list", "string_list", "list_any"}
 PRIMITIVE_TYPES = {"int", "float", "bool", "string"}
 ALL_TYPES = (
-    PRIMITIVE_TYPES | LIST_TYPES | {"struct", "function", "void", "Any", "unknown"}
+    PRIMITIVE_TYPES | LIST_TYPES | {"struct", "function", "void", "Any", "unknown", "range"}
 )
 
-# Maps variable name endings to types (Ago's type inference system)
 ENDING_TO_TYPE = {
     "a": "int",
     "ae": "float",
@@ -37,6 +36,7 @@ ENDING_TO_TYPE = {
     "erum": "string_list",
     "u": "struct",
     "uum": "list_any",
+    "e": "range",
 }
 
 # Sorted by length descending for proper matching
@@ -424,11 +424,15 @@ class AgoSemanticChecker:
             return result_type_for_arithmetic(left_type, right_type)
 
         if op in ("..", ".<"):
-            if left_type == "string":
-                return "string"
-            if left_type in LIST_TYPES:
-                return left_type
-            return "list_any"
+            if left_type != "int" and left_type not in ("Any", "unknown"):
+                self.report_error(
+                    f"Left operand of '{op}' must be int, got '{left_type}'", d
+                )
+            if right_type != "int" and right_type not in ("Any", "unknown"):
+                self.report_error(
+                    f"Right operand of '{op}' must be int, got '{right_type}'", d
+                )
+            return "range"
 
         if op == "?:":
             return left_type if left_type != "void" else right_type
@@ -762,6 +766,7 @@ class AgoSemanticChecker:
         iterable_type = self.infer_expr_type(d.get("iterable"))
         if iterable_type not in LIST_TYPES and iterable_type not in (
             "string",
+            "range",
             "Any",
             "unknown",
         ):
@@ -773,6 +778,8 @@ class AgoSemanticChecker:
             iterator_type = get_element_type(iterable_type)
         elif iterable_type == "string":
             iterator_type = "string"
+        elif iterable_type == "range":
+            iterator_type = "int"
         else:
             iterator_type = "Any"
 

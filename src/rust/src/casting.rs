@@ -1,4 +1,4 @@
-use crate::types::{AgoType, TargetType};
+use crate::types::{AgoRange, AgoType, TargetType};
 
 impl AgoType {
     // This function will perform the actual conversion.
@@ -132,6 +132,28 @@ impl AgoType {
                     vec.push(i);
                 }
                 AgoType::IntList(vec)
+            }
+
+            // --- List to Range ---
+            (AgoType::IntList(val), TargetType::Range) => {
+                let len = val.len() as i128;
+                AgoType::Range(AgoRange { start: 0, end: len - 1, inclusive: true })
+            }
+            (AgoType::FloatList(val), TargetType::Range) => {
+                let len = val.len() as i128;
+                AgoType::Range(AgoRange { start: 0, end: len - 1, inclusive: true })
+            }
+            (AgoType::BoolList(val), TargetType::Range) => {
+                let len = val.len() as i128;
+                AgoType::Range(AgoRange { start: 0, end: len - 1, inclusive: true })
+            }
+            (AgoType::StringList(val), TargetType::Range) => {
+                let len = val.len() as i128;
+                AgoType::Range(AgoRange { start: 0, end: len - 1, inclusive: true })
+            }
+            (AgoType::ListAny(val), TargetType::Range) => {
+                let len = val.len() as i128;
+                AgoType::Range(AgoRange { start: 0, end: len - 1, inclusive: true })
             }
 
             // --- List Conversions ---

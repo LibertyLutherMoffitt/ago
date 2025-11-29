@@ -554,6 +554,19 @@ fn test_range_as_type_to_intlist() {
     assert_eq!(exclusive_invalid.as_type(TargetType::IntList), AgoType::IntList(vec![]));
 }
 
+#[test]
+fn test_list_as_type_to_range() {
+    // Non-empty list
+    let list = AgoType::IntList(vec![10, 20, 30]); // length 3
+    let expected_range = AgoType::Range(AgoRange { start: 0, end: 2, inclusive: true });
+    assert_eq!(list.as_type(TargetType::Range), expected_range);
+
+    // Empty list
+    let empty_list = AgoType::StringList(vec![]); // length 0
+    let expected_empty_range = AgoType::Range(AgoRange { start: 0, end: -1, inclusive: true });
+    assert_eq!(empty_list.as_type(TargetType::Range), expected_empty_range);
+}
+
 // Note: Testing `dico` is complex as it prints to stdout.
 // It would require capturing stdout, which is possible but adds complexity.
 

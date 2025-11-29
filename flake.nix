@@ -12,7 +12,7 @@
 
       perSystem = {pkgs, ...}: let
         # 1. Define the Python environment once so we can reuse it
-        pythonEnv = pkgs.python3.withPackages (p: with p; [tatsu pytest]);
+        pythonEnv = pkgs.python3.withPackages (p: with p; [tatsu pytest tkinter]);
       in {
         # 2. The Build Output (nix build)
         # This creates a tool that takes a file, runs python on it, then runs rustc
