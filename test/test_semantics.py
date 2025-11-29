@@ -218,16 +218,20 @@ redeo verum
     assert any("'frio'" in m and "outside of loop" in m for m in messages)
     assert any("'redeo'" in m and "outside of function" in m for m in messages)
 
-@pytest.mark.parametrize("filename", [
-    "./test/resources/temptare_lambda.ago",
-    "./test/resources/temptare_lego.ago",
-    "./test/resources/temptare_loop.ago",
-    "./test/resources/temptare_var.ago",
-    "./test/resources/temptare.ago"
-])
+
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "./test/resources/temptare_lambda.ago",
+        "./test/resources/temptare_lego.ago",
+        "./test/resources/temptare_loop.ago",
+        "./test/resources/temptare_var.ago",
+        "./test/resources/temptare.ago",
+    ],
+)
 def test_semantic_checker(filename):
     """Test AgoSemanticChecker on individual files."""
-    with open(filename, 'r') as f:
+    with open(filename, "r") as f:
         semantics = AgoSemanticChecker()
         parser.parse(f.read() + "\n", semantics=semantics)
         assert len(semantics.errors) == 0, f"Semantic errors found: {semantics.errors}"
@@ -266,20 +270,21 @@ def test_semantic_checker(filename):
     def test_for_loop_over_range(self):
         # for itema in my_rangee { ... }
         self.checker.sym_table.add_symbol(Symbol(name="my_rangee", type_t="range"))
-        
+
         ast = {
             "iterator": {"id": "itema"},
             "iterable": {"id": "my_rangee"},
-            "body": {"stmts": None}
+            "body": {"stmts": None},
         }
-        
+
         # This mock is a bit more specific to handle the different expressions
         def mock_infer(expr):
             if expr.get("id") == "my_rangee":
                 return "range"
             if expr.get("id") == "itema":
-                return "int" 
+                return "int"
             return "unknown"
+
         self.checker.infer_expr_type = mock_infer
 
         self.checker._handle_for(ast)

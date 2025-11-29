@@ -137,23 +137,43 @@ impl AgoType {
             // --- List to Range ---
             (AgoType::IntList(val), TargetType::Range) => {
                 let len = val.len() as i128;
-                AgoType::Range(AgoRange { start: 0, end: len - 1, inclusive: true })
+                AgoType::Range(AgoRange {
+                    start: 0,
+                    end: len - 1,
+                    inclusive: true,
+                })
             }
             (AgoType::FloatList(val), TargetType::Range) => {
                 let len = val.len() as i128;
-                AgoType::Range(AgoRange { start: 0, end: len - 1, inclusive: true })
+                AgoType::Range(AgoRange {
+                    start: 0,
+                    end: len - 1,
+                    inclusive: true,
+                })
             }
             (AgoType::BoolList(val), TargetType::Range) => {
                 let len = val.len() as i128;
-                AgoType::Range(AgoRange { start: 0, end: len - 1, inclusive: true })
+                AgoType::Range(AgoRange {
+                    start: 0,
+                    end: len - 1,
+                    inclusive: true,
+                })
             }
             (AgoType::StringList(val), TargetType::Range) => {
                 let len = val.len() as i128;
-                AgoType::Range(AgoRange { start: 0, end: len - 1, inclusive: true })
+                AgoType::Range(AgoRange {
+                    start: 0,
+                    end: len - 1,
+                    inclusive: true,
+                })
             }
             (AgoType::ListAny(val), TargetType::Range) => {
                 let len = val.len() as i128;
-                AgoType::Range(AgoRange { start: 0, end: len - 1, inclusive: true })
+                AgoType::Range(AgoRange {
+                    start: 0,
+                    end: len - 1,
+                    inclusive: true,
+                })
             }
 
             // --- List Conversions ---

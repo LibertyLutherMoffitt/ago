@@ -1,13 +1,13 @@
 //! Integration tests for the ago_stdlib crate.
 
-use ago_stdlib::types::{AgoRange, AgoType, TargetType};
-use ago_stdlib::collections::{get, set, insero, removeo};
+use ago_stdlib::collections::{get, insero, removeo, set};
 use ago_stdlib::functions::{aequalem, claverum, species};
 use ago_stdlib::operators::{
     add, and, bitwise_and, bitwise_or, bitwise_xor, contains, divide, elvis, greater_equal,
-    greater_than, less_equal, less_than, modulo, multiply, not, or, slice, sliceto, subtract, unary_minus,
-    unary_plus,
+    greater_than, less_equal, less_than, modulo, multiply, not, or, slice, sliceto, subtract,
+    unary_minus, unary_plus,
 };
+use ago_stdlib::types::{AgoRange, AgoType, TargetType};
 use std::collections::HashMap;
 
 // --- Helpers ---
@@ -15,10 +15,7 @@ use std::collections::HashMap;
 fn sample_struct() -> AgoType {
     let mut map = HashMap::new();
     map.insert("a".to_string(), AgoType::Int(1));
-    map.insert(
-        "b".to_string(),
-        AgoType::String("hello".to_string()),
-    );
+    map.insert("b".to_string(), AgoType::String("hello".to_string()));
     AgoType::Struct(map)
 }
 
@@ -74,12 +71,13 @@ fn test_species() {
         species(&AgoType::ListAny(vec![])),
         AgoType::String("ListAny".to_string())
     );
+    assert_eq!(species(&AgoType::Null), AgoType::String("Null".to_string()));
     assert_eq!(
-        species(&AgoType::Null),
-        AgoType::String("Null".to_string())
-    );
-    assert_eq!(
-        species(&AgoType::Range(AgoRange { start: 1, end: 5, inclusive: true })),
+        species(&AgoType::Range(AgoRange {
+            start: 1,
+            end: 5,
+            inclusive: true
+        })),
         AgoType::String("Range".to_string())
     );
 }
@@ -87,43 +85,85 @@ fn test_species() {
 #[test]
 fn test_as_type_primitive_conversions() {
     // Int
-    assert_eq!(AgoType::Int(42).as_type(TargetType::Float), AgoType::Float(42.0));
+    assert_eq!(
+        AgoType::Int(42).as_type(TargetType::Float),
+        AgoType::Float(42.0)
+    );
     assert_eq!(
         AgoType::Int(42).as_type(TargetType::String),
         AgoType::String("42".to_string())
     );
-    assert_eq!(AgoType::Int(42).as_type(TargetType::Bool), AgoType::Bool(true));
-    assert_eq!(AgoType::Int(0).as_type(TargetType::Bool), AgoType::Bool(false));
+    assert_eq!(
+        AgoType::Int(42).as_type(TargetType::Bool),
+        AgoType::Bool(true)
+    );
+    assert_eq!(
+        AgoType::Int(0).as_type(TargetType::Bool),
+        AgoType::Bool(false)
+    );
 
     // Float
-    assert_eq!(AgoType::Float(1.5).as_type(TargetType::Int), AgoType::Int(1));
+    assert_eq!(
+        AgoType::Float(1.5).as_type(TargetType::Int),
+        AgoType::Int(1)
+    );
     assert_eq!(
         AgoType::Float(1.5).as_type(TargetType::String),
         AgoType::String("1.5".to_string())
     );
-    assert_eq!(AgoType::Float(0.0).as_type(TargetType::Bool), AgoType::Bool(false));
+    assert_eq!(
+        AgoType::Float(0.0).as_type(TargetType::Bool),
+        AgoType::Bool(false)
+    );
 
     // Bool
-    assert_eq!(AgoType::Bool(true).as_type(TargetType::Int), AgoType::Int(1));
-    assert_eq!(AgoType::Bool(false).as_type(TargetType::Int), AgoType::Int(0));
+    assert_eq!(
+        AgoType::Bool(true).as_type(TargetType::Int),
+        AgoType::Int(1)
+    );
+    assert_eq!(
+        AgoType::Bool(false).as_type(TargetType::Int),
+        AgoType::Int(0)
+    );
     assert_eq!(
         AgoType::Bool(true).as_type(TargetType::String),
         AgoType::String("true".to_string())
     );
 
     // String
-    assert_eq!(AgoType::String("123".to_string()).as_type(TargetType::Int), AgoType::Int(123));
-    assert_eq!(AgoType::String("".to_string()).as_type(TargetType::Bool), AgoType::Bool(false));
-    assert_eq!(AgoType::String("hi".to_string()).as_type(TargetType::Bool), AgoType::Bool(true));
+    assert_eq!(
+        AgoType::String("123".to_string()).as_type(TargetType::Int),
+        AgoType::Int(123)
+    );
+    assert_eq!(
+        AgoType::String("".to_string()).as_type(TargetType::Bool),
+        AgoType::Bool(false)
+    );
+    assert_eq!(
+        AgoType::String("hi".to_string()).as_type(TargetType::Bool),
+        AgoType::Bool(true)
+    );
 }
 
 #[test]
 fn test_as_type_container_conversions() {
     // To Bool
-    assert_eq!(AgoType::IntList(vec![1]).as_type(TargetType::Bool), AgoType::Bool(true));
-    assert_eq!(AgoType::IntList(vec![]).as_type(TargetType::Bool), AgoType::Bool(false));
-    assert_eq!(sample_struct().as_type(TargetType::Bool), AgoType::Bool(true));
-    assert_eq!(AgoType::Struct(HashMap::new()).as_type(TargetType::Bool), AgoType::Bool(false));
+    assert_eq!(
+        AgoType::IntList(vec![1]).as_type(TargetType::Bool),
+        AgoType::Bool(true)
+    );
+    assert_eq!(
+        AgoType::IntList(vec![]).as_type(TargetType::Bool),
+        AgoType::Bool(false)
+    );
+    assert_eq!(
+        sample_struct().as_type(TargetType::Bool),
+        AgoType::Bool(true)
+    );
+    assert_eq!(
+        AgoType::Struct(HashMap::new()).as_type(TargetType::Bool),
+        AgoType::Bool(false)
+    );
 
     // List to String
     assert_eq!(
@@ -161,17 +201,41 @@ fn test_as_type_panic_unsupported() {
 #[test]
 fn test_get() {
     // Lists
-    assert_eq!(get(&AgoType::IntList(vec![10, 20]), &AgoType::Int(1)), AgoType::Int(20));
-    assert_eq!(get(&AgoType::FloatList(vec![10.0, 20.0]), &AgoType::Int(0)), AgoType::Float(10.0));
-    assert_eq!(get(&AgoType::BoolList(vec![true, false]), &AgoType::Int(1)), AgoType::Bool(false));
-    assert_eq!(get(&AgoType::StringList(vec!["a".to_string(), "b".to_string()]), &AgoType::Int(1)), AgoType::String("b".to_string()));
-    assert_eq!(get(&sample_any_list(), &AgoType::Int(1)), AgoType::String("two".to_string()));
+    assert_eq!(
+        get(&AgoType::IntList(vec![10, 20]), &AgoType::Int(1)),
+        AgoType::Int(20)
+    );
+    assert_eq!(
+        get(&AgoType::FloatList(vec![10.0, 20.0]), &AgoType::Int(0)),
+        AgoType::Float(10.0)
+    );
+    assert_eq!(
+        get(&AgoType::BoolList(vec![true, false]), &AgoType::Int(1)),
+        AgoType::Bool(false)
+    );
+    assert_eq!(
+        get(
+            &AgoType::StringList(vec!["a".to_string(), "b".to_string()]),
+            &AgoType::Int(1)
+        ),
+        AgoType::String("b".to_string())
+    );
+    assert_eq!(
+        get(&sample_any_list(), &AgoType::Int(1)),
+        AgoType::String("two".to_string())
+    );
 
     // String
-    assert_eq!(get(&AgoType::String("abc".to_string()), &AgoType::Int(1)), AgoType::String("b".to_string()));
+    assert_eq!(
+        get(&AgoType::String("abc".to_string()), &AgoType::Int(1)),
+        AgoType::String("b".to_string())
+    );
 
     // Struct
-    assert_eq!(get(&sample_struct(), &AgoType::String("a".to_string())), AgoType::Int(1));
+    assert_eq!(
+        get(&sample_struct(), &AgoType::String("a".to_string())),
+        AgoType::Int(1)
+    );
 }
 
 #[test]
@@ -195,7 +259,10 @@ fn test_get_wrong_key_type_for_struct() {
 #[test]
 #[should_panic]
 fn test_get_wrong_index_type_for_list() {
-    get(&AgoType::IntList(vec![1]), &AgoType::String("a".to_string()));
+    get(
+        &AgoType::IntList(vec![1]),
+        &AgoType::String("a".to_string()),
+    );
 }
 
 #[test]
@@ -207,13 +274,27 @@ fn test_set() {
 
     // Struct (update existing)
     let mut s1 = sample_struct();
-    set(&mut s1, &AgoType::String("b".to_string()), AgoType::String("world".to_string()));
-    assert_eq!(get(&s1, &AgoType::String("b".to_string())), AgoType::String("world".to_string()));
+    set(
+        &mut s1,
+        &AgoType::String("b".to_string()),
+        AgoType::String("world".to_string()),
+    );
+    assert_eq!(
+        get(&s1, &AgoType::String("b".to_string())),
+        AgoType::String("world".to_string())
+    );
 
     // Struct (add new)
     let mut s2 = sample_struct();
-    set(&mut s2, &AgoType::String("c".to_string()), AgoType::Int(100));
-    assert_eq!(get(&s2, &AgoType::String("c".to_string())), AgoType::Int(100));
+    set(
+        &mut s2,
+        &AgoType::String("c".to_string()),
+        AgoType::Int(100),
+    );
+    assert_eq!(
+        get(&s2, &AgoType::String("c".to_string())),
+        AgoType::Int(100)
+    );
 }
 
 #[test]
@@ -242,8 +323,15 @@ fn test_insero() {
 
     // Struct (same as set)
     let mut s = sample_struct();
-    insero(&mut s, &AgoType::String("c".to_string()), AgoType::Bool(true));
-    assert_eq!(get(&s, &AgoType::String("c".to_string())), AgoType::Bool(true));
+    insero(
+        &mut s,
+        &AgoType::String("c".to_string()),
+        AgoType::Bool(true),
+    );
+    assert_eq!(
+        get(&s, &AgoType::String("c".to_string())),
+        AgoType::Bool(true)
+    );
 }
 
 #[test]
@@ -308,32 +396,77 @@ fn test_claverum_on_non_struct() {
     claverum(AgoType::Int(1));
 }
 
-
-
-
 #[test]
 fn test_aequalem() {
     // Same type, same value
-    assert_eq!(aequalem(&AgoType::Int(5), &AgoType::Int(5)), AgoType::Bool(true));
-    assert_eq!(aequalem(&AgoType::Float(5.0), &AgoType::Float(5.0)), AgoType::Bool(true));
-    assert_eq!(aequalem(&AgoType::String("hello".to_string()), &AgoType::String("hello".to_string())), AgoType::Bool(true));
-    assert_eq!(aequalem(&AgoType::Bool(true), &AgoType::Bool(true)), AgoType::Bool(true));
-    assert_eq!(aequalem(&AgoType::Null, &AgoType::Null), AgoType::Bool(true));
+    assert_eq!(
+        aequalem(&AgoType::Int(5), &AgoType::Int(5)),
+        AgoType::Bool(true)
+    );
+    assert_eq!(
+        aequalem(&AgoType::Float(5.0), &AgoType::Float(5.0)),
+        AgoType::Bool(true)
+    );
+    assert_eq!(
+        aequalem(
+            &AgoType::String("hello".to_string()),
+            &AgoType::String("hello".to_string())
+        ),
+        AgoType::Bool(true)
+    );
+    assert_eq!(
+        aequalem(&AgoType::Bool(true), &AgoType::Bool(true)),
+        AgoType::Bool(true)
+    );
+    assert_eq!(
+        aequalem(&AgoType::Null, &AgoType::Null),
+        AgoType::Bool(true)
+    );
 
     // Same type, different value
-    assert_eq!(aequalem(&AgoType::Int(5), &AgoType::Int(6)), AgoType::Bool(false));
-    assert_eq!(aequalem(&AgoType::Float(5.0), &AgoType::Float(5.1)), AgoType::Bool(false));
-    assert_eq!(aequalem(&AgoType::String("hello".to_string()), &AgoType::String("world".to_string())), AgoType::Bool(false));
-    assert_eq!(aequalem(&AgoType::Bool(true), &AgoType::Bool(false)), AgoType::Bool(false));
+    assert_eq!(
+        aequalem(&AgoType::Int(5), &AgoType::Int(6)),
+        AgoType::Bool(false)
+    );
+    assert_eq!(
+        aequalem(&AgoType::Float(5.0), &AgoType::Float(5.1)),
+        AgoType::Bool(false)
+    );
+    assert_eq!(
+        aequalem(
+            &AgoType::String("hello".to_string()),
+            &AgoType::String("world".to_string())
+        ),
+        AgoType::Bool(false)
+    );
+    assert_eq!(
+        aequalem(&AgoType::Bool(true), &AgoType::Bool(false)),
+        AgoType::Bool(false)
+    );
 
     // Different types, same conceptual value (should be false due to strict equality)
-    assert_eq!(aequalem(&AgoType::Int(5), &AgoType::Float(5.0)), AgoType::Bool(false));
-    assert_eq!(aequalem(&AgoType::Int(1), &AgoType::Bool(true)), AgoType::Bool(false));
-    assert_eq!(aequalem(&AgoType::String("5".to_string()), &AgoType::Int(5)), AgoType::Bool(false));
+    assert_eq!(
+        aequalem(&AgoType::Int(5), &AgoType::Float(5.0)),
+        AgoType::Bool(false)
+    );
+    assert_eq!(
+        aequalem(&AgoType::Int(1), &AgoType::Bool(true)),
+        AgoType::Bool(false)
+    );
+    assert_eq!(
+        aequalem(&AgoType::String("5".to_string()), &AgoType::Int(5)),
+        AgoType::Bool(false)
+    );
 
     // Different types, different values
-    assert_eq!(aequalem(&AgoType::Int(5), &AgoType::String("hello".to_string())), AgoType::Bool(false));
-    assert_eq!(aequalem(&AgoType::Float(1.0), &AgoType::Bool(false)), AgoType::Bool(false));
+    assert_eq!(
+        aequalem(&AgoType::Int(5), &AgoType::String("hello".to_string())),
+        AgoType::Bool(false)
+    );
+    assert_eq!(
+        aequalem(&AgoType::Float(1.0), &AgoType::Bool(false)),
+        AgoType::Bool(false)
+    );
 }
 
 // --- Operator Tests ---
@@ -342,20 +475,44 @@ fn test_aequalem() {
 fn test_arithmetic_operators() {
     // Int, Int
     assert_eq!(add(&AgoType::Int(5), &AgoType::Int(2)), AgoType::Int(7));
-    assert_eq!(subtract(&AgoType::Int(5), &AgoType::Int(2)), AgoType::Int(3));
-    assert_eq!(multiply(&AgoType::Int(5), &AgoType::Int(2)), AgoType::Int(10));
+    assert_eq!(
+        subtract(&AgoType::Int(5), &AgoType::Int(2)),
+        AgoType::Int(3)
+    );
+    assert_eq!(
+        multiply(&AgoType::Int(5), &AgoType::Int(2)),
+        AgoType::Int(10)
+    );
     assert_eq!(divide(&AgoType::Int(5), &AgoType::Int(2)), AgoType::Int(2));
     assert_eq!(modulo(&AgoType::Int(5), &AgoType::Int(2)), AgoType::Int(1));
 
     // Float, Float
-    assert_eq!(add(&AgoType::Float(5.0), &AgoType::Float(2.0)), AgoType::Float(7.0));
-    assert_eq!(subtract(&AgoType::Float(5.0), &AgoType::Float(2.0)), AgoType::Float(3.0));
-    assert_eq!(multiply(&AgoType::Float(5.0), &AgoType::Float(2.0)), AgoType::Float(10.0));
-    assert_eq!(divide(&AgoType::Float(5.0), &AgoType::Float(2.0)), AgoType::Float(2.5));
+    assert_eq!(
+        add(&AgoType::Float(5.0), &AgoType::Float(2.0)),
+        AgoType::Float(7.0)
+    );
+    assert_eq!(
+        subtract(&AgoType::Float(5.0), &AgoType::Float(2.0)),
+        AgoType::Float(3.0)
+    );
+    assert_eq!(
+        multiply(&AgoType::Float(5.0), &AgoType::Float(2.0)),
+        AgoType::Float(10.0)
+    );
+    assert_eq!(
+        divide(&AgoType::Float(5.0), &AgoType::Float(2.0)),
+        AgoType::Float(2.5)
+    );
 
     // Mixed
-    assert_eq!(add(&AgoType::Int(5), &AgoType::Float(2.5)), AgoType::Float(7.5));
-    assert_eq!(subtract(&AgoType::Float(5.0), &AgoType::Int(2)), AgoType::Float(3.0));
+    assert_eq!(
+        add(&AgoType::Int(5), &AgoType::Float(2.5)),
+        AgoType::Float(7.5)
+    );
+    assert_eq!(
+        subtract(&AgoType::Float(5.0), &AgoType::Int(2)),
+        AgoType::Float(3.0)
+    );
 }
 
 #[test]
@@ -380,22 +537,58 @@ fn test_arithmetic_panic() {
 #[test]
 fn test_comparison_operators() {
     // Numeric
-    assert_eq!(greater_than(&AgoType::Int(5), &AgoType::Int(2)), AgoType::Bool(true));
-    assert_eq!(less_than(&AgoType::Float(5.0), &AgoType::Int(2)), AgoType::Bool(false));
-    assert_eq!(greater_equal(&AgoType::Int(5), &AgoType::Float(5.0)), AgoType::Bool(true));
-    assert_eq!(less_equal(&AgoType::Int(5), &AgoType::Int(5)), AgoType::Bool(true));
+    assert_eq!(
+        greater_than(&AgoType::Int(5), &AgoType::Int(2)),
+        AgoType::Bool(true)
+    );
+    assert_eq!(
+        less_than(&AgoType::Float(5.0), &AgoType::Int(2)),
+        AgoType::Bool(false)
+    );
+    assert_eq!(
+        greater_equal(&AgoType::Int(5), &AgoType::Float(5.0)),
+        AgoType::Bool(true)
+    );
+    assert_eq!(
+        less_equal(&AgoType::Int(5), &AgoType::Int(5)),
+        AgoType::Bool(true)
+    );
 
     // String
-    assert_eq!(greater_than(&AgoType::String("b".to_string()), &AgoType::String("a".to_string())), AgoType::Bool(true));
-    assert_eq!(less_than(&AgoType::String("b".to_string()), &AgoType::String("a".to_string())), AgoType::Bool(false));
+    assert_eq!(
+        greater_than(
+            &AgoType::String("b".to_string()),
+            &AgoType::String("a".to_string())
+        ),
+        AgoType::Bool(true)
+    );
+    assert_eq!(
+        less_than(
+            &AgoType::String("b".to_string()),
+            &AgoType::String("a".to_string())
+        ),
+        AgoType::Bool(false)
+    );
 }
 
 #[test]
 fn test_logical_operators() {
-    assert_eq!(and(&AgoType::Bool(true), &AgoType::Bool(false)), AgoType::Bool(false));
-    assert_eq!(and(&AgoType::Bool(true), &AgoType::Bool(true)), AgoType::Bool(true));
-    assert_eq!(or(&AgoType::Bool(true), &AgoType::Bool(false)), AgoType::Bool(true));
-    assert_eq!(or(&AgoType::Bool(false), &AgoType::Bool(false)), AgoType::Bool(false));
+    assert_eq!(
+        and(&AgoType::Bool(true), &AgoType::Bool(false)),
+        AgoType::Bool(false)
+    );
+    assert_eq!(
+        and(&AgoType::Bool(true), &AgoType::Bool(true)),
+        AgoType::Bool(true)
+    );
+    assert_eq!(
+        or(&AgoType::Bool(true), &AgoType::Bool(false)),
+        AgoType::Bool(true)
+    );
+    assert_eq!(
+        or(&AgoType::Bool(false), &AgoType::Bool(false)),
+        AgoType::Bool(false)
+    );
     assert_eq!(not(&AgoType::Bool(true)), AgoType::Bool(false));
     assert_eq!(not(&AgoType::Bool(false)), AgoType::Bool(true));
 }
@@ -408,9 +601,18 @@ fn test_logical_panic() {
 
 #[test]
 fn test_bitwise_operators() {
-    assert_eq!(bitwise_and(&AgoType::Int(6), &AgoType::Int(3)), AgoType::Int(2)); // 110 & 011 = 010
-    assert_eq!(bitwise_or(&AgoType::Int(6), &AgoType::Int(3)), AgoType::Int(7));  // 110 | 011 = 111
-    assert_eq!(bitwise_xor(&AgoType::Int(6), &AgoType::Int(3)), AgoType::Int(5)); // 110 ^ 011 = 101
+    assert_eq!(
+        bitwise_and(&AgoType::Int(6), &AgoType::Int(3)),
+        AgoType::Int(2)
+    ); // 110 & 011 = 010
+    assert_eq!(
+        bitwise_or(&AgoType::Int(6), &AgoType::Int(3)),
+        AgoType::Int(7)
+    ); // 110 | 011 = 111
+    assert_eq!(
+        bitwise_xor(&AgoType::Int(6), &AgoType::Int(3)),
+        AgoType::Int(5)
+    ); // 110 ^ 011 = 101
 }
 
 #[test]
@@ -429,17 +631,44 @@ fn test_unary_operators() {
 #[test]
 fn test_contains() {
     // In String
-    assert_eq!(contains(&AgoType::String("hello".to_string()), &AgoType::String("ell".to_string())), AgoType::Bool(true));
-    assert_eq!(contains(&AgoType::String("hello".to_string()), &AgoType::String("z".to_string())), AgoType::Bool(false));
+    assert_eq!(
+        contains(
+            &AgoType::String("hello".to_string()),
+            &AgoType::String("ell".to_string())
+        ),
+        AgoType::Bool(true)
+    );
+    assert_eq!(
+        contains(
+            &AgoType::String("hello".to_string()),
+            &AgoType::String("z".to_string())
+        ),
+        AgoType::Bool(false)
+    );
 
     // In Struct (key)
-    assert_eq!(contains(&sample_struct(), &AgoType::String("a".to_string())), AgoType::Bool(true));
-    assert_eq!(contains(&sample_struct(), &AgoType::String("z".to_string())), AgoType::Bool(false));
+    assert_eq!(
+        contains(&sample_struct(), &AgoType::String("a".to_string())),
+        AgoType::Bool(true)
+    );
+    assert_eq!(
+        contains(&sample_struct(), &AgoType::String("z".to_string())),
+        AgoType::Bool(false)
+    );
 
     // In List
-    assert_eq!(contains(&AgoType::IntList(vec![1, 2, 3]), &AgoType::Int(2)), AgoType::Bool(true));
-    assert_eq!(contains(&AgoType::IntList(vec![1, 2, 3]), &AgoType::Int(4)), AgoType::Bool(false));
-    assert_eq!(contains(&sample_any_list(), &AgoType::String("two".to_string())), AgoType::Bool(true));
+    assert_eq!(
+        contains(&AgoType::IntList(vec![1, 2, 3]), &AgoType::Int(2)),
+        AgoType::Bool(true)
+    );
+    assert_eq!(
+        contains(&AgoType::IntList(vec![1, 2, 3]), &AgoType::Int(4)),
+        AgoType::Bool(false)
+    );
+    assert_eq!(
+        contains(&sample_any_list(), &AgoType::String("two".to_string())),
+        AgoType::Bool(true)
+    );
 }
 
 #[test]
@@ -465,19 +694,47 @@ fn test_elvis_panic() {
 #[test]
 fn test_slice_operator_creation() {
     let range = slice(&AgoType::Int(1), &AgoType::Int(5));
-    assert_eq!(range, AgoType::Range(AgoRange { start: 1, end: 5, inclusive: true }));
+    assert_eq!(
+        range,
+        AgoType::Range(AgoRange {
+            start: 1,
+            end: 5,
+            inclusive: true
+        })
+    );
 
     let range_reverse = slice(&AgoType::Int(5), &AgoType::Int(1));
-    assert_eq!(range_reverse, AgoType::Range(AgoRange { start: 5, end: 1, inclusive: true }));
+    assert_eq!(
+        range_reverse,
+        AgoType::Range(AgoRange {
+            start: 5,
+            end: 1,
+            inclusive: true
+        })
+    );
 }
 
 #[test]
 fn test_sliceto_operator_creation() {
     let range = sliceto(&AgoType::Int(1), &AgoType::Int(5));
-    assert_eq!(range, AgoType::Range(AgoRange { start: 1, end: 5, inclusive: false }));
+    assert_eq!(
+        range,
+        AgoType::Range(AgoRange {
+            start: 1,
+            end: 5,
+            inclusive: false
+        })
+    );
 
     let range_reverse = sliceto(&AgoType::Int(5), &AgoType::Int(1));
-    assert_eq!(range_reverse, AgoType::Range(AgoRange { start: 5, end: 1, inclusive: false }));
+    assert_eq!(
+        range_reverse,
+        AgoType::Range(AgoRange {
+            start: 5,
+            end: 1,
+            inclusive: false
+        })
+    );
 }
 
 #[test]
@@ -494,82 +751,201 @@ fn test_range_operator_panic_non_int_sliceto() {
 
 #[test]
 fn test_range_as_type_to_string() {
-    let inclusive_range = AgoType::Range(AgoRange { start: 1, end: 5, inclusive: true });
-    assert_eq!(inclusive_range.as_type(TargetType::String), AgoType::String("1..5".to_string()));
+    let inclusive_range = AgoType::Range(AgoRange {
+        start: 1,
+        end: 5,
+        inclusive: true,
+    });
+    assert_eq!(
+        inclusive_range.as_type(TargetType::String),
+        AgoType::String("1..5".to_string())
+    );
 
-    let exclusive_range = AgoType::Range(AgoRange { start: 1, end: 5, inclusive: false });
-    assert_eq!(exclusive_range.as_type(TargetType::String), AgoType::String("1.<5".to_string()));
+    let exclusive_range = AgoType::Range(AgoRange {
+        start: 1,
+        end: 5,
+        inclusive: false,
+    });
+    assert_eq!(
+        exclusive_range.as_type(TargetType::String),
+        AgoType::String("1.<5".to_string())
+    );
 }
 
 #[test]
 fn test_range_as_type_to_bool() {
     // Valid ranges
-    let inclusive_valid = AgoType::Range(AgoRange { start: 1, end: 5, inclusive: true });
-    assert_eq!(inclusive_valid.as_type(TargetType::Bool), AgoType::Bool(true));
+    let inclusive_valid = AgoType::Range(AgoRange {
+        start: 1,
+        end: 5,
+        inclusive: true,
+    });
+    assert_eq!(
+        inclusive_valid.as_type(TargetType::Bool),
+        AgoType::Bool(true)
+    );
 
-    let exclusive_valid = AgoType::Range(AgoRange { start: 1, end: 5, inclusive: false });
-    assert_eq!(exclusive_valid.as_type(TargetType::Bool), AgoType::Bool(true));
+    let exclusive_valid = AgoType::Range(AgoRange {
+        start: 1,
+        end: 5,
+        inclusive: false,
+    });
+    assert_eq!(
+        exclusive_valid.as_type(TargetType::Bool),
+        AgoType::Bool(true)
+    );
 
-    let single_point_inclusive = AgoType::Range(AgoRange { start: 5, end: 5, inclusive: true });
-    assert_eq!(single_point_inclusive.as_type(TargetType::Bool), AgoType::Bool(true));
+    let single_point_inclusive = AgoType::Range(AgoRange {
+        start: 5,
+        end: 5,
+        inclusive: true,
+    });
+    assert_eq!(
+        single_point_inclusive.as_type(TargetType::Bool),
+        AgoType::Bool(true)
+    );
 
     // Invalid ranges (start > end or start == end for exclusive)
-    let inclusive_invalid = AgoType::Range(AgoRange { start: 5, end: 1, inclusive: true });
-    assert_eq!(inclusive_invalid.as_type(TargetType::Bool), AgoType::Bool(false));
+    let inclusive_invalid = AgoType::Range(AgoRange {
+        start: 5,
+        end: 1,
+        inclusive: true,
+    });
+    assert_eq!(
+        inclusive_invalid.as_type(TargetType::Bool),
+        AgoType::Bool(false)
+    );
 
-    let exclusive_invalid = AgoType::Range(AgoRange { start: 5, end: 1, inclusive: false });
-    assert_eq!(exclusive_invalid.as_type(TargetType::Bool), AgoType::Bool(false));
+    let exclusive_invalid = AgoType::Range(AgoRange {
+        start: 5,
+        end: 1,
+        inclusive: false,
+    });
+    assert_eq!(
+        exclusive_invalid.as_type(TargetType::Bool),
+        AgoType::Bool(false)
+    );
 
-    let exclusive_empty = AgoType::Range(AgoRange { start: 5, end: 5, inclusive: false });
-    assert_eq!(exclusive_empty.as_type(TargetType::Bool), AgoType::Bool(false));
+    let exclusive_empty = AgoType::Range(AgoRange {
+        start: 5,
+        end: 5,
+        inclusive: false,
+    });
+    assert_eq!(
+        exclusive_empty.as_type(TargetType::Bool),
+        AgoType::Bool(false)
+    );
 }
 
 #[test]
 fn test_range_as_type_to_intlist() {
     // Inclusive ranges
-    let inclusive_range = AgoType::Range(AgoRange { start: 1, end: 5, inclusive: true });
-    assert_eq!(inclusive_range.as_type(TargetType::IntList), AgoType::IntList(vec![1, 2, 3, 4, 5]));
+    let inclusive_range = AgoType::Range(AgoRange {
+        start: 1,
+        end: 5,
+        inclusive: true,
+    });
+    assert_eq!(
+        inclusive_range.as_type(TargetType::IntList),
+        AgoType::IntList(vec![1, 2, 3, 4, 5])
+    );
 
-    let single_point_inclusive = AgoType::Range(AgoRange { start: 5, end: 5, inclusive: true });
-    assert_eq!(single_point_inclusive.as_type(TargetType::IntList), AgoType::IntList(vec![5]));
+    let single_point_inclusive = AgoType::Range(AgoRange {
+        start: 5,
+        end: 5,
+        inclusive: true,
+    });
+    assert_eq!(
+        single_point_inclusive.as_type(TargetType::IntList),
+        AgoType::IntList(vec![5])
+    );
 
-    let inclusive_negative = AgoType::Range(AgoRange { start: -2, end: 2, inclusive: true });
-    assert_eq!(inclusive_negative.as_type(TargetType::IntList), AgoType::IntList(vec![-2, -1, 0, 1, 2]));
+    let inclusive_negative = AgoType::Range(AgoRange {
+        start: -2,
+        end: 2,
+        inclusive: true,
+    });
+    assert_eq!(
+        inclusive_negative.as_type(TargetType::IntList),
+        AgoType::IntList(vec![-2, -1, 0, 1, 2])
+    );
 
     // Exclusive ranges
-    let exclusive_range = AgoType::Range(AgoRange { start: 1, end: 5, inclusive: false });
-    assert_eq!(exclusive_range.as_type(TargetType::IntList), AgoType::IntList(vec![1, 2, 3, 4]));
+    let exclusive_range = AgoType::Range(AgoRange {
+        start: 1,
+        end: 5,
+        inclusive: false,
+    });
+    assert_eq!(
+        exclusive_range.as_type(TargetType::IntList),
+        AgoType::IntList(vec![1, 2, 3, 4])
+    );
 
-    let exclusive_empty = AgoType::Range(AgoRange { start: 5, end: 5, inclusive: false });
-    assert_eq!(exclusive_empty.as_type(TargetType::IntList), AgoType::IntList(vec![]));
+    let exclusive_empty = AgoType::Range(AgoRange {
+        start: 5,
+        end: 5,
+        inclusive: false,
+    });
+    assert_eq!(
+        exclusive_empty.as_type(TargetType::IntList),
+        AgoType::IntList(vec![])
+    );
 
-    let exclusive_negative = AgoType::Range(AgoRange { start: -2, end: 2, inclusive: false });
-    assert_eq!(exclusive_negative.as_type(TargetType::IntList), AgoType::IntList(vec![-2, -1, 0, 1]));
+    let exclusive_negative = AgoType::Range(AgoRange {
+        start: -2,
+        end: 2,
+        inclusive: false,
+    });
+    assert_eq!(
+        exclusive_negative.as_type(TargetType::IntList),
+        AgoType::IntList(vec![-2, -1, 0, 1])
+    );
 
     // Invalid ranges (start > end)
-    let inclusive_invalid = AgoType::Range(AgoRange { start: 5, end: 1, inclusive: true });
-    assert_eq!(inclusive_invalid.as_type(TargetType::IntList), AgoType::IntList(vec![]));
+    let inclusive_invalid = AgoType::Range(AgoRange {
+        start: 5,
+        end: 1,
+        inclusive: true,
+    });
+    assert_eq!(
+        inclusive_invalid.as_type(TargetType::IntList),
+        AgoType::IntList(vec![])
+    );
 
-    let exclusive_invalid = AgoType::Range(AgoRange { start: 5, end: 1, inclusive: false });
-    assert_eq!(exclusive_invalid.as_type(TargetType::IntList), AgoType::IntList(vec![]));
+    let exclusive_invalid = AgoType::Range(AgoRange {
+        start: 5,
+        end: 1,
+        inclusive: false,
+    });
+    assert_eq!(
+        exclusive_invalid.as_type(TargetType::IntList),
+        AgoType::IntList(vec![])
+    );
 }
 
 #[test]
 fn test_list_as_type_to_range() {
     // Non-empty list
     let list = AgoType::IntList(vec![10, 20, 30]); // length 3
-    let expected_range = AgoType::Range(AgoRange { start: 0, end: 2, inclusive: true });
+    let expected_range = AgoType::Range(AgoRange {
+        start: 0,
+        end: 2,
+        inclusive: true,
+    });
     assert_eq!(list.as_type(TargetType::Range), expected_range);
 
     // Empty list
     let empty_list = AgoType::StringList(vec![]); // length 0
-    let expected_empty_range = AgoType::Range(AgoRange { start: 0, end: -1, inclusive: true });
+    let expected_empty_range = AgoType::Range(AgoRange {
+        start: 0,
+        end: -1,
+        inclusive: true,
+    });
     assert_eq!(empty_list.as_type(TargetType::Range), expected_empty_range);
 }
 
 // Note: Testing `dico` is complex as it prints to stdout.
 // It would require capturing stdout, which is possible but adds complexity.
-
 
 // Note: Testing `aperto` requires file I/O and setting up test files.
 // This can be done but is skipped here for simplicity.

@@ -325,7 +325,7 @@ def test_array_with_mixed_types():
     src = """\
 xa := [1, "hello", 3.14]
 """
-    semantics = run_program(src)
+    run_program(src)
     # Should either error or infer a union type
     # Depending on language design
 
@@ -440,7 +440,7 @@ des testa() {
 }
 xa := "global"
 """
-    semantics = run_program(src)
+    run_program(src)
     # Function local xa should be int, global xa should be string
 
 

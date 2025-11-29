@@ -15,7 +15,7 @@ pub enum AgoType {
     Struct(HashMap<String, AgoType>),
     ListAny(Vec<AgoType>), // For lists of mixed types
     Range(AgoRange),
-    Null,                  // Representing Ago's 'inanis'
+    Null, // Representing Ago's 'inanis'
 }
 
 // Type aliases for clarity

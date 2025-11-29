@@ -8,3 +8,11 @@ name = "ago_stdlib"
 
 [dependencies]
 # No external dependencies for now, but they would go here.
+
+[[test]]
+name = "stdlib_tests"
+path = "tests/stdlib_tests.rs"
+
+[[test]]
+name = "iterator_tests"
+path = "tests/iterator_tests.rs"

@@ -1,13 +1,9 @@
-import json
-import os
-import pprint
 import sys
 
-from tatsu import parse
-from tatsu.util import asjson
 
 from src.AgoParser import parser
 from src.AgoSemanticChecker import AgoSemanticChecker
+
 
 def main(file):
     with open(file, "r") as f:
@@ -18,7 +14,8 @@ def main(file):
         else:
             print("ERRORS:")
             for error in semantics.errors:
-                print("-", str(error)) 
+                print("-", str(error))
+
 
 if __name__ == "__main__":
     main(sys.argv[1])

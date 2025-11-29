@@ -516,7 +516,9 @@ def test_string_with_invalid_escape_is_invalid(parser):
     with pytest.raises(FailedParse):
         parser.parse(src, rule_name="expression")
 
+
 # ---------- STRUCT TESTS ----------
+
 
 def test_struct_declaration(parser):
     src = dedent("""
@@ -528,6 +530,7 @@ def test_struct_declaration(parser):
     ast = parser.parse(src)
     assert ast is not None
 
+
 def test_struct_access(parser):
     src = dedent("""
         personu := {"names": "Alice", "agea": 25}
@@ -536,6 +539,7 @@ def test_struct_access(parser):
     """)
     ast = parser.parse(src)
     assert ast is not None
+
 
 def test_struct_missing_comma_is_invalid(parser):
     src = dedent("""
@@ -547,6 +551,7 @@ def test_struct_missing_comma_is_invalid(parser):
     with pytest.raises(FailedParse):
         parser.parse(src)
 
+
 def test_struct_missing_colon_is_invalid(parser):
     src = dedent("""
         personu := {
@@ -557,6 +562,7 @@ def test_struct_missing_colon_is_invalid(parser):
     with pytest.raises(FailedParse):
         parser.parse(src)
 
+
 def test_struct_access_with_space(parser):
     src = dedent("""
         personu := {"first names": "Alice", "agea": 25}
@@ -565,6 +571,7 @@ def test_struct_access_with_space(parser):
     ast = parser.parse(src)
     assert ast is not None
 
+
 def test_struct_declaration_empty(parser):
     src = dedent("""
         emptyStructu := {
@@ -572,6 +579,7 @@ def test_struct_declaration_empty(parser):
     """)
     ast = parser.parse(src)
     assert ast is not None
+
 
 def test_struct_with_nested_struct(parser):
     src = dedent("""
@@ -586,6 +594,7 @@ def test_struct_with_nested_struct(parser):
     """)
     ast = parser.parse(src)
     assert ast is not None
+
 
 def test_struct_access_nested(parser):
     src = dedent("""
@@ -602,6 +611,7 @@ def test_struct_access_nested(parser):
     ast = parser.parse(src)
     assert ast is not None
 
+
 def test_struct_with_non_string_key_is_invalid(parser):
     src = dedent("""
         invalidStructu := {
@@ -611,6 +621,7 @@ def test_struct_with_non_string_key_is_invalid(parser):
     """)
     with pytest.raises(FailedParse):
         parser.parse(src)
+
 
 def test_struct_nested_with_space(parser):
     src = dedent("""
@@ -624,6 +635,7 @@ def test_struct_nested_with_space(parser):
     """)
     ast = parser.parse(src)
     assert ast is not None
+
 
 def test_struct_access_nested_with_space(parser):
     src = dedent("""

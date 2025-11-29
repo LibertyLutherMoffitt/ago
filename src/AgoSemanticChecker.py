@@ -10,7 +10,6 @@ This module implements a Tatsu semantic actions class that validates:
 """
 
 from dataclasses import dataclass
-from turtle import left, right
 from typing import Any, Optional
 
 from src.AgoSymbolTable import Symbol, SymbolTable, SymbolTableError
@@ -22,7 +21,9 @@ NUMERIC_TYPES = {"int", "float"}
 LIST_TYPES = {"int_list", "float_list", "bool_list", "string_list", "list_any"}
 PRIMITIVE_TYPES = {"int", "float", "bool", "string"}
 ALL_TYPES = (
-    PRIMITIVE_TYPES | LIST_TYPES | {"struct", "function", "void", "Any", "unknown", "range"}
+    PRIMITIVE_TYPES
+    | LIST_TYPES
+    | {"struct", "function", "void", "Any", "unknown", "range"}
 )
 
 ENDING_TO_TYPE = {
@@ -865,10 +866,11 @@ class AgoSemanticChecker:
             return
 
         for i, (arg, expected_type) in enumerate(zip(args, func_sym.param_types)):
-
             actual_type = self.infer_expr_type(arg)
             if actual_type != expected_type:
-                self.report_error(f"argument {i + 1} of '{func_sym.name} is a {actual_type}, should be a {expected_type}'")
+                self.report_error(
+                    f"argument {i + 1} of '{func_sym.name} is a {actual_type}, should be a {expected_type}'"
+                )
 
     def _handle_return(self, ast):
         """Handle return statement."""
@@ -884,7 +886,9 @@ class AgoSemanticChecker:
             expected_type = self.current_function.return_type
             if expected_type:
                 if returned_type != expected_type:
-                    self.report_error(f"return statement is a {returned_type}, should be a {expected_type}'")
+                    self.report_error(
+                        f"return statement is a {returned_type}, should be a {expected_type}'"
+                    )
 
     def _handle_break(self, ast):
         """Handle break statement."""
