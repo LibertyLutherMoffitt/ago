@@ -58,7 +58,7 @@ x
     # Parse the whole program first to set up the symbol table
     semantics = run_program(src)
     # Look up variable type
-    sym = semantics.symtab.get_symbol("x")
+    sym = semantics.sym_table.get_symbol("x")
     assert sym is not None
     assert sym.type_t == "int"
 
@@ -71,7 +71,7 @@ def test_identifier_unknown_if_never_declared_but_no_crash():
     t, sem = infer_type("y")
     # Should report undeclared identifier, but still return a type
 
-    assert any("undeclared identifier 'y'" in str(e).lower() for e in sem.errors)
+    assert any("variable 'y' not defined." in str(e).lower() for e in sem.errors)
 
 
 # ---------- unary operators ----------

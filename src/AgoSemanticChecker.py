@@ -397,9 +397,7 @@ class AgoSemantics:
         - check condition
         - enter a loop context for break/continue validation
         """
-        self.report_error(
-                f"{str(ast)}", ast.cond
-            )
+        self.report_error(f"{str(ast)}", ast.cond)
 
         self.walk(ast.cond)
         if t := self.infer_expr_type(ast.cond) != "bool":
