@@ -108,80 +108,176 @@ impl AgoType {
             // --- List Conversions ---
             // IntList to other lists
             (AgoType::IntList(val), TargetType::FloatList) => {
-                let new_list: Result<Vec<f64>, String> = val.iter()
-                    .map(|&item| AgoType::Int(item).as_type(TargetType::Float).map(|v| match v { AgoType::Float(f) => f, _ => unreachable!() }))
+                let new_list: Result<Vec<f64>, String> = val
+                    .iter()
+                    .map(|&item| {
+                        AgoType::Int(item)
+                            .as_type(TargetType::Float)
+                            .map(|v| match v {
+                                AgoType::Float(f) => f,
+                                _ => unreachable!(),
+                            })
+                    })
                     .collect();
                 new_list.map(AgoType::FloatList)
             }
             (AgoType::IntList(val), TargetType::BoolList) => {
-                let new_list: Result<Vec<bool>, String> = val.iter()
-                    .map(|&item| AgoType::Int(item).as_type(TargetType::Bool).map(|v| match v { AgoType::Bool(b) => b, _ => unreachable!() }))
+                let new_list: Result<Vec<bool>, String> = val
+                    .iter()
+                    .map(|&item| {
+                        AgoType::Int(item)
+                            .as_type(TargetType::Bool)
+                            .map(|v| match v {
+                                AgoType::Bool(b) => b,
+                                _ => unreachable!(),
+                            })
+                    })
                     .collect();
                 new_list.map(AgoType::BoolList)
             }
             (AgoType::IntList(val), TargetType::StringList) => {
-                let new_list: Result<Vec<String>, String> = val.iter()
-                    .map(|&item| AgoType::Int(item).as_type(TargetType::String).map(|v| match v { AgoType::String(s) => s, _ => unreachable!() }))
+                let new_list: Result<Vec<String>, String> = val
+                    .iter()
+                    .map(|&item| {
+                        AgoType::Int(item)
+                            .as_type(TargetType::String)
+                            .map(|v| match v {
+                                AgoType::String(s) => s,
+                                _ => unreachable!(),
+                            })
+                    })
                     .collect();
                 new_list.map(AgoType::StringList)
             }
 
             // FloatList to other lists
             (AgoType::FloatList(val), TargetType::IntList) => {
-                let new_list: Result<Vec<i128>, String> = val.iter()
-                    .map(|&item| AgoType::Float(item).as_type(TargetType::Int).map(|v| match v { AgoType::Int(i) => i, _ => unreachable!() }))
+                let new_list: Result<Vec<i128>, String> = val
+                    .iter()
+                    .map(|&item| {
+                        AgoType::Float(item)
+                            .as_type(TargetType::Int)
+                            .map(|v| match v {
+                                AgoType::Int(i) => i,
+                                _ => unreachable!(),
+                            })
+                    })
                     .collect();
                 new_list.map(AgoType::IntList)
             }
             (AgoType::FloatList(val), TargetType::BoolList) => {
-                let new_list: Result<Vec<bool>, String> = val.iter()
-                    .map(|&item| AgoType::Float(item).as_type(TargetType::Bool).map(|v| match v { AgoType::Bool(b) => b, _ => unreachable!() }))
+                let new_list: Result<Vec<bool>, String> = val
+                    .iter()
+                    .map(|&item| {
+                        AgoType::Float(item)
+                            .as_type(TargetType::Bool)
+                            .map(|v| match v {
+                                AgoType::Bool(b) => b,
+                                _ => unreachable!(),
+                            })
+                    })
                     .collect();
                 new_list.map(AgoType::BoolList)
             }
             (AgoType::FloatList(val), TargetType::StringList) => {
-                let new_list: Result<Vec<String>, String> = val.iter()
-                    .map(|&item| AgoType::Float(item).as_type(TargetType::String).map(|v| match v { AgoType::String(s) => s, _ => unreachable!() }))
+                let new_list: Result<Vec<String>, String> = val
+                    .iter()
+                    .map(|&item| {
+                        AgoType::Float(item)
+                            .as_type(TargetType::String)
+                            .map(|v| match v {
+                                AgoType::String(s) => s,
+                                _ => unreachable!(),
+                            })
+                    })
                     .collect();
                 new_list.map(AgoType::StringList)
             }
 
             // BoolList to other lists
             (AgoType::BoolList(val), TargetType::IntList) => {
-                let new_list: Result<Vec<i128>, String> = val.iter()
-                    .map(|&item| AgoType::Bool(item).as_type(TargetType::Int).map(|v| match v { AgoType::Int(i) => i, _ => unreachable!() }))
+                let new_list: Result<Vec<i128>, String> = val
+                    .iter()
+                    .map(|&item| {
+                        AgoType::Bool(item)
+                            .as_type(TargetType::Int)
+                            .map(|v| match v {
+                                AgoType::Int(i) => i,
+                                _ => unreachable!(),
+                            })
+                    })
                     .collect();
                 new_list.map(AgoType::IntList)
             }
             (AgoType::BoolList(val), TargetType::FloatList) => {
-                let new_list: Result<Vec<f64>, String> = val.iter()
-                    .map(|&item| AgoType::Bool(item).as_type(TargetType::Float).map(|v| match v { AgoType::Float(f) => f, _ => unreachable!() }))
+                let new_list: Result<Vec<f64>, String> = val
+                    .iter()
+                    .map(|&item| {
+                        AgoType::Bool(item)
+                            .as_type(TargetType::Float)
+                            .map(|v| match v {
+                                AgoType::Float(f) => f,
+                                _ => unreachable!(),
+                            })
+                    })
                     .collect();
                 new_list.map(AgoType::FloatList)
             }
             (AgoType::BoolList(val), TargetType::StringList) => {
-                let new_list: Result<Vec<String>, String> = val.iter()
-                    .map(|&item| AgoType::Bool(item).as_type(TargetType::String).map(|v| match v { AgoType::String(s) => s, _ => unreachable!() }))
+                let new_list: Result<Vec<String>, String> = val
+                    .iter()
+                    .map(|&item| {
+                        AgoType::Bool(item)
+                            .as_type(TargetType::String)
+                            .map(|v| match v {
+                                AgoType::String(s) => s,
+                                _ => unreachable!(),
+                            })
+                    })
                     .collect();
                 new_list.map(AgoType::StringList)
             }
 
             // StringList to other lists
             (AgoType::StringList(val), TargetType::IntList) => {
-                let new_list: Result<Vec<i128>, String> = val.iter()
-                    .map(|item| AgoType::String(item.clone()).as_type(TargetType::Int).map(|v| match v { AgoType::Int(i) => i, _ => unreachable!() }))
+                let new_list: Result<Vec<i128>, String> = val
+                    .iter()
+                    .map(|item| {
+                        AgoType::String(item.clone())
+                            .as_type(TargetType::Int)
+                            .map(|v| match v {
+                                AgoType::Int(i) => i,
+                                _ => unreachable!(),
+                            })
+                    })
                     .collect();
                 new_list.map(AgoType::IntList)
             }
             (AgoType::StringList(val), TargetType::FloatList) => {
-                let new_list: Result<Vec<f64>, String> = val.iter()
-                    .map(|item| AgoType::String(item.clone()).as_type(TargetType::Float).map(|v| match v { AgoType::Float(f) => f, _ => unreachable!() }))
+                let new_list: Result<Vec<f64>, String> = val
+                    .iter()
+                    .map(|item| {
+                        AgoType::String(item.clone())
+                            .as_type(TargetType::Float)
+                            .map(|v| match v {
+                                AgoType::Float(f) => f,
+                                _ => unreachable!(),
+                            })
+                    })
                     .collect();
                 new_list.map(AgoType::FloatList)
             }
             (AgoType::StringList(val), TargetType::BoolList) => {
-                let new_list: Result<Vec<bool>, String> = val.iter()
-                    .map(|item| AgoType::String(item.clone()).as_type(TargetType::Bool).map(|v| match v { AgoType::Bool(b) => b, _ => unreachable!() }))
+                let new_list: Result<Vec<bool>, String> = val
+                    .iter()
+                    .map(|item| {
+                        AgoType::String(item.clone())
+                            .as_type(TargetType::Bool)
+                            .map(|v| match v {
+                                AgoType::Bool(b) => b,
+                                _ => unreachable!(),
+                            })
+                    })
                     .collect();
                 new_list.map(AgoType::BoolList)
             }
