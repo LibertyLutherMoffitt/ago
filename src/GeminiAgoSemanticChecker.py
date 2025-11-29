@@ -1,64 +1,29 @@
 from dataclasses import dataclass
-from typing import Optional
+from typing import List, Optional, Any
 
+from src.AgoSymbolTable import Symbol, SymbolTable
 from tatsu.walkers import NodeWalker
 
 # --- Provided Data Structures & Helpers ---
+NUMERIC_TYPES = ["int", "float"]
+
+
+@dataclass
+class SemanticError:
+    message: str
+    line: Optional[int] = None
+    col: Optional[int] = None
+    node: Any = None
+
+    def __str__(self) -> str:
+        location = ""
+        if self.line is not None and self.col is not None:
+            location = f"(line {self.line}, col {self.col}) "
+        return f"{location}{self.message}"
 
 
 class AgoSemanticException(Exception):
     pass
-
-
-@dataclass
-class Symbol:
-    name: str
-    type_t: str
-    category: str = "var"
-    scope: Optional[int] = -1
-    # For functions
-    num_of_params: Optional[int] = -1
-    param_types: Optional[list[str]] = None
-    return_type: Optional[str] = None
-    # For structs
-    num_of_fields: Optional[int] = -1
-    field_types: Optional[list[str]] = None
-
-
-class SymbolTable:
-    def __init__(self):
-        self.scopes: dict[int, dict[str, Symbol]] = {0: {}}
-        self.current_scope = 0
-
-    def increment_scope(self) -> int:
-        self.current_scope += 1
-        if self.current_scope not in self.scopes:
-            self.scopes[self.current_scope] = {}
-        return self.current_scope
-
-    def decrement_scope(self) -> int:
-        if self.current_scope == 0:
-            raise Exception("Scope is -1. Unallowable.")
-        self.current_scope -= 1
-        return self.current_scope
-
-    def add_symbol(self, s: Symbol) -> bool:
-        if s.name in self.scopes[self.current_scope]:
-            raise AgoSemanticException(
-                f"Variable '{s.name}' already exists in scope {self.current_scope}."
-            )
-        self.scopes[self.current_scope][s.name] = s
-        return True
-
-    def get_symbol(self, n: str) -> Symbol | None:
-        # Look up in current scope, then work backwards to 0
-        search_scope = self.current_scope
-        while search_scope >= 0:
-            if search_scope in self.scopes and n in self.scopes[search_scope]:
-                return self.scopes[search_scope][n]
-            search_scope -= 1
-        return None
-
 
 def ending_to_type(ending: str) -> str:
     endings_to_str = {
@@ -118,7 +83,12 @@ class AgoSemanticChecker(NodeWalker):
     def __init__(self):
         self.sym_table = SymbolTable()
         self.loop_depth = 0
+        self.errors: List[SemanticError] = []
+
         self.current_function: Optional[Symbol] = None
+
+    def report_error(self, msg: str, node: Any = None):
+        self.errors.append(SemanticError(msg, node=node))
 
     def _infer_type_from_name(self, name: str) -> str:
         endings = sorted(
@@ -132,6 +102,110 @@ class AgoSemanticChecker(NodeWalker):
         raise AgoSemanticException(
             f"Variable '{name}' does not have a valid type suffix."
         )
+
+    def require_symbol(self, var_name) -> Symbol:
+        sym = self.sym_table.get_symbol(var_name)
+        if not sym:
+            self.report_error(f"Variable '{var_name}' not defined.")
+            return Symbol(var_name, "unknown")
+        return sym
+
+    def infer_expr_type(self, expr) -> str:
+        if type(expr) is str:
+            if expr == "verum" or expr == "falsus":
+                return "bool"
+            return expr
+
+        expr = dict(expr)
+
+        expr = expr.get("value") if expr.get("value") is not None else expr
+
+        if type(expr) is str:
+            if expr == "verum" or expr == "falsus":
+                return "bool"
+            return expr
+
+        assert expr is not None, "Expr is None"
+
+        # 1) Base literals
+        if expr.get("int"):
+            return "int"
+        if expr.get("float"):
+            return "float"
+        if expr.get("str"):
+            return "string"
+        if expr.get("value") == "verum":
+            return "bool"
+        if expr.get("value") == "falsus":
+            return "bool"
+        if expr.get("roman"):
+            return "int"  # treat ROMAN_NUMERAL as int
+
+        # 2) Identifier
+        if expr.get("id"):
+            sym = self.require_symbol(expr.get("id"))
+            return sym.type_t if sym and sym.type_t else "bad_sym"
+
+        # 3) Parenthesized: (expr)
+        if getattr(expr, "paren", None):
+            return self.infer_expr_type(dict(expr.get("paren")[1]))
+
+        # 4) Lists
+        if getattr(expr, "list", None):
+            items = expr.list  # depends on your actual AST
+            elem_types = {self.infer_expr_type(it) for it in items}
+            if len(elem_types) == 1:
+                return f"{elem_types[0]}_list"
+            return "list_list"  # heterogeneous for now
+
+        # 5) Maps
+        if expr.get("mapstruct", None) is not None:
+            # you’ll need to dig into mapcontent for key/value types
+            # for now, just Map[Unknown, Unknown]
+            return "table"
+
+        # binary ops
+        if expr.get("op") and expr.get("left"):
+            op = expr.get("op")
+            if op in ["et", "vel"]:
+                return "bool"
+            if op in ["+", "-", "*", "/", "%"]:
+                left = self.infer_expr_type(dict(expr.get("left")))
+                right = self.infer_expr_type(dict(expr.get("right")))
+                if left not in NUMERIC_TYPES:
+                    self.report_error(
+                        f"{left} is not a numeric type, but you're trying to use it in a numeric expression.",
+                        expr,
+                    )
+                if right not in NUMERIC_TYPES:
+                    self.report_error(
+                        f"{right} is not a numeric type, but you're trying to use it in a numeric expression.",
+                        expr,
+                    )
+
+                if left == "float":
+                    return "float"
+                return right
+            if op in [">", "<", "<=", ">=", "=="]:
+                return "bool"
+
+        # Unary ops (pg)
+        if expr.get("op") and expr.get("right"):
+            op = expr.get("op")
+            right_t = self.infer_expr_type(expr.get("right"))
+            # e.g., '-' on floats/ints
+            if op in ("-", "+"):  # or store actual tokens
+                # simple numeric rule: int/float stays numeric
+                if right_t in NUMERIC_TYPES:
+                    return right_t
+                self.report_error("Unary +/- on non-number", expr)
+                return "bad_unary"
+            if op == "non":
+                if right_t != "bool":
+                    self.report_error("Unary 'non' on non-bool", expr)
+                return "bool"
+
+        return expr
 
     # --- Scope & Context Management ---
 
@@ -252,10 +326,7 @@ class AgoSemanticChecker(NodeWalker):
 
     def walk_reassignment_stmt(self, node):
         var_name = node.target
-        sym = self.sym_table.get_symbol(var_name)
-        if not sym:
-            raise AgoSemanticException(f"Variable '{var_name}' not defined.")
-
+        sym = self.require_symbol(var_name)
         target_type = sym.type_t
         if node.index:
             if "_list" in target_type:
@@ -440,4 +511,3 @@ class AgoSemanticChecker(NodeWalker):
         if node.children:
             return self.walk(node.children[0])
         return "Any"
-
