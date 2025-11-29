@@ -1,9 +1,7 @@
 from dataclasses import dataclass
 from typing import Any, List, Optional
 
-from tatsu.semantics import Semantics
-
-from symbol_table import Symbol, SymbolTable
+from src.AgoSymbolTable import Symbol, SymbolTable
 
 # ---------- Error types ----------
 
@@ -82,7 +80,7 @@ def type_to_type_check(current: str, to: str) -> bool:
 # ---------- Semantics class ----------
 
 
-class AgoSemantics(Semantics):
+class AgoSemantics:
     """
     TatSu semantics class that performs semantic checking while the parse runs.
 
@@ -204,6 +202,9 @@ class AgoSemantics(Semantics):
         """
         target_name = ast.target
         self.require_symbol(target_name, node=ast)
+
+        
+
         if ast.index is not None:
             self.walk(ast.index)
         self.walk(ast.value)
