@@ -1,14 +1,15 @@
 # test_symbol_table.py
 
 import pytest
+
 from src.symbol_table import Symbol, SymbolTable
 
 
 def test_symbol_defaults():
-    s = Symbol(name="x", starting_type="int")
+    s = Symbol(name="x", type_t="int")
 
     assert s.name == "x"
-    assert s.starting_type == "int"
+    assert s.type_t == "int"
     assert s.category == "var"
     assert s.scope == -1
     assert s.num_of_params == -1
@@ -39,7 +40,7 @@ def test_increment_scope_creates_new_scope():
 
 def test_add_symbol_success_and_retrieval():
     st = SymbolTable()
-    sym = Symbol(name="x", starting_type="int")
+    sym = Symbol(name="x", type_t="int")
 
     result = st.add_symbol(sym)
 
@@ -49,8 +50,8 @@ def test_add_symbol_success_and_retrieval():
 
 def test_add_symbol_duplicate_raises():
     st = SymbolTable()
-    sym1 = Symbol(name="x", starting_type="int")
-    sym2 = Symbol(name="x", starting_type="float")
+    sym1 = Symbol(name="x", type_t="int")
+    sym2 = Symbol(name="x", type_t="float")
 
     st.add_symbol(sym1)
 
@@ -66,7 +67,7 @@ def test_get_symbol_nonexistent_returns_none():
 
 def test_scopes_are_isolated():
     st = SymbolTable()
-    sym_global = Symbol(name="x", starting_type="int")
+    sym_global = Symbol(name="x", type_t="int")
 
     st.add_symbol(sym_global)
     assert st.get_symbol("x") is sym_global  # in scope 0

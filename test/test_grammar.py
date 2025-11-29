@@ -1,13 +1,16 @@
 # test/test_ago_parser.py
 
+from textwrap import dedent
+
 import pytest
 import tatsu
-from textwrap import dedent
+from tatsu.exceptions import FailedParse
 
 GRAMMAR = None
 
 with open("./src/Ago.g4") as f:
     GRAMMAR = f.read()
+
 
 @pytest.fixture(scope="module")
 def parser():
@@ -15,6 +18,7 @@ def parser():
 
 
 # ---------- PRINCIPIO / TOP LEVEL ----------
+
 
 def test_simple_program_declaration(parser):
     src = "x := 1\n"
@@ -40,6 +44,7 @@ def test_multiple_sub_principio_with_newlines_and_comments(parser):
 
 
 # ---------- STATEMENTS ----------
+
 
 def test_lambda_decl_empty_parens(parser):
     src = "des() { omitto }\n"
@@ -95,6 +100,7 @@ def test_pass_break_continue_and_return(parser):
 
 # ---------- METHOD DECL / LAMBDA ----------
 
+
 def test_method_decl_with_params(parser):
     src = dedent("""
         des sum(a, b) {
@@ -118,6 +124,7 @@ def test_lambda_decl_no_params(parser):
 
 
 # ---------- IF / WHILE / FOR ----------
+
 
 def test_if_stmt_simple(parser):
     src = dedent("""
@@ -174,7 +181,6 @@ def test_if_with_multiple_elifs_no_else(parser):
     assert ast is not None
 
 
-
 def test_while_stmt(parser):
     src = dedent("""
         dum x < 10 {
@@ -196,6 +202,7 @@ def test_for_stmt(parser):
 
 
 # ---------- CALLS / METHOD CHAINS ----------
+
 
 def test_simple_function_call_stmt(parser):
     src = "foo(1, 2, 3)\n"
@@ -229,6 +236,7 @@ def test_call_stmt_receiver_no_chain(parser):
 
 # ---------- BLOCK / STATEMENT LIST ----------
 
+
 def test_empty_block_no_newlines(parser):
     src = "{}"
     ast = parser.parse(src, rule_name="block")
@@ -256,6 +264,7 @@ def test_block_with_multiple_statements_and_newlines(parser):
 
 # ---------- EXPRESSION PRECEDENCE LEVELS ----------
 
+
 @pytest.mark.parametrize(
     "expr",
     [
@@ -264,36 +273,29 @@ def test_block_with_multiple_statements_and_newlines(parser):
         "a | b",
         "a ^ b",
         "a ?: b",
-
         # pb: AND/BAND
         "a et b",
         "a & b",
-
         # pc: comparisons
         "a == b",
         "a > b",
         "a >= b",
         "a < b",
         "a <= b",
-
         # pd: slices
         "a .. b",
         "a .< b",
-
         # pe: addition/subtraction
         "a + b",
         "a - b",
-
         # pf: mult/div/mod
         "a * b",
         "a / b",
         "a % b",
-
         # pg: unary
         "-a",
         "+a",
         "non verum",
-
         # combos for precedence sanity
         "a + b * c",
         "a et b vel c",
@@ -303,6 +305,7 @@ def test_block_with_multiple_statements_and_newlines(parser):
 def test_expression_variants(parser, expr):
     ast = parser.parse(expr + "\n", rule_name="expression")
     assert ast is not None
+
 
 def test_list_as_expression(parser):
     src = "[1, 2, 3]\n"
@@ -315,14 +318,15 @@ def test_mapstruct_as_expression(parser):
     ast = parser.parse(src, rule_name="expression")
     assert ast is not None
 
+
 def test_expression_list_multiple(parser):
     src = "a, b + 1, [1,2], {k: v}\n"
     ast = parser.parse(src, rule_name="expression_list")
     assert ast is not None
 
 
-
 # ---------- LISTS, MAPS, ITEMS ----------
+
 
 def test_list_literal_empty(parser):
     src = "[]\n"
@@ -350,15 +354,15 @@ def test_mapstruct_with_identifier_keys_and_trailing(parser):
 
 def test_item_variants_literals_and_specials(parser):
     exprs = [
-        '"hello"',   # STR_LIT
-        '3.14',      # FLOATLIT
-        '42',        # INTLIT
-        'verum',     # TRUE
-        'falsus',    # FALSE
-        'inanis',    # NULL
-        'id',        # IT
-        'XII',       # ROMAN_NUMERAL
-        'foo',       # identifier
+        '"hello"',  # STR_LIT
+        "3.14",  # FLOATLIT
+        "42",  # INTLIT
+        "verum",  # TRUE
+        "falsus",  # FALSE
+        "inanis",  # NULL
+        "id",  # IT
+        "XII",  # ROMAN_NUMERAL
+        "foo",  # identifier
     ]
     for e in exprs:
         ast = parser.parse(e + "\n", rule_name="item")
@@ -391,6 +395,7 @@ def test_item_lambda(parser):
 
 # ---------- INDEXING ----------
 
+
 def test_indexing_multiple(parser):
     src = "[0][1][2]\n"
     ast = parser.parse(src, rule_name="indexing")
@@ -399,12 +404,11 @@ def test_indexing_multiple(parser):
 
 # ---------- NEGATIVE / ERROR TEST ----------
 
+
 def test_invalid_syntax_raises(parser):
     src = "si { omitto }\n"  # missing condition expression
-    with pytest.raises(tatsu.exceptions.FailedParse):
+    with pytest.raises(FailedParse):
         parser.parse(src)
-
-from tatsu.exceptions import FailedParse
 
 
 def test_reserved_keyword_cannot_be_identifier(parser):
@@ -412,8 +416,6 @@ def test_reserved_keyword_cannot_be_identifier(parser):
     src = "si := 1\n"
     with pytest.raises(FailedParse):
         parser.parse(src)
-
-from tatsu.exceptions import FailedParse
 
 
 def test_empty_program_is_invalid(parser):
@@ -432,6 +434,7 @@ def test_unterminated_paren_in_expression_is_invalid(parser):
     src = "foo(1, 2\n"
     with pytest.raises(FailedParse):
         parser.parse(src)
+
 
 @pytest.mark.parametrize("kw", ["si", "dum", "pro", "verum", "falsus", "inanis", "des"])
 def test_reserved_keywords_cannot_be_identifiers(parser, kw):
@@ -475,6 +478,7 @@ def test_for_missing_iterable_is_invalid(parser):
     with pytest.raises(FailedParse):
         parser.parse(src)
 
+
 def test_method_decl_missing_parens_is_invalid(parser):
     src = "des foo { omitto }\n"
     with pytest.raises(FailedParse):
@@ -498,6 +502,7 @@ def test_call_with_trailing_comma_is_invalid(parser):
     src = "foo(1, 2, )\n"
     with pytest.raises(FailedParse):
         parser.parse(src)
+
 
 def test_unterminated_string_literal_is_invalid(parser):
     src = '"hello\n'

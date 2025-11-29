@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import Any, List, Optional
 
@@ -7,8 +5,8 @@ from tatsu.semantics import Semantics
 
 from symbol_table import Symbol, SymbolTable
 
-
 # ---------- Error types ----------
+
 
 @dataclass
 class SemanticError:
@@ -26,9 +24,12 @@ class SemanticError:
 
 class AgoSemanticException(Exception):
     """Use this if you ever want to abort immediately on first semantic error."""
+
     pass
 
+
 # --------- Helper functs ---------
+
 
 def ending_to_type(ending: str) -> str:
     endings_to_str = {
@@ -45,7 +46,8 @@ def ending_to_type(ending: str) -> str:
     }
     return endings_to_str[ending]
 
-def type_to_type_check(current: str, to: str) -> True:
+
+def type_to_type_check(current: str, to: str) -> bool:
     acceptables = {
         "int": ["float", "bool", "string"],
         "float": ["int", "bool", "string"],
@@ -60,17 +62,25 @@ def type_to_type_check(current: str, to: str) -> True:
     }
 
     if current not in acceptables:
-        raise AgoSemanticException(f"{current} is not an acceptable type ({','.join(acceptables.keys())})")
-    
+        raise AgoSemanticException(
+            f"{current} is not an acceptable type ({','.join(acceptables.keys())})"
+        )
+
     if to not in acceptables:
-        raise AgoSemanticException(f"{to} is not an acceptable type ({','.join(acceptables.keys())})")
+        raise AgoSemanticException(
+            f"{to} is not an acceptable type ({','.join(acceptables.keys())})"
+        )
 
     if to not in acceptables[current]:
-        raise AgoSemanticException(f"{to} is not a valid conversion for {current}. Acceptable conversion: [{','.join(acceptables[current])}]")
+        raise AgoSemanticException(
+            f"{to} is not a valid conversion for {current}. Acceptable conversion: [{','.join(acceptables[current])}]"
+        )
 
     return True
 
+
 # ---------- Semantics class ----------
+
 
 class AgoSemantics(Semantics):
     """
@@ -97,10 +107,10 @@ class AgoSemantics(Semantics):
 
     def location_of(self, node: Any) -> tuple[Optional[int], Optional[int]]:
         """Extract (line, col) from TatSu's parseinfo if available."""
-        parseinfo = getattr(node, 'parseinfo', None)
+        parseinfo = getattr(node, "parseinfo", None)
         if parseinfo is None:
             return None, None
-        return getattr(parseinfo, 'line', None), getattr(parseinfo, 'col', None)
+        return getattr(parseinfo, "line", None), getattr(parseinfo, "col", None)
 
     def report_error(self, message: str, node: Any) -> None:
         line, col = self.location_of(node)
@@ -176,11 +186,9 @@ class AgoSemantics(Semantics):
         Here we:
         - declare the name in the current scope
 
-                """
+        """
         name = ast.name
 
-        
-        
         # TODO: infer type from ast.value later
         self.declare_symbol(name=name, type_t="unknown", category="var", node=ast)
         self.walk(ast.value)
@@ -254,8 +262,10 @@ class AgoSemantics(Semantics):
         # If iterator is a bare identifier, you might treat it as a new loop var.
         iterator = ast.iterator
         # Very simple heuristic: TatSu 'expression' node might be just an identifier string
-        if hasattr(iterator, 'id'):  # if you later normalize AST nodes
-            self.declare_symbol(iterator.id, type_t="unknown", category="var", node=iterator)
+        if hasattr(iterator, "id"):  # if you later normalize AST nodes
+            self.declare_symbol(
+                iterator.id, type_t="unknown", category="var", node=iterator
+            )
 
         self.walk(ast.iterable)
 
@@ -311,7 +321,7 @@ class AgoSemantics(Semantics):
         """
         self.enter_scope()
         try:
-            if getattr(ast, 'params', None) is not None:
+            if getattr(ast, "params", None) is not None:
                 self._declare_params_from_expression_list(ast.params)
             self.walk(ast.body)
         finally:
@@ -330,9 +340,11 @@ class AgoSemantics(Semantics):
 
         for expr in to_visit:
             # TODO: tighten this: treat only identifiers as params, error otherwise.
-            if hasattr(expr, 'id'):  # if you normalize AST items
+            if hasattr(expr, "id"):  # if you normalize AST items
                 param_name = expr.id
-                self.declare_symbol(param_name, type_t="unknown", category="param", node=expr)
+                self.declare_symbol(
+                    param_name, type_t="unknown", category="param", node=expr
+                )
             # else: you might want to emit an error for non-identifier params
 
     # ---------- calls ----------
