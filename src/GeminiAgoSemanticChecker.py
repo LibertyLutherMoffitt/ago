@@ -25,6 +25,7 @@ class SemanticError:
 class AgoSemanticException(Exception):
     pass
 
+
 def ending_to_type(ending: str) -> str:
     endings_to_str = {
         "a": "int",
