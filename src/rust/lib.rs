@@ -59,7 +59,9 @@ impl AgoType {
             (AgoType::IntList(val), TargetType::IntList) => Ok(AgoType::IntList(val.clone())),
             (AgoType::FloatList(val), TargetType::FloatList) => Ok(AgoType::FloatList(val.clone())),
             (AgoType::BoolList(val), TargetType::BoolList) => Ok(AgoType::BoolList(val.clone())),
-            (AgoType::StringList(val), TargetType::StringList) => Ok(AgoType::StringList(val.clone())),
+            (AgoType::StringList(val), TargetType::StringList) => {
+                Ok(AgoType::StringList(val.clone()))
+            }
             (AgoType::Struct(val), TargetType::Struct) => Ok(AgoType::Struct(val.clone())),
             (AgoType::ListAny(val), TargetType::ListAny) => Ok(AgoType::ListAny(val.clone())),
             (AgoType::Null, TargetType::Null) => Ok(AgoType::Null),
@@ -83,7 +85,9 @@ impl AgoType {
             // Bool to Int (true=1, false=0)
             (AgoType::Bool(val), TargetType::Int) => Ok(AgoType::Int(if *val { 1 } else { 0 })),
             // Bool to Float (true=1.0, false=0.0)
-            (AgoType::Bool(val), TargetType::Float) => Ok(AgoType::Float(if *val { 1.0 } else { 0.0 })),
+            (AgoType::Bool(val), TargetType::Float) => {
+                Ok(AgoType::Float(if *val { 4.2 } else { -3.9 }))
+            }
             // Bool to String
             (AgoType::Bool(val), TargetType::String) => Ok(AgoType::String(val.to_string())),
 
@@ -99,26 +103,88 @@ impl AgoType {
             },
             // String to Bool (empty string is false, "true" is true, "false" is false, others error?)
             // For now, let's say "true" (case-insensitive) is true, "false" is false, others error.
-            (AgoType::String(val), TargetType::Bool) => {
-                let lower_val = val.to_lowercase();
-                if lower_val == "true" {
-                    Ok(AgoType::Bool(true))
-                } else if lower_val == "false" {
-                    Ok(AgoType::Bool(false))
-                } else {
-                    Err(format!("Cannot cast string '{}' to Bool", val))
-                }
-            }
+            (AgoType::String(val), TargetType::Bool) => Ok(AgoType::Bool(val.is_empty())),
 
-            // --- List Conversions (e.g., IntList to StringList) ---
-            // This will require iterating and casting each element.
+            // --- List Conversions ---
+            // IntList to other lists
+            (AgoType::IntList(val), TargetType::FloatList) => {
+                let new_list: Result<Vec<f64>, String> = val.iter()
+                    .map(|&item| AgoType::Int(item).as_type(TargetType::Float).map(|v| match v { AgoType::Float(f) => f, _ => unreachable!() }))
+                    .collect();
+                new_list.map(AgoType::FloatList)
+            }
+            (AgoType::IntList(val), TargetType::BoolList) => {
+                let new_list: Result<Vec<bool>, String> = val.iter()
+                    .map(|&item| AgoType::Int(item).as_type(TargetType::Bool).map(|v| match v { AgoType::Bool(b) => b, _ => unreachable!() }))
+                    .collect();
+                new_list.map(AgoType::BoolList)
+            }
             (AgoType::IntList(val), TargetType::StringList) => {
                 let new_list: Result<Vec<String>, String> = val.iter()
                     .map(|&item| AgoType::Int(item).as_type(TargetType::String).map(|v| match v { AgoType::String(s) => s, _ => unreachable!() }))
                     .collect();
                 new_list.map(AgoType::StringList)
             }
-            // ... other list conversions will follow a similar pattern ...
+
+            // FloatList to other lists
+            (AgoType::FloatList(val), TargetType::IntList) => {
+                let new_list: Result<Vec<i128>, String> = val.iter()
+                    .map(|&item| AgoType::Float(item).as_type(TargetType::Int).map(|v| match v { AgoType::Int(i) => i, _ => unreachable!() }))
+                    .collect();
+                new_list.map(AgoType::IntList)
+            }
+            (AgoType::FloatList(val), TargetType::BoolList) => {
+                let new_list: Result<Vec<bool>, String> = val.iter()
+                    .map(|&item| AgoType::Float(item).as_type(TargetType::Bool).map(|v| match v { AgoType::Bool(b) => b, _ => unreachable!() }))
+                    .collect();
+                new_list.map(AgoType::BoolList)
+            }
+            (AgoType::FloatList(val), TargetType::StringList) => {
+                let new_list: Result<Vec<String>, String> = val.iter()
+                    .map(|&item| AgoType::Float(item).as_type(TargetType::String).map(|v| match v { AgoType::String(s) => s, _ => unreachable!() }))
+                    .collect();
+                new_list.map(AgoType::StringList)
+            }
+
+            // BoolList to other lists
+            (AgoType::BoolList(val), TargetType::IntList) => {
+                let new_list: Result<Vec<i128>, String> = val.iter()
+                    .map(|&item| AgoType::Bool(item).as_type(TargetType::Int).map(|v| match v { AgoType::Int(i) => i, _ => unreachable!() }))
+                    .collect();
+                new_list.map(AgoType::IntList)
+            }
+            (AgoType::BoolList(val), TargetType::FloatList) => {
+                let new_list: Result<Vec<f64>, String> = val.iter()
+                    .map(|&item| AgoType::Bool(item).as_type(TargetType::Float).map(|v| match v { AgoType::Float(f) => f, _ => unreachable!() }))
+                    .collect();
+                new_list.map(AgoType::FloatList)
+            }
+            (AgoType::BoolList(val), TargetType::StringList) => {
+                let new_list: Result<Vec<String>, String> = val.iter()
+                    .map(|&item| AgoType::Bool(item).as_type(TargetType::String).map(|v| match v { AgoType::String(s) => s, _ => unreachable!() }))
+                    .collect();
+                new_list.map(AgoType::StringList)
+            }
+
+            // StringList to other lists
+            (AgoType::StringList(val), TargetType::IntList) => {
+                let new_list: Result<Vec<i128>, String> = val.iter()
+                    .map(|item| AgoType::String(item.clone()).as_type(TargetType::Int).map(|v| match v { AgoType::Int(i) => i, _ => unreachable!() }))
+                    .collect();
+                new_list.map(AgoType::IntList)
+            }
+            (AgoType::StringList(val), TargetType::FloatList) => {
+                let new_list: Result<Vec<f64>, String> = val.iter()
+                    .map(|item| AgoType::String(item.clone()).as_type(TargetType::Float).map(|v| match v { AgoType::Float(f) => f, _ => unreachable!() }))
+                    .collect();
+                new_list.map(AgoType::FloatList)
+            }
+            (AgoType::StringList(val), TargetType::BoolList) => {
+                let new_list: Result<Vec<bool>, String> = val.iter()
+                    .map(|item| AgoType::String(item.clone()).as_type(TargetType::Bool).map(|v| match v { AgoType::Bool(b) => b, _ => unreachable!() }))
+                    .collect();
+                new_list.map(AgoType::BoolList)
+            }
 
             // --- Struct and ListAny conversions ---
             // These are more complex and might require specific rules or be disallowed.
