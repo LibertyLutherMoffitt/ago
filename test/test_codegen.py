@@ -613,6 +613,38 @@ des liquum(luum, xo) {
         expected = ["0", "2", "4", "6", "8", "10"]
         assert lines == expected
 
+    def test_filter_then_min_with_stem_cast(self):
+        """Test filtering a list then finding minimum with stem-based cast."""
+        output = compile_and_run("""
+des minium(luum) {
+    mium := inanis 
+    pro lium in luum {
+        si non mam vel lium < mium {
+            mium = lium
+        }
+    }
+    redeo mium
+}
+
+des liquum(luum, xo) {
+    ia := 0
+    dum ia < la {
+        si non xo(luum[ia]) {
+            luum.removium(ia)
+        } aluid {
+            ia = ia + 1
+        }
+    }
+    redeo luum
+}
+
+# Filter evens, then get minimum as string
+# [-101, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 37].liquum(des { id % 2 == 0 }).mines().dici()
+[-101, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 37].liquum(des { id % 2 == 0 }).mines().dici()
+""")
+        # Even numbers from list are [2, 4, 6, 8, 10], minimum is 2
+        assert output.strip() == "2"
+
 
 # =============================================================================
 # LISTS

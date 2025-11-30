@@ -1215,19 +1215,31 @@ class AgoCodeGenerator:
                                     and func_name_str not in self.user_functions
                                 ):
                                     # First check if the name IS a type suffix (e.g., .a(), .es())
+                                    # ONLY bare suffixes like .es(), .a() are pure type casts
                                     if func_name_str in ENDING_TO_TARGET_TYPE:
                                         target_type = ENDING_TO_TARGET_TYPE[
                                             func_name_str
                                         ]
                                         result = f"{result}.as_type(TargetType::{target_type})"
                                         continue
-                                    # Then check if it ends with a type suffix (e.g., .ida(), .ides())
+                                    # For stem+suffix names (like .mines()), check if there's a matching
+                                    # function first. If not, it's a type cast on a variable.
                                     suffix, stem = get_suffix_and_stem(func_name_str)
                                     if suffix and suffix in ENDING_TO_TARGET_TYPE:
-                                        target_type = ENDING_TO_TARGET_TYPE[suffix]
-                                        result = f"{result}.as_type(TargetType::{target_type})"
-                                        continue
-                                # Try stem-based function resolution first
+                                        # Check if there's a user function with this stem
+                                        found_func = None
+                                        for uf in self.user_functions:
+                                            uf_suffix, uf_stem = get_suffix_and_stem(uf)
+                                            if uf_stem == stem:
+                                                found_func = uf
+                                                break
+                                        if found_func is None:
+                                            # No function with this stem - just a type cast
+                                            target_type = ENDING_TO_TARGET_TYPE[suffix]
+                                            result = f"{result}.as_type(TargetType::{target_type})"
+                                            continue
+                                        # Otherwise fall through to stem-based function call
+                                # Try stem-based function resolution
                                 actual_func_name = func_name_str
                                 cast_target = None
                                 if (
@@ -1290,17 +1302,29 @@ class AgoCodeGenerator:
                             and func_name_str not in self.user_functions
                         ):
                             # First check if the name IS a type suffix (e.g., .a(), .es())
+                            # ONLY bare suffixes like .es(), .a() are pure type casts
                             if func_name_str in ENDING_TO_TARGET_TYPE:
                                 target_type = ENDING_TO_TARGET_TYPE[func_name_str]
                                 result = f"{result}.as_type(TargetType::{target_type})"
                                 continue
-                            # Then check if it ends with a type suffix (e.g., .ida(), .ides())
+                            # For stem+suffix names (like .mines()), check if there's a matching
+                            # function first. If not, it's a type cast on a variable.
                             suffix, stem = get_suffix_and_stem(func_name_str)
                             if suffix and suffix in ENDING_TO_TARGET_TYPE:
-                                target_type = ENDING_TO_TARGET_TYPE[suffix]
-                                result = f"{result}.as_type(TargetType::{target_type})"
-                                continue
-                        # Try stem-based function resolution first
+                                # Check if there's a user function with this stem
+                                found_func = None
+                                for uf in self.user_functions:
+                                    uf_suffix, uf_stem = get_suffix_and_stem(uf)
+                                    if uf_stem == stem:
+                                        found_func = uf
+                                        break
+                                if found_func is None:
+                                    # No function with this stem - just a type cast
+                                    target_type = ENDING_TO_TARGET_TYPE[suffix]
+                                    result = f"{result}.as_type(TargetType::{target_type})"
+                                    continue
+                                # Otherwise fall through to stem-based function call
+                        # Try stem-based function resolution
                         actual_func_name = func_name_str
                         cast_target = None
                         if (
