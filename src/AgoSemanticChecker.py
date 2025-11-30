@@ -524,6 +524,74 @@ class AgoSemanticChecker:
             return f"{elem}_list"
         return "list_any"
 
+    def _get_list_items(self, value_node: Any) -> list:
+        """Extract list items from a value node containing a list literal."""
+        items = []
+
+        def extract_items(node: Any) -> None:
+            """Recursively extract items from list structure."""
+            if node is None or isinstance(node, str) and node in (",", "[", "]"):
+                return
+            if isinstance(node, str):
+                # String literals or identifiers
+                items.append(node)
+                return
+
+            d = to_dict(node)
+
+            # If this is a value wrapper with actual content, it's an item
+            if "value" in d:
+                inner = d["value"]
+                # Check if it's a list literal (starts with "[")
+                if isinstance(inner, (list, tuple)) and inner and inner[0] == "[":
+                    # This is a list literal - extract its items
+                    for elem in inner:
+                        extract_items(elem)
+                else:
+                    # This is an actual value item
+                    items.append(node)
+                return
+
+            # If this has op/right (unary) or left/op/right (binary), it's an expression item
+            if d.get("op") is not None:
+                items.append(node)
+                return
+
+            # If this is a list/tuple, recurse into it
+            if isinstance(node, (list, tuple)):
+                for elem in node:
+                    extract_items(elem)
+
+        d = to_dict(value_node)
+        if "value" in d:
+            extract_items(d["value"])
+        else:
+            extract_items(value_node)
+
+        return items
+
+    def _validate_list_element_types(
+        self, value_node: Any, expected_list_type: str, var_name: str, ast: Any
+    ) -> None:
+        """Validate that list elements match the expected list element type."""
+        if expected_list_type not in LIST_TYPES or expected_list_type == "list_any":
+            return  # No validation needed for list_any
+
+        expected_elem_type = get_element_type(expected_list_type)
+        items = self._get_list_items(value_node)
+
+        for i, item in enumerate(items):
+            item_type = self.infer_expr_type(item)
+            # Check if element type is compatible with expected element type
+            if item_type != expected_elem_type and item_type != "unknown":
+                # Only allow int -> float coercion (widening), not float -> int (narrowing)
+                if not (item_type == "int" and expected_elem_type == "float"):
+                    self.report_error(
+                        f"List element {i} has type '{item_type}', "
+                        f"but '{var_name}' expects '{expected_elem_type}' elements",
+                        ast,
+                    )
+
     def _is_mapstruct_list(self, node: Any) -> bool:
         """Check if node is a mapstruct in list form ['{', content, '}']."""
         return self._get_mapstruct_content(node) is not None
@@ -1477,6 +1545,10 @@ class AgoSemanticChecker:
         self.check_type_compatible(
             actual_type, expected_type, f"declaration of '{var_name}'", ast
         )
+
+        # Validate list element types if assigning to a typed list
+        if expected_type in LIST_TYPES and expected_type != "list_any":
+            self._validate_list_element_types(value, expected_type, var_name, ast)
 
         # In Ago, only one variable per stem can exist in a scope.
         # If declaring a new variable with the same stem, remove the old one.

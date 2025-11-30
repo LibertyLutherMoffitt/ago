@@ -4,13 +4,11 @@
 # minium - Returns the minimum element of any list
 # Works with all list types containing comparable elements
 # Returns inanis for empty lists
-des minium(listuum) {
+des minium(luum) {
     mium := inanis 
-    pro xium in listuum {
-        si mium == inanis {
-            mium = xium
-        } aluid xium < mium {
-            mium = xium
+    pro lium in luum {
+        si non mam vel lium < mium {
+            mium = lium
         }
     }
     redeo mium

@@ -299,7 +299,7 @@ class AgoCodeGenerator:
         self.emit_raw("    and, or, not, bitwise_and, bitwise_or, bitwise_xor,")
         self.emit_raw("    slice, sliceto, contains, elvis,")
         self.emit_raw("    unary_minus, unary_plus,")
-        self.emit_raw("    get, set, insero, removeo, into_iter,")
+        self.emit_raw("    get, set, insero, removeo, validate_list_type, into_iter,")
         self.emit_raw("    dici, apertu, species, exei, aequalam, claverum,")
         self.emit_raw("};")
         self.emit_raw("use std::collections::HashMap;")
@@ -572,6 +572,18 @@ class AgoCodeGenerator:
                     to_remove.append(existing_var)
             for var in to_remove:
                 self.declared_vars.discard(var)
+
+        # Add runtime type validation for typed lists
+        # Map suffixes to expected element types
+        list_elem_types = {
+            "aem": "int",
+            "arum": "float",
+            "as": "bool",
+            "erum": "string",
+        }
+        if new_suffix in list_elem_types:
+            elem_type = list_elem_types[new_suffix]
+            expr = f'validate_list_type(&{expr}, "{elem_type}")'
 
         self.emit(f"let mut {var_name} = {expr};")
         self.declared_vars.add(var_name)

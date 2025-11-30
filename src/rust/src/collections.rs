@@ -318,3 +318,39 @@ pub fn removeo(coll: &mut AgoType, key: &AgoType) -> AgoType {
         (other, _) => panic!("Cannot call 'removeo' on type {:?}", other),
     }
 }
+
+/// Validates that all elements in a ListAny match the expected element type.
+/// Used for runtime type checking when assigning to typed lists.
+pub fn validate_list_type(list: &AgoType, expected_elem: &str) -> AgoType {
+    if let AgoType::ListAny(items) = list {
+        for (i, item) in items.iter().enumerate() {
+            let actual_type = match item {
+                AgoType::Int(_) => "int",
+                AgoType::Float(_) => "float",
+                AgoType::Bool(_) => "bool",
+                AgoType::String(_) => "string",
+                AgoType::IntList(_) => "int_list",
+                AgoType::FloatList(_) => "float_list",
+                AgoType::BoolList(_) => "bool_list",
+                AgoType::StringList(_) => "string_list",
+                AgoType::ListAny(_) => "list_any",
+                AgoType::Struct(_) => "struct",
+                AgoType::Range(_) => "range",
+                AgoType::Null => "null",
+            };
+
+            // Check if types match
+            let matches = actual_type == expected_elem
+                // Allow int in float list (widening)
+                || (actual_type == "int" && expected_elem == "float");
+
+            if !matches {
+                panic!(
+                    "List element {} has type '{}', but list expects '{}' elements",
+                    i, actual_type, expected_elem
+                );
+            }
+        }
+    }
+    list.clone()
+}

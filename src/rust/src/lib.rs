@@ -6,7 +6,7 @@ pub mod operators;
 pub mod types;
 
 // Re-export everything for easy importing
-pub use collections::{get, insero, removeo, set};
+pub use collections::{get, insero, removeo, set, validate_list_type};
 pub use functions::{aequalam, apertu, claverum, dici, exei, species};
 pub use iterators::into_iter;
 pub use operators::{
