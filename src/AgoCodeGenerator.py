@@ -39,13 +39,38 @@ ENDINGS_BY_LENGTH = sorted(ENDING_TO_TARGET_TYPE.keys(), key=len, reverse=True)
 
 # Standard library functions (take &AgoType parameters)
 STDLIB_FUNCTIONS = {
-    "dici", "apertu", "species", "exei", "aequalam", "claverum",
-    "add", "subtract", "multiply", "divide", "modulo",
-    "greater_than", "greater_equal", "less_than", "less_equal",
-    "and", "or", "not", "bitwise_and", "bitwise_or", "bitwise_xor",
-    "slice", "sliceto", "contains", "elvis",
-    "unary_minus", "unary_plus",
-    "get", "set", "insero", "removeo", "into_iter",
+    "dici",
+    "apertu",
+    "species",
+    "exei",
+    "aequalam",
+    "claverum",
+    "add",
+    "subtract",
+    "multiply",
+    "divide",
+    "modulo",
+    "greater_than",
+    "greater_equal",
+    "less_than",
+    "less_equal",
+    "and",
+    "or",
+    "not",
+    "bitwise_and",
+    "bitwise_or",
+    "bitwise_xor",
+    "slice",
+    "sliceto",
+    "contains",
+    "elvis",
+    "unary_minus",
+    "unary_plus",
+    "get",
+    "set",
+    "insero",
+    "removeo",
+    "into_iter",
 }
 
 
@@ -53,7 +78,7 @@ def get_suffix_and_stem(name: str) -> tuple[Optional[str], Optional[str]]:
     """Get the type suffix and stem from a variable name."""
     for ending in ENDINGS_BY_LENGTH:
         if name.endswith(ending) and len(name) > len(ending):
-            return ending, name[:-len(ending)]
+            return ending, name[: -len(ending)]
     return None, None
 
 
@@ -101,7 +126,7 @@ class AgoCodeGenerator:
     def _generate_variable_ref(self, name: str) -> str:
         """
         Generate a variable reference, with casting if needed.
-        
+
         If `name` is directly declared, return `name.clone()`.
         If `name` has a suffix that differs from a declared variable with same stem,
         generate a cast: `base_var.clone().as_type(TargetType::X)`.
@@ -110,7 +135,7 @@ class AgoCodeGenerator:
         # Direct reference to declared variable
         if name in self.declared_vars:
             return f"{name}.clone()"
-        
+
         # Check for variable casting via suffix
         suffix, stem = get_suffix_and_stem(name)
         if stem and suffix:
@@ -119,7 +144,7 @@ class AgoCodeGenerator:
                 target_type = ENDING_TO_TARGET_TYPE.get(suffix)
                 if target_type:
                     return f"id.clone().as_type(TargetType::{target_type})"
-            
+
             # Look for a variable with the same stem but different suffix
             for declared_var in self.declared_vars:
                 decl_suffix, decl_stem = get_suffix_and_stem(declared_var)
@@ -127,8 +152,10 @@ class AgoCodeGenerator:
                     # Found a base variable - generate cast
                     target_type = ENDING_TO_TARGET_TYPE.get(suffix)
                     if target_type:
-                        return f"{declared_var}.clone().as_type(TargetType::{target_type})"
-        
+                        return (
+                            f"{declared_var}.clone().as_type(TargetType::{target_type})"
+                        )
+
         # Fall back to direct reference (may be undefined, will error at Rust compile)
         return f"{name}.clone()"
 
@@ -144,10 +171,10 @@ class AgoCodeGenerator:
         """Generate Rust code from the AST and return as string."""
         # Emit prelude
         self._emit_prelude()
-        
+
         # First pass: collect lambdas (they need to be defined before user functions)
         self._collect_lambdas(ast)
-        
+
         # Emit lambda type alias and lambda functions (before user functions)
         if self.lambdas:
             self.emit_raw("")
@@ -171,7 +198,7 @@ class AgoCodeGenerator:
         self.emit_raw("}")
 
         return "\n".join(self.output_lines)
-    
+
     def _collect_lambdas(self, ast: Any, seen: set = None) -> None:
         """First pass to collect all lambda declarations."""
         if seen is None:
@@ -183,7 +210,7 @@ class AgoCodeGenerator:
         if node_id in seen:
             return
         seen.add(node_id)
-        
+
         if isinstance(ast, (list, tuple)):
             for item in ast:
                 self._collect_lambdas(item, seen)
@@ -193,7 +220,7 @@ class AgoCodeGenerator:
             # Check if this is a lambda (has body but no name)
             # Exclude loops (while has 'cond', for has 'iterator'/'iterable')
             is_lambda = (
-                d.get("body") is not None 
+                d.get("body") is not None
                 and "name" not in d
                 and "cond" not in d  # not a while loop
                 and "iterator" not in d  # not a for loop
@@ -207,27 +234,29 @@ class AgoCodeGenerator:
             for key, val in d.items():
                 if val is not None:
                     self._collect_lambdas(val, seen)
-    
+
     def _register_lambda(self, d: dict) -> int:
         """Register a lambda and return its ID."""
         lambda_id = self.lambda_counter
         self.lambda_counter += 1
-        
+
         params = self._parse_params(d.get("params"))
-        
+
         # Save current state
         old_lines = self.output_lines
         old_indent = self.indent_level
         old_declared = self.declared_vars.copy()
-        old_in_lambda = getattr(self, '_in_id_lambda', False)
-        
+        old_in_lambda = getattr(self, "_in_id_lambda", False)
+
         # Set up for lambda generation
         self.output_lines = []
         self.indent_level = 1
-        
+
         # Emit function header
-        self.output_lines.append(f"fn __lambda_{lambda_id}(args: &[AgoType]) -> AgoType {{")
-        
+        self.output_lines.append(
+            f"fn __lambda_{lambda_id}(args: &[AgoType]) -> AgoType {{"
+        )
+
         if params:
             # Explicit params - unpack from args array
             for i, p in enumerate(params):
@@ -240,22 +269,22 @@ class AgoCodeGenerator:
             self.emit("let id = args.get(0).cloned().unwrap_or(AgoType::Null);")
             self.declared_vars.add("id")
             self._in_id_lambda = True
-        
+
         # Generate body
         body = d.get("body")
         if body:
             self._process_block(body)
-        
+
         self.emit("AgoType::Null")
         self.output_lines.append("}")
-        
+
         # Capture and restore state
-        lambda_code = '\n'.join(self.output_lines)
+        lambda_code = "\n".join(self.output_lines)
         self.output_lines = old_lines
         self.indent_level = old_indent
         self.declared_vars = old_declared
         self._in_id_lambda = old_in_lambda
-        
+
         self.lambdas.append(lambda_code)
         return lambda_id
 
@@ -351,14 +380,14 @@ class AgoCodeGenerator:
         """Generate a Rust function from a method declaration."""
         d = to_dict(ast)
         func_name = str(d["name"])
-        
+
         # Track this function for stem-based resolution
         self.user_functions.add(func_name)
 
         # Parse parameters (all mut since they can be reassigned in Ago)
         params = self._parse_params(d.get("params"))
         param_str = ", ".join(f"mut {name}: AgoType" for name in params)
-        
+
         # Check if this function returns a lambda
         returns_lambda = self._function_returns_lambda(d.get("body"))
         return_type = "AgoLambda" if returns_lambda else "AgoType"
@@ -374,7 +403,7 @@ class AgoCodeGenerator:
             self.declared_vars.add(p)
 
         # Track if current function returns lambda (for use in return generation)
-        old_returns_lambda = getattr(self, '_current_func_returns_lambda', False)
+        old_returns_lambda = getattr(self, "_current_func_returns_lambda", False)
         self._current_func_returns_lambda = returns_lambda
 
         # Process body
@@ -454,7 +483,11 @@ class AgoCodeGenerator:
             for item in rest:
                 if isinstance(item, list):
                     for sub in item:
-                        if sub and sub != "\n" and not (isinstance(sub, str) and sub.strip() == ""):
+                        if (
+                            sub
+                            and sub != "\n"
+                            and not (isinstance(sub, str) and sub.strip() == "")
+                        ):
                             self._generate_statement(sub)
                 elif item and item != "\n":
                     self._generate_statement(item)
@@ -525,7 +558,7 @@ class AgoCodeGenerator:
         # First, generate the RHS expression (before removing old variables with same stem)
         # This allows `xarum := xarum` to work - RHS refers to existing `xas` variable
         expr = self._generate_expr(value)
-        
+
         # In Ago, only one variable per stem can exist at a time.
         # Remove any existing variable with the same stem AFTER evaluating RHS.
         new_suffix, new_stem = get_suffix_and_stem(var_name)
@@ -619,7 +652,9 @@ class AgoCodeGenerator:
 
                 if elif_cond:
                     elif_expr = self._generate_expr(elif_cond)
-                    self.emit(f"}} else if matches!({elif_expr}, AgoType::Bool(true)) {{")
+                    self.emit(
+                        f"}} else if matches!({elif_expr}, AgoType::Bool(true)) {{"
+                    )
                     self.indent_level += 1
                     if elif_body:
                         self._process_block(elif_body)
@@ -782,7 +817,11 @@ class AgoCodeGenerator:
             return self._generate_binary_op(d)
 
         # Unary operators
-        if d.get("op") is not None and d.get("right") is not None and d.get("left") is None:
+        if (
+            d.get("op") is not None
+            and d.get("right") is not None
+            and d.get("left") is None
+        ):
             return self._generate_unary_op(d)
 
         # Lambda declaration
@@ -889,7 +928,11 @@ class AgoCodeGenerator:
                                 args = []
                                 if sub_d.get("args"):
                                     args = self._parse_args(sub_d["args"])
-                                receiver = f"&{result}" if not result.startswith("&") else result
+                                receiver = (
+                                    f"&{result}"
+                                    if not result.startswith("&")
+                                    else result
+                                )
                                 all_args = [receiver] + args
                                 result = f"{func_name}({', '.join(all_args)})"
                 else:
@@ -899,7 +942,9 @@ class AgoCodeGenerator:
                         args = []
                         if item_d.get("args"):
                             args = self._parse_args(item_d["args"])
-                        receiver = f"&{result}" if not result.startswith("&") else result
+                        receiver = (
+                            f"&{result}" if not result.startswith("&") else result
+                        )
                         all_args = [receiver] + args
                         result = f"{func_name}({', '.join(all_args)})"
 
@@ -907,7 +952,7 @@ class AgoCodeGenerator:
 
         # Check for recv (method chain on literal like "string".dici())
         recv = d.get("recv")
-        
+
         # Simple function call
         func_name = None
         args = []
@@ -920,7 +965,7 @@ class AgoCodeGenerator:
                 args_node = first_d.get("args")
                 if args_node:
                     args = self._parse_args(args_node)
-        
+
         if not func_name:
             # Direct call node (from nodotcall_stmt)
             func = d.get("func")
@@ -935,19 +980,22 @@ class AgoCodeGenerator:
             if recv is not None:
                 recv_expr = self._generate_expr(recv)
                 args = [recv_expr] + args
-            
+
             # Check if this is a lambda variable (ends with 'o' and is a declared var)
             if func_name in self.declared_vars:
                 # Lambda call - pass args as slice
                 args_str = ", ".join(args)
                 return f"{func_name}(&[{args_str}])"
-            
+
             # Check for stem-based function call (e.g., aae() to call aa() and cast to float)
             actual_func_name = func_name
             cast_target = None
-            
+
             # If function doesn't exist directly, try to find by stem
-            if func_name not in self.user_functions and func_name not in STDLIB_FUNCTIONS:
+            if (
+                func_name not in self.user_functions
+                and func_name not in STDLIB_FUNCTIONS
+            ):
                 call_suffix, call_stem = get_suffix_and_stem(func_name)
                 if call_stem and call_suffix:
                     # Look for user-defined function with the same stem
@@ -959,7 +1007,7 @@ class AgoCodeGenerator:
                             # Determine the cast target type
                             cast_target = ENDING_TO_RUST_TARGET.get(call_suffix)
                             break
-            
+
             # Only add references for stdlib functions (they take &AgoType)
             # User-defined functions take AgoType by value
             if actual_func_name in STDLIB_FUNCTIONS:
@@ -973,13 +1021,13 @@ class AgoCodeGenerator:
             else:
                 # User-defined function - pass by value
                 args_str = ", ".join(args)
-            
+
             call_expr = f"{actual_func_name}({args_str})"
-            
+
             # If we need to cast the result, wrap with .as_type()
             if cast_target:
                 return f"{call_expr}.as_type(TargetType::{cast_target})"
-            
+
             return call_expr
 
         return "AgoType::Null"
@@ -1043,7 +1091,9 @@ class AgoCodeGenerator:
                             args = self._parse_args(args_node)
                         # Method chaining: receiver becomes first arg (as reference)
                         # Wrap result in reference if it's not already
-                        receiver = f"&{result}" if not result.startswith("&") else result
+                        receiver = (
+                            f"&{result}" if not result.startswith("&") else result
+                        )
                         all_args = [receiver] + args
                         result = f"{func_name}({', '.join(all_args)})"
 
@@ -1085,10 +1135,10 @@ class AgoCodeGenerator:
             for item in chain:
                 if item is None or item == ".":
                     continue
-                
+
                 # Handle different chain formats
                 field_name = None
-                
+
                 if isinstance(item, str):
                     if item != ".":
                         field_name = item
@@ -1101,7 +1151,7 @@ class AgoCodeGenerator:
                 else:
                     item_d = to_dict(item)
                     field_name = item_d.get("sub_item")
-                
+
                 if field_name:
                     # Handle quoted vs unquoted field names
                     if field_name.startswith('"') and field_name.endswith('"'):
@@ -1213,17 +1263,16 @@ class AgoCodeGenerator:
         # Find the lambda ID by looking for it in our registered lambdas
         # We need to find the matching lambda by generating it again and comparing
         # For simplicity, use a counter that matches registration order
-        params = self._parse_params(d.get("params"))
-        
+
         # Find or create the lambda ID
         # Since we already collected lambdas, find the matching one
         # This is a simplified approach - track lambda_ids during generation
-        if not hasattr(self, '_lambda_gen_counter'):
+        if not hasattr(self, "_lambda_gen_counter"):
             self._lambda_gen_counter = 0
-        
+
         lambda_id = self._lambda_gen_counter
         self._lambda_gen_counter += 1
-        
+
         # Return a boxed reference to the lambda function
         return f"Box::new(__lambda_{lambda_id}) as AgoLambda"
 

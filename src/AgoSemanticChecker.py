@@ -101,7 +101,7 @@ def get_stem(name: str) -> Optional[str]:
     """Extract the stem from a variable name by removing the type suffix."""
     for ending in ENDINGS_BY_LENGTH:
         if name.endswith(ending) and len(name) > len(ending):
-            return name[:-len(ending)]
+            return name[: -len(ending)]
     return None
 
 
@@ -565,7 +565,9 @@ class AgoSemanticChecker:
                 if k not in ("parseinfo",) and isinstance(v, (list, tuple)):
                     self._validate_mapstruct_content(v, parent_node)
 
-    def _find_function_by_stem(self, func_name: str) -> tuple[Optional[Symbol], Optional[str]]:
+    def _find_function_by_stem(
+        self, func_name: str
+    ) -> tuple[Optional[Symbol], Optional[str]]:
         """
         Find a function by name or by stem.
         Returns (symbol, target_cast_type) where target_cast_type is None if exact match,
@@ -575,7 +577,7 @@ class AgoSemanticChecker:
         sym = self.sym_table.get_symbol(func_name)
         if sym and (sym.category == "func" or sym.type_t == "function"):
             return (sym, None)
-        
+
         # Try to find by stem - e.g., aae() should find aa()
         stem = get_stem(func_name)
         if stem:
@@ -585,7 +587,7 @@ class AgoSemanticChecker:
                 if func_name.endswith(ending) and len(func_name) > len(ending):
                     call_ending = ending
                     break
-            
+
             # Look for functions with the same stem
             visible = self.sym_table.get_all_visible_symbols()
             for sym_name, sym in visible.items():
@@ -598,7 +600,7 @@ class AgoSemanticChecker:
                         target_type = ENDING_TO_TYPE.get(call_ending)
                         if target_type:
                             return (sym, target_type)
-        
+
         return (None, None)
 
     def _infer_call_type(self, call_node: Any) -> str:
@@ -1626,18 +1628,22 @@ class AgoSemanticChecker:
         # call_stmt structure: {recv, first, chain}
         recv = d.get("recv")
         first = d.get("first")
-        
+
         if first:
             first_d = to_dict(first)
             func_name = first_d.get("func")
             if func_name:
                 func_name = str(func_name)
                 sym, cast_type = self._find_function_by_stem(func_name)
-                
+
                 if sym is None:
                     # Check if there's a non-callable symbol with this exact name
                     exact_sym = self.sym_table.get_symbol(func_name)
-                    if exact_sym and exact_sym.category != "func" and exact_sym.type_t != "function":
+                    if (
+                        exact_sym
+                        and exact_sym.category != "func"
+                        and exact_sym.type_t != "function"
+                    ):
                         self.report_error(
                             f"'{func_name}' is not callable (type '{exact_sym.type_t}')",
                             call_node,
@@ -1670,11 +1676,11 @@ class AgoSemanticChecker:
         """Validate function call arguments (count and types)."""
         d = to_dict(call_node)
         args = []
-        
+
         # If there's a receiver (method chain), it becomes the first argument
         if receiver is not None:
             args.append(receiver)
-        
+
         args_node = d.get("args")
         if args_node:
             args_d = to_dict(args_node)

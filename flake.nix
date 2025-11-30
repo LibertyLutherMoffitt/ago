@@ -200,9 +200,9 @@ Function/Lambda
 .B \-i
 Null (inanis)
 .SH AUTHOR
-Written by Josh Ammer.
+Written by LLM.
 .SH BUGS
-Report bugs at: https://github.com/joshammer/ago/issues
+Report bugs at: https://github.com/libertyluthermoffitt/ago/issues
 .SH COPYRIGHT
 MIT License
 MAN
@@ -210,12 +210,46 @@ MAN
           
           meta = with pkgs.lib; {
             description = "A Latin-inspired programming language that transpiles to Rust";
-            homepage = "https://github.com/joshammer/ago";
+            homepage = "https://github.com/libertyluthermoffitt/ago";
             license = licenses.mit;
             maintainers = [];
             mainProgram = "ago";
           };
         };
+
+        # Format script - runs ruff format, ruff check --fix, and rustfmt
+        packages.fmt = pkgs.writeShellScriptBin "ago-fmt" ''
+          set -e
+          cd "$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
+          
+          echo "🔧 Formatting Python with ruff..."
+          ${pkgs.ruff}/bin/ruff format .
+          
+          echo "🔧 Fixing Python lint issues with ruff..."
+          ${pkgs.ruff}/bin/ruff check --fix . || true
+          
+          echo "🔧 Formatting Rust with rustfmt..."
+          ${pkgs.rustfmt}/bin/rustfmt src/rust/src/*.rs src/rust/tests/*.rs 2>/dev/null || true
+          
+          echo "✅ Done!"
+        '';
+        
+        # Check script - runs formatters in check mode
+        packages.check-fmt = pkgs.writeShellScriptBin "ago-check-fmt" ''
+          set -e
+          cd "$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
+          
+          echo "🔍 Checking Python formatting..."
+          ${pkgs.ruff}/bin/ruff format --check .
+          
+          echo "🔍 Checking Python lint..."
+          ${pkgs.ruff}/bin/ruff check .
+          
+          echo "🔍 Checking Rust formatting..."
+          ${pkgs.rustfmt}/bin/rustfmt --check src/rust/src/*.rs src/rust/tests/*.rs 2>/dev/null || true
+          
+          echo "✅ All checks passed!"
+        '';
 
         # Development shell
         devShells.default = pkgs.mkShell {
@@ -231,8 +265,10 @@ MAN
           
           shellHook = ''
             echo "🏛️  Ago Development Shell"
-            echo "   Run tests:  pytest test/"
-            echo "   Run ago:    python main.py <file.ago>"
+            echo "   Run tests:   pytest test/"
+            echo "   Run ago:     python main.py <file.ago>"
+            echo "   Format:      nix run .#fmt"
+            echo "   Check fmt:   nix run .#check-fmt"
           '';
         };
       };
