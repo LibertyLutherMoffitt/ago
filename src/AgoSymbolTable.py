@@ -43,9 +43,7 @@ class SymbolTable:
 
     def __init__(self):
         # Each scope level maps to a dict of {name: Symbol}
-        self.scopes: dict[int, dict[str, Symbol]] = {
-            0: {"dixit": Symbol("dixit", "func", "func", 0, 1, ["string"], None)}
-        }
+        self.scopes: dict[int, dict[str, Symbol]] = {0: {}}
         self.current_scope: int = 0
 
     def increment_scope(self) -> int:

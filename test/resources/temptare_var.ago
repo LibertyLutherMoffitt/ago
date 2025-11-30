@@ -4,6 +4,14 @@ des sati() {
     yae = 1.3
     listaem := [1, 2, 3]
     tabu := {"key":3, "abc":4, "efg":5}
+
+    dici("Salvete Ibi")
+
+    tabes.dici()
+
+    yes.dici()
+
+    "Salvete Ibi".dici()
 }
 
 sati()

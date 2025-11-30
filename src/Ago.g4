@@ -112,9 +112,20 @@ for_stmt
 
 call_stmt
     =
-    [ recv:(receiver:item) PERIOD ]
-    first:(nodotcall_stmt | identifier)
-    chain:{ PERIOD more:nodotcall_stmt }*
+    | recv:literal_item PERIOD first:nodotcall_stmt chain:{ PERIOD more:nodotcall_stmt }*
+    | [ recv:(receiver:item) PERIOD ] first:(nodotcall_stmt | identifier) chain:{ PERIOD more:nodotcall_stmt }*
+    ;
+
+literal_item
+    =
+    | str:STR_LIT
+    | float:FLOATLIT
+    | int:INTLIT
+    | roman:ROMAN_NUMERAL
+    | TRUE
+    | FALSE
+    | NULL
+    | paren:(LPAREN expr:expression RPAREN)
     ;
 
 nodotcall_stmt

@@ -3,18 +3,14 @@
 from textwrap import dedent
 
 import pytest
-import tatsu
 from tatsu.exceptions import FailedParse
 
-GRAMMAR = None
-
-with open("./src/Ago.g4") as f:
-    GRAMMAR = f.read()
+from src.AgoParser import AgoParser
 
 
 @pytest.fixture(scope="module")
 def parser():
-    return tatsu.compile(GRAMMAR)
+    return AgoParser()
 
 
 # ---------- PRINCIPIO / TOP LEVEL ----------

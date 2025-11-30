@@ -107,7 +107,7 @@ impl AgoType {
                         unreachable!();
                     }
                 }
-                AgoType::String(format!("{{ {} }}", parts.join(",\n")))
+                AgoType::String(format!("{{ {} }}", parts.join(", ")))
             }
 
             // --- Range to String ---

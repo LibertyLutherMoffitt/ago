@@ -1,0 +1,7 @@
+[package]
+name = "ago_program"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ago_stdlib = { path = "../src/rust" }

@@ -1,33 +1,37 @@
-use crate::types::{AgoInt, AgoType, FileStruct};
+use crate::types::{AgoInt, AgoType};
 
-pub fn dico(val: AgoType) {
+/// Prints a string to stdout. Returns Null.
+/// Name ends in -i (returns null/inanis)
+pub fn dici(val: &AgoType) -> AgoType {
     match val {
-        AgoType::String(val) => {
-            println!("{}", val);
-        }
-        _ => panic!("dico function expects a String type"),
+        AgoType::String(s) => println!("{}", s),
+        _ => panic!("dici expects a String, got {:?}", val),
     }
+    AgoType::Null
 }
 
-pub fn aperto(val: AgoType) -> FileStruct {
+/// Opens a file and returns its contents as a struct.
+/// Name ends in -u (returns struct)
+pub fn apertu(val: &AgoType) -> AgoType {
     match val {
-        AgoType::String(val) => match std::fs::read_to_string(&val) {
+        AgoType::String(path) => match std::fs::read_to_string(path) {
             Ok(content) => {
-                let metadata = std::fs::metadata(&val).expect("Unable to read file metadata");
+                let metadata = std::fs::metadata(path).expect("Unable to read file metadata");
                 let filesize = metadata.len() as AgoInt;
-                FileStruct {
-                    filename: val,
-                    content,
-                    filesize,
-                }
+                let mut map = std::collections::HashMap::new();
+                map.insert("filenames".to_string(), AgoType::String(path.clone()));
+                map.insert("contentes".to_string(), AgoType::String(content));
+                map.insert("filesizea".to_string(), AgoType::Int(filesize));
+                AgoType::Struct(map)
             }
-            Err(e) => panic!("Failed to open file '{}': {}", val, e),
+            Err(e) => panic!("Failed to open file '{}': {}", path, e),
         },
-        _ => panic!("aperto function expects a String type"),
+        _ => panic!("apertu function expects a String type"),
     }
 }
 
 /// Returns the string name of an AgoType.
+/// Name ends in -es (returns string)
 pub fn species(val: &AgoType) -> AgoType {
     let type_name = match val {
         AgoType::Int(_) => "Int",
@@ -47,19 +51,24 @@ pub fn species(val: &AgoType) -> AgoType {
 }
 
 /// Exits the program with the given exit code.
-pub fn exeo(code: &AgoType) {
+/// Name ends in -i (returns null/inanis - never returns)
+pub fn exei(code: &AgoType) -> AgoType {
     if let AgoType::Int(exit_code) = code {
         std::process::exit(*exit_code as i32);
     } else {
-        panic!("exeo function expects an Int exit code, but got {:?}", code);
+        panic!("exei function expects an Int exit code, but got {:?}", code);
     }
 }
 
-pub fn aequalem(left: &AgoType, right: &AgoType) -> AgoType {
+/// Checks equality of two values.
+/// Name ends in -am (returns bool)
+pub fn aequalam(left: &AgoType, right: &AgoType) -> AgoType {
     AgoType::Bool(left == right)
 }
 
-pub fn claverum(val: AgoType) -> AgoType {
+/// Returns the keys of a struct as a string list.
+/// Name ends in -erum (returns string_list)
+pub fn claverum(val: &AgoType) -> AgoType {
     match val {
         AgoType::Struct(map) => {
             let keys = map.keys().cloned().collect();

@@ -1,0 +1,989 @@
+"""
+Ago Code Generator - Generates Rust code from parsed Ago AST.
+
+This module walks the AST produced by the parser and generates
+equivalent Rust code using the ago_stdlib runtime library.
+"""
+
+from typing import Any, Optional
+
+
+def to_dict(node: Any) -> dict:
+    """Convert an AST node to a dict for easier access."""
+    if isinstance(node, dict):
+        return node
+    if hasattr(node, "items"):
+        return dict(node)
+    if hasattr(node, "__dict__"):
+        return node.__dict__
+    return {}
+
+
+# Type suffix to Rust TargetType mapping
+ENDING_TO_TARGET_TYPE = {
+    "a": "Int",
+    "ae": "Float",
+    "am": "Bool",
+    "aem": "IntList",
+    "arum": "FloatList",
+    "as": "BoolList",
+    "es": "String",
+    "erum": "StringList",
+    "u": "Struct",
+    "uum": "ListAny",
+    "e": "Range",
+}
+
+# Sorted by length descending for proper matching
+ENDINGS_BY_LENGTH = sorted(ENDING_TO_TARGET_TYPE.keys(), key=len, reverse=True)
+
+
+def get_suffix_and_stem(name: str) -> tuple[Optional[str], Optional[str]]:
+    """Get the type suffix and stem from a variable name."""
+    for ending in ENDINGS_BY_LENGTH:
+        if name.endswith(ending) and len(name) > len(ending):
+            return ending, name[:-len(ending)]
+    return None, None
+
+
+class AgoCodeGenerator:
+    """
+    Generates Rust code from an Ago AST.
+    """
+
+    def __init__(self):
+        self.indent_level = 0
+        self.output_lines: list[str] = []
+        # Track declared variables for mutability
+        self.declared_vars: set[str] = set()
+        # Track functions for forward declarations
+        self.functions: list[str] = []
+
+    def indent(self) -> str:
+        """Return current indentation string."""
+        return "    " * self.indent_level
+
+    def _generate_variable_ref(self, name: str) -> str:
+        """
+        Generate a variable reference, with casting if needed.
+        
+        If `name` is directly declared, return `name.clone()`.
+        If `name` has a suffix that differs from a declared variable with same stem,
+        generate a cast: `base_var.clone().as_type(TargetType::X)`.
+        """
+        # Direct reference to declared variable
+        if name in self.declared_vars:
+            return f"{name}.clone()"
+        
+        # Check for variable casting via suffix
+        suffix, stem = get_suffix_and_stem(name)
+        if stem and suffix:
+            # Look for a variable with the same stem but different suffix
+            for declared_var in self.declared_vars:
+                decl_suffix, decl_stem = get_suffix_and_stem(declared_var)
+                if decl_stem == stem and decl_suffix != suffix:
+                    # Found a base variable - generate cast
+                    target_type = ENDING_TO_TARGET_TYPE.get(suffix)
+                    if target_type:
+                        return f"{declared_var}.clone().as_type(TargetType::{target_type})"
+        
+        # Fall back to direct reference (may be undefined, will error at Rust compile)
+        return f"{name}.clone()"
+
+    def emit(self, line: str) -> None:
+        """Emit a line of code."""
+        self.output_lines.append(f"{self.indent()}{line}")
+
+    def emit_raw(self, line: str) -> None:
+        """Emit a line without indentation."""
+        self.output_lines.append(line)
+
+    def generate(self, ast: Any) -> str:
+        """Generate Rust code from the AST and return as string."""
+        # Emit prelude
+        self._emit_prelude()
+
+        # First pass: collect function declarations
+        self._collect_functions(ast)
+
+        # Generate main function wrapper
+        self.emit_raw("")
+        self.emit_raw("fn main() {")
+        self.indent_level += 1
+
+        # Process the AST
+        self._process_principio(ast)
+
+        self.indent_level -= 1
+        self.emit_raw("}")
+
+        return "\n".join(self.output_lines)
+
+    def _emit_prelude(self) -> None:
+        """Emit the Rust prelude with imports."""
+        self.emit_raw("use ago_stdlib::{")
+        self.emit_raw("    AgoType, AgoRange, TargetType,")
+        self.emit_raw("    add, subtract, multiply, divide, modulo,")
+        self.emit_raw("    greater_than, greater_equal, less_than, less_equal,")
+        self.emit_raw("    and, or, not, bitwise_and, bitwise_or, bitwise_xor,")
+        self.emit_raw("    slice, sliceto, contains, elvis,")
+        self.emit_raw("    unary_minus, unary_plus,")
+        self.emit_raw("    get, set, insero, removeo, into_iter,")
+        self.emit_raw("    dici, apertu, species, exei, aequalam, claverum,")
+        self.emit_raw("};")
+        self.emit_raw("use std::collections::HashMap;")
+
+    def _collect_functions(self, ast: Any) -> None:
+        """First pass: collect all function declarations."""
+        if ast is None:
+            return
+        if isinstance(ast, str):
+            return
+        if isinstance(ast, (list, tuple)):
+            for item in ast:
+                self._collect_functions(item)
+            return
+
+        d = to_dict(ast)
+        # Method declaration: has name, params, body
+        if "name" in d and "body" in d and "params" in d:
+            self._generate_function(ast)
+
+    def _process_principio(self, ast: Any) -> None:
+        """Process the top-level principio rule."""
+        if ast is None:
+            return
+        if isinstance(ast, (list, tuple)):
+            for item in ast:
+                self._process_top_level(item)
+            return
+        self._process_top_level(ast)
+
+    def _process_top_level(self, item: Any) -> None:
+        """Process a top-level item (skip function decls, process statements)."""
+        if item is None:
+            return
+        if isinstance(item, str):
+            # Newlines, etc.
+            return
+        if isinstance(item, (list, tuple)):
+            for sub in item:
+                self._process_top_level(sub)
+            return
+
+        d = to_dict(item)
+        # Skip method declarations (already processed)
+        if "name" in d and "body" in d and "params" in d:
+            return
+        # Check for call statement
+        if "call" in d:
+            expr = self._generate_expr(d["call"])
+            self.emit(f"{expr};")
+            return
+        # Process as statement
+        self._generate_statement(item)
+
+    def _generate_function(self, ast: Any) -> None:
+        """Generate a Rust function from a method declaration."""
+        d = to_dict(ast)
+        func_name = str(d["name"])
+
+        # Parse parameters
+        params = self._parse_params(d.get("params"))
+        param_str = ", ".join(f"{name}: AgoType" for name in params)
+
+        # Emit function signature
+        self.emit_raw("")
+        self.emit_raw(f"fn {func_name}({param_str}) -> AgoType {{")
+        self.indent_level += 1
+
+        # Track parameters as declared
+        old_declared = self.declared_vars.copy()
+        for p in params:
+            self.declared_vars.add(p)
+
+        # Process body
+        body = d.get("body")
+        if body:
+            self._process_block(body)
+
+        # Default return if no explicit return
+        self.emit("AgoType::Null")
+
+        self.indent_level -= 1
+        self.emit_raw("}")
+
+        # Restore declared vars
+        self.declared_vars = old_declared
+
+    def _parse_params(self, params_node: Any) -> list[str]:
+        """Parse parameter list into variable names."""
+        if params_node is None:
+            return []
+
+        d = to_dict(params_node)
+        names = []
+
+        first = d.get("first")
+        if first:
+            name = self._extract_identifier(first)
+            if name:
+                names.append(name)
+
+        rest = d.get("rest")
+        if rest:
+            for item in rest:
+                item_d = to_dict(item) if not isinstance(item, list) else {}
+                expr = item_d.get("expr") if item_d else None
+                if expr is None and isinstance(item, list) and len(item) >= 2:
+                    expr = item[1]
+                if expr:
+                    name = self._extract_identifier(expr)
+                    if name:
+                        names.append(name)
+
+        return names
+
+    def _extract_identifier(self, node: Any) -> Optional[str]:
+        """Extract identifier name from node."""
+        if isinstance(node, str):
+            return node
+        d = to_dict(node)
+        if "id" in d:
+            return str(d["id"])
+        if "value" in d:
+            inner = d["value"]
+            if isinstance(inner, dict) or hasattr(inner, "parseinfo"):
+                return self._extract_identifier(inner)
+        return None
+
+    def _process_block(self, block: Any) -> None:
+        """Process a block of statements."""
+        if block is None:
+            return
+
+        d = to_dict(block)
+        stmts = d.get("stmts")
+        if stmts is None:
+            return
+
+        stmts_d = to_dict(stmts)
+        first = stmts_d.get("first")
+        if first:
+            self._generate_statement(first)
+
+        rest = stmts_d.get("rest")
+        if rest:
+            for item in rest:
+                if isinstance(item, list):
+                    for sub in item:
+                        if sub and sub != "\n" and not (isinstance(sub, str) and sub.strip() == ""):
+                            self._generate_statement(sub)
+                elif item and item != "\n":
+                    self._generate_statement(item)
+
+    def _generate_statement(self, stmt: Any) -> None:
+        """Generate code for a statement."""
+        if stmt is None:
+            return
+
+        if isinstance(stmt, str):
+            if stmt == "frio":
+                self.emit("break;")
+            elif stmt == "pergo":
+                self.emit("continue;")
+            elif stmt == "omitto":
+                pass  # No-op
+            return
+
+        if isinstance(stmt, list):
+            for sub in stmt:
+                self._generate_statement(sub)
+            return
+
+        d = to_dict(stmt)
+
+        # Return statement
+        if "return_stmt" in d or ("value" in d and d.get("return_stmt") is not None):
+            self._generate_return(stmt)
+        # Declaration: has name and value, no target
+        elif "name" in d and "value" in d and "target" not in d:
+            self._generate_declaration(stmt)
+        # Reassignment: has target and value
+        elif "target" in d and "value" in d:
+            self._generate_reassignment(stmt)
+        # If statement
+        elif "if_stmt" in d:
+            self._generate_if(d["if_stmt"])
+        elif "cond" in d and "then" in d:
+            self._generate_if(stmt)
+        # While statement
+        elif "while_stmt" in d:
+            self._generate_while(d["while_stmt"])
+        elif "cond" in d and "body" in d and "iterator" not in d:
+            self._generate_while(stmt)
+        # For statement
+        elif "for_stmt" in d:
+            self._generate_for(d["for_stmt"])
+        elif "iterator" in d and "iterable" in d:
+            self._generate_for(stmt)
+        # Call statement
+        elif "call" in d:
+            expr = self._generate_expr(d["call"])
+            self.emit(f"{expr};")
+        # Check for nested return
+        elif "value" in d:
+            inner = d["value"]
+            if isinstance(inner, dict):
+                inner_d = to_dict(inner)
+                if "return_stmt" in inner_d:
+                    self._generate_return(inner)
+
+    def _generate_declaration(self, stmt: Any) -> None:
+        """Generate variable declaration."""
+        d = to_dict(stmt)
+        var_name = str(d["name"])
+        value = d.get("value")
+
+        expr = self._generate_expr(value)
+        self.emit(f"let mut {var_name} = {expr};")
+        self.declared_vars.add(var_name)
+
+    def _generate_reassignment(self, stmt: Any) -> None:
+        """Generate variable reassignment."""
+        d = to_dict(stmt)
+        var_name = str(d["target"])
+        value = d.get("value")
+        index = d.get("index")
+
+        expr = self._generate_expr(value)
+
+        if index:
+            # Indexed assignment: var[idx] = value
+            idx_expr = self._generate_indexing(index)
+            self.emit(f"set(&mut {var_name}, &{idx_expr}, {expr});")
+        else:
+            self.emit(f"{var_name} = {expr};")
+
+    def _generate_indexing(self, index_node: Any) -> str:
+        """Generate index expression."""
+        d = to_dict(index_node)
+        indexes = d.get("indexes", [])
+
+        if indexes:
+            # Get the first index expression
+            if isinstance(indexes, list) and len(indexes) > 0:
+                first = indexes[0]
+                first_d = to_dict(first)
+                expr = first_d.get("expr")
+                if expr:
+                    return self._generate_expr(expr)
+
+        return "AgoType::Int(0)"
+
+    def _generate_return(self, stmt: Any) -> None:
+        """Generate return statement."""
+        d = to_dict(stmt)
+        return_stmt = d.get("return_stmt")
+        if return_stmt and isinstance(return_stmt, list) and len(return_stmt) >= 2:
+            value = return_stmt[1]
+            expr = self._generate_expr(value)
+            self.emit(f"return {expr};")
+        elif d.get("value"):
+            expr = self._generate_expr(d["value"])
+            self.emit(f"return {expr};")
+        else:
+            self.emit("return AgoType::Null;")
+
+    def _generate_if(self, stmt: Any) -> None:
+        """Generate if statement."""
+        d = to_dict(stmt)
+
+        cond = d.get("cond")
+        cond_expr = self._generate_expr(cond)
+
+        self.emit(f"if matches!({cond_expr}, AgoType::Bool(true)) {{")
+        self.indent_level += 1
+        self._process_block(d.get("then"))
+        self.indent_level -= 1
+
+        # Handle elifs
+        elifs = d.get("elifs")
+        if elifs:
+            for elif_block in elifs:
+                elif_cond = None
+                elif_body = None
+
+                if isinstance(elif_block, (list, tuple)):
+                    for item in elif_block:
+                        if item == "aluid":
+                            continue
+                        if elif_cond is None and item is not None:
+                            if isinstance(item, dict) or hasattr(item, "parseinfo"):
+                                elif_cond = item
+                        elif elif_body is None and item is not None:
+                            if isinstance(item, dict) or hasattr(item, "parseinfo"):
+                                elif_body = item
+
+                if elif_cond:
+                    elif_expr = self._generate_expr(elif_cond)
+                    self.emit(f"}} else if matches!({elif_expr}, AgoType::Bool(true)) {{")
+                    self.indent_level += 1
+                    if elif_body:
+                        self._process_block(elif_body)
+                    self.indent_level -= 1
+
+        # Handle else
+        else_frag = d.get("else_fragment")
+        if else_frag:
+            else_d = to_dict(else_frag)
+            self.emit("} else {")
+            self.indent_level += 1
+            self._process_block(else_d.get("else_body"))
+            self.indent_level -= 1
+
+        self.emit("}")
+
+    def _generate_while(self, stmt: Any) -> None:
+        """Generate while loop."""
+        d = to_dict(stmt)
+
+        cond = d.get("cond")
+        cond_expr = self._generate_expr(cond)
+
+        self.emit(f"while matches!({cond_expr}, AgoType::Bool(true)) {{")
+        self.indent_level += 1
+        self._process_block(d.get("body"))
+        self.indent_level -= 1
+        self.emit("}")
+
+    def _generate_for(self, stmt: Any) -> None:
+        """Generate for loop."""
+        d = to_dict(stmt)
+
+        iterator = self._extract_identifier(d.get("iterator"))
+        iterable = d.get("iterable")
+        iterable_expr = self._generate_expr(iterable)
+
+        self.emit(f"for {iterator} in into_iter(&{iterable_expr}) {{")
+        self.indent_level += 1
+        self.declared_vars.add(iterator)
+        self._process_block(d.get("body"))
+        self.indent_level -= 1
+        self.emit("}")
+
+    def _generate_expr(self, expr: Any) -> str:
+        """Generate an expression and return as string."""
+        if expr is None:
+            return "AgoType::Null"
+
+        if isinstance(expr, str):
+            if expr == "verum":
+                return "AgoType::Bool(true)"
+            if expr == "falsus":
+                return "AgoType::Bool(false)"
+            if expr == "inanis":
+                return "AgoType::Null"
+            # Variable reference
+            return expr
+
+        if isinstance(expr, (list, tuple)):
+            # Could be a list literal or struct
+            if len(expr) >= 2 and expr[0] == "{" and expr[-1] == "}":
+                return self._generate_struct(expr)
+            if len(expr) >= 2 and expr[0] == "[" and expr[-1] == "]":
+                return self._generate_list(expr)
+            # Process first non-None element
+            for item in expr:
+                if item is not None and item not in (",", "[", "]", "{", "}"):
+                    return self._generate_expr(item)
+            return "AgoType::Null"
+
+        d = to_dict(expr)
+
+        # Unwrap value wrapper
+        if "value" in d and d.get("value") is not None:
+            inner = d["value"]
+            if isinstance(inner, str):
+                if inner == "verum":
+                    return "AgoType::Bool(true)"
+                if inner == "falsus":
+                    return "AgoType::Bool(false)"
+                if inner == "inanis":
+                    return "AgoType::Null"
+                return inner
+            return self._generate_expr(inner)
+
+        # Literals
+        if d.get("int") is not None:
+            return f"AgoType::Int({d['int']})"
+        if d.get("float") is not None:
+            return f"AgoType::Float({d['float']})"
+        if d.get("str") is not None:
+            # String literal - remove surrounding quotes for Rust
+            s = d["str"]
+            return f"AgoType::String({s}.to_string())"
+        if d.get("roman") is not None:
+            val = self._roman_to_int(d["roman"])
+            return f"AgoType::Int({val})"
+
+        # Boolean literals
+        if d.get("TRUE") is not None:
+            return "AgoType::Bool(true)"
+        if d.get("FALSE") is not None:
+            return "AgoType::Bool(false)"
+        if d.get("NULL") is not None:
+            return "AgoType::Null"
+
+        # Identifier
+        if d.get("id") is not None:
+            name = str(d["id"])
+            if name == "id":
+                return "id"  # Lambda parameter
+            return self._generate_variable_ref(name)
+
+        # Parenthesized expression
+        if d.get("paren") is not None:
+            paren = d["paren"]
+            if isinstance(paren, (list, tuple)) and len(paren) >= 2:
+                return self._generate_expr(paren[1])
+            return self._generate_expr(paren)
+
+        # List literal
+        if d.get("list") is not None:
+            return self._generate_list(d["list"])
+
+        # Struct literal
+        if d.get("mapstruct") is not None:
+            return self._generate_struct(d["mapstruct"])
+
+        # Function call
+        if d.get("call") is not None:
+            return self._generate_call(d["call"])
+
+        # Direct call_stmt (has first with func, or has chain for method calls)
+        if d.get("first") is not None:
+            first = d["first"]
+            chain = d.get("chain")
+            # Method chain: identifier.method() or method chain
+            if chain and isinstance(chain, (list, tuple)) and len(chain) > 0:
+                return self._generate_call(d)
+            # Simple function call
+            first_d = to_dict(first) if not isinstance(first, str) else {}
+            if first_d.get("func") is not None:
+                return self._generate_call(d)
+
+        # Method chain
+        if d.get("mchain") is not None:
+            return self._generate_method_chain(d["mchain"])
+
+        # Indexed access
+        if d.get("indexed") is not None:
+            return self._generate_indexed(d["indexed"])
+
+        # Struct field access
+        if d.get("struct_indexed") is not None:
+            return self._generate_struct_indexed(d["struct_indexed"])
+
+        # Binary operators
+        if d.get("op") is not None and d.get("left") is not None:
+            return self._generate_binary_op(d)
+
+        # Unary operators
+        if d.get("op") is not None and d.get("right") is not None and d.get("left") is None:
+            return self._generate_unary_op(d)
+
+        # Lambda declaration
+        if d.get("body") is not None and "name" not in d:
+            return self._generate_lambda(d)
+
+        return "AgoType::Null"
+
+    def _generate_binary_op(self, d: dict) -> str:
+        """Generate binary operation."""
+        op = d.get("op")
+        left = self._generate_expr(d.get("left"))
+        right = self._generate_expr(d.get("right"))
+
+        op_map = {
+            "+": "add",
+            "-": "subtract",
+            "*": "multiply",
+            "/": "divide",
+            "%": "modulo",
+            ">": "greater_than",
+            ">=": "greater_equal",
+            "<": "less_than",
+            "<=": "less_equal",
+            "et": "and",
+            "vel": "or",
+            "&": "bitwise_and",
+            "|": "bitwise_or",
+            "^": "bitwise_xor",
+            "..": "slice",
+            ".<": "sliceto",
+            "?:": "elvis",
+            "in": "contains",
+        }
+
+        if op == "==":
+            return f"aequalam(&{left}, &{right})"
+        if op == "!=":
+            return f"not(&aequalam(&{left}, &{right}))"
+        if op == "est":
+            # Type equality - check if same variant
+            return f"AgoType::Bool(std::mem::discriminant(&{left}) == std::mem::discriminant(&{right}))"
+
+        if op in op_map:
+            func = op_map[op]
+            if op == "in":
+                # 'in' operator: needle in haystack -> contains(haystack, needle)
+                return f"{func}(&{right}, &{left})"
+            return f"{func}(&{left}, &{right})"
+
+        return f"/* unknown op {op} */ AgoType::Null"
+
+    def _generate_unary_op(self, d: dict) -> str:
+        """Generate unary operation."""
+        op = d.get("op")
+        right = self._generate_expr(d.get("right"))
+
+        if op == "-":
+            return f"unary_minus(&{right})"
+        if op == "+":
+            return f"unary_plus(&{right})"
+        if op == "non":
+            return f"not(&{right})"
+
+        return f"/* unknown unary op {op} */ {right}"
+
+    def _generate_call(self, call_node: Any) -> str:
+        """Generate function call or method chain."""
+        d = to_dict(call_node)
+
+        # Check if this is a method chain (first is identifier, chain has methods)
+        first = d.get("first")
+        chain = d.get("chain")
+
+        if first and chain and isinstance(chain, (list, tuple)) and len(chain) > 0:
+            # Method chain: receiver.method1().method2()
+            # first is the receiver (identifier or call)
+            if isinstance(first, str):
+                result = self._generate_variable_ref(first)
+            else:
+                first_d = to_dict(first)
+                if first_d.get("func"):
+                    # first is a nodotcall_stmt
+                    func_name = first_d.get("func")
+                    args = []
+                    if first_d.get("args"):
+                        args = self._parse_args(first_d["args"])
+                    result = f"{func_name}({', '.join(args)})"
+                else:
+                    result = self._generate_expr(first)
+
+            # Process chain
+            for item in chain:
+                if item is None or item == ".":
+                    continue
+                if isinstance(item, (list, tuple)):
+                    for sub in item:
+                        if sub == "." or sub is None:
+                            continue
+                        if isinstance(sub, dict) or hasattr(sub, "parseinfo"):
+                            sub_d = to_dict(sub)
+                            func_name = sub_d.get("func")
+                            if func_name:
+                                args = []
+                                if sub_d.get("args"):
+                                    args = self._parse_args(sub_d["args"])
+                                receiver = f"&{result}" if not result.startswith("&") else result
+                                all_args = [receiver] + args
+                                result = f"{func_name}({', '.join(all_args)})"
+                else:
+                    item_d = to_dict(item) if not isinstance(item, str) else {}
+                    func_name = item_d.get("func")
+                    if func_name:
+                        args = []
+                        if item_d.get("args"):
+                            args = self._parse_args(item_d["args"])
+                        receiver = f"&{result}" if not result.startswith("&") else result
+                        all_args = [receiver] + args
+                        result = f"{func_name}({', '.join(all_args)})"
+
+            return result
+
+        # Check for recv (method chain on literal like "string".dici())
+        recv = d.get("recv")
+        
+        # Simple function call
+        func_name = None
+        args = []
+
+        if first:
+            first_d = to_dict(first) if not isinstance(first, str) else {}
+            func = first_d.get("func") if first_d else None
+            if func:
+                func_name = str(func)
+                args_node = first_d.get("args")
+                if args_node:
+                    args = self._parse_args(args_node)
+        
+        if not func_name:
+            # Direct call node (from nodotcall_stmt)
+            func = d.get("func")
+            if func:
+                func_name = str(func)
+            args_node = d.get("args")
+            if args_node:
+                args = self._parse_args(args_node)
+
+        if func_name:
+            # If there's a receiver (method chain), it becomes the first argument
+            if recv is not None:
+                recv_expr = self._generate_expr(recv)
+                args = [recv_expr] + args
+            
+            # Add references to arguments for functions that take &AgoType
+            ref_args = []
+            for arg in args:
+                if not arg.startswith("&"):
+                    ref_args.append(f"&{arg}")
+                else:
+                    ref_args.append(arg)
+            args_str = ", ".join(ref_args)
+            return f"{func_name}({args_str})"
+
+        return "AgoType::Null"
+
+    def _parse_args(self, args_node: Any) -> list[str]:
+        """Parse argument list."""
+        d = to_dict(args_node)
+        args = []
+
+        first = d.get("first")
+        if first:
+            args.append(self._generate_expr(first))
+
+        rest = d.get("rest")
+        if rest:
+            for item in rest:
+                if isinstance(item, list) and len(item) >= 2:
+                    args.append(self._generate_expr(item[1]))
+                else:
+                    item_d = to_dict(item)
+                    if "expr" in item_d:
+                        args.append(self._generate_expr(item_d["expr"]))
+
+        return args
+
+    def _generate_method_chain(self, mchain: Any) -> str:
+        """Generate method chain: a.b().c(d) -> c(&a, d)."""
+        if isinstance(mchain, (list, tuple)) and len(mchain) >= 2:
+            base = mchain[0]
+            chain = mchain[1] if len(mchain) > 1 else None
+        else:
+            d = to_dict(mchain)
+            base = d.get("base")
+            chain = d.get("chain")
+
+        result = self._generate_expr(base)
+
+        if chain and isinstance(chain, (list, tuple)):
+            for item in chain:
+                if item is None or item == ".":
+                    continue
+
+                method = None
+                if isinstance(item, (list, tuple)):
+                    for sub in item:
+                        if sub != "." and sub is not None:
+                            if isinstance(sub, dict) or hasattr(sub, "parseinfo"):
+                                method = sub
+                                break
+                else:
+                    item_d = to_dict(item) if not isinstance(item, str) else {}
+                    method = item_d.get("method") or item_d.get("more")
+
+                if method:
+                    method_d = to_dict(method)
+                    func_name = method_d.get("func")
+                    if func_name:
+                        args = []
+                        args_node = method_d.get("args")
+                        if args_node:
+                            args = self._parse_args(args_node)
+                        # Method chaining: receiver becomes first arg (as reference)
+                        # Wrap result in reference if it's not already
+                        receiver = f"&{result}" if not result.startswith("&") else result
+                        all_args = [receiver] + args
+                        result = f"{func_name}({', '.join(all_args)})"
+
+        return result
+
+    def _generate_indexed(self, indexed: Any) -> str:
+        """Generate indexed access."""
+        if hasattr(indexed, "__iter__"):
+            items = list(indexed)
+            if items:
+                base = items[0]
+                if isinstance(base, str):
+                    base_expr = f"{base}.clone()"
+                else:
+                    base_expr = self._generate_expr(base)
+
+                # Get index
+                if len(items) > 1:
+                    idx_node = items[1]
+                    idx_d = to_dict(idx_node)
+                    indexes = idx_d.get("indexes", [])
+                    if indexes and len(indexes) > 0:
+                        first_idx = indexes[0]
+                        first_d = to_dict(first_idx)
+                        idx_expr = self._generate_expr(first_d.get("expr"))
+                        return f"get(&{base_expr}, &{idx_expr})"
+
+        return "AgoType::Null"
+
+    def _generate_struct_indexed(self, struct_indexed: Any) -> str:
+        """Generate struct field access."""
+        d = to_dict(struct_indexed)
+        base = d.get("base")
+        chain = d.get("chain")
+
+        result = self._generate_expr(base)
+
+        if chain:
+            for item in chain:
+                if item is None or item == ".":
+                    continue
+                item_d = to_dict(item) if not isinstance(item, str) else {}
+                sub_item = item_d.get("sub_item") if item_d else item
+                if sub_item:
+                    if isinstance(sub_item, str):
+                        if sub_item.startswith('"'):
+                            key = sub_item
+                        else:
+                            key = f'"{sub_item}"'
+                    else:
+                        key = f'"{sub_item}"'
+                    result = f"get(&{result}, &AgoType::String({key}.to_string()))"
+
+        return result
+
+    def _generate_list(self, list_node: Any) -> str:
+        """Generate list literal."""
+        items = []
+
+        def collect_items(node: Any) -> None:
+            if node is None:
+                return
+            if isinstance(node, str):
+                if node not in (",", "[", "]"):
+                    # Could be a variable reference
+                    items.append(node)
+                return
+            if isinstance(node, (list, tuple)):
+                for item in node:
+                    collect_items(item)
+                return
+            d = to_dict(node)
+            # Check if this is an actual value node
+            if d.get("int") or d.get("float") or d.get("str") or d.get("roman"):
+                items.append(self._generate_expr(node))
+            elif d.get("id"):
+                items.append(self._generate_expr(node))
+            elif d.get("value"):
+                items.append(self._generate_expr(node))
+            elif d.get("list"):
+                items.append(self._generate_expr(node))
+
+        if hasattr(list_node, "__iter__") and not isinstance(list_node, str):
+            for item in list_node:
+                if item is not None and item not in (",", "[", "]"):
+                    collect_items(item)
+
+        if not items:
+            return "AgoType::ListAny(vec![])"
+
+        items_str = ", ".join(items)
+        return f"AgoType::ListAny(vec![{items_str}])"
+
+    def _generate_struct(self, struct_node: Any) -> str:
+        """Generate struct/map literal."""
+        # Parse key-value pairs
+        pairs = []
+
+        def extract_pairs(content: Any) -> None:
+            if content is None:
+                return
+            if isinstance(content, str):
+                return
+            if isinstance(content, (list, tuple)):
+                i = 0
+                while i < len(content):
+                    item = content[i]
+                    if isinstance(item, str) and item not in ("{", "}", ",", ":", "\n"):
+                        # Key - look for colon and value
+                        if i + 2 < len(content) and content[i + 1] == ":":
+                            key = item
+                            value = content[i + 2]
+                            if key.startswith('"'):
+                                key_str = key
+                            else:
+                                key_str = f'"{key}"'
+                            val_expr = self._generate_expr(value)
+                            pairs.append(f"({key_str}.to_string(), {val_expr})")
+                            i += 3
+                            continue
+                    elif isinstance(item, (list, tuple)):
+                        extract_pairs(item)
+                    i += 1
+            elif hasattr(content, "parseinfo") or isinstance(content, dict):
+                d = to_dict(content)
+                for key, val in d.items():
+                    if key not in ("parseinfo",) and val is not None:
+                        if isinstance(val, (list, tuple)):
+                            extract_pairs(val)
+
+        if isinstance(struct_node, (list, tuple)):
+            extract_pairs(struct_node)
+        else:
+            d = to_dict(struct_node)
+            for key, val in d.items():
+                if key not in ("parseinfo",) and isinstance(val, (list, tuple)):
+                    extract_pairs(val)
+
+        if pairs:
+            pairs_str = ", ".join(pairs)
+            return f"AgoType::Struct(HashMap::from([{pairs_str}]))"
+        return "AgoType::Struct(HashMap::new())"
+
+    def _generate_lambda(self, d: dict) -> str:
+        """Generate lambda/closure."""
+        params = self._parse_params(d.get("params"))
+        params_str = ", ".join(f"{p}: AgoType" for p in params)
+
+        # For now, generate as a closure
+        # This is simplified - full lambda support would need more work
+        return f"/* lambda */ AgoType::Null"
+
+    def _roman_to_int(self, roman: str) -> int:
+        """Convert Roman numeral to integer."""
+        values = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
+        result = 0
+        prev = 0
+        for c in reversed(roman):
+            curr = values.get(c, 0)
+            if curr < prev:
+                result -= curr
+            else:
+                result += curr
+            prev = curr
+        return result
+
+
+def generate(ast: Any) -> str:
+    """Generate Rust code from an Ago AST."""
+    generator = AgoCodeGenerator()
+    return generator.generate(ast)

@@ -1,7 +1,7 @@
 //! Integration tests for the ago_stdlib crate.
 
 use ago_stdlib::collections::{get, insero, removeo, set};
-use ago_stdlib::functions::{aequalem, claverum, species};
+use ago_stdlib::functions::{aequalam, claverum, species};
 use ago_stdlib::operators::{
     add, and, bitwise_and, bitwise_or, bitwise_xor, contains, divide, elvis, greater_equal,
     greater_than, less_equal, less_than, modulo, multiply, not, or, slice, sliceto, subtract,
@@ -372,7 +372,7 @@ fn test_removeo_struct_key_not_found() {
 fn test_claverum() {
     // Non-empty struct
     let s = sample_struct();
-    let keys_ago = claverum(s);
+    let keys_ago = claverum(&s);
     if let AgoType::StringList(mut keys) = keys_ago {
         keys.sort(); // Sort for deterministic comparison
         assert_eq!(keys, vec!["a".to_string(), "b".to_string()]);
@@ -382,7 +382,7 @@ fn test_claverum() {
 
     // Empty struct
     let empty_s = AgoType::Struct(HashMap::new());
-    let empty_keys_ago = claverum(empty_s);
+    let empty_keys_ago = claverum(&empty_s);
     if let AgoType::StringList(keys) = empty_keys_ago {
         assert!(keys.is_empty());
     } else {
@@ -393,78 +393,78 @@ fn test_claverum() {
 #[test]
 #[should_panic]
 fn test_claverum_on_non_struct() {
-    claverum(AgoType::Int(1));
+    claverum(&AgoType::Int(1));
 }
 
 #[test]
-fn test_aequalem() {
+fn test_aequalam() {
     // Same type, same value
     assert_eq!(
-        aequalem(&AgoType::Int(5), &AgoType::Int(5)),
+        aequalam(&AgoType::Int(5), &AgoType::Int(5)),
         AgoType::Bool(true)
     );
     assert_eq!(
-        aequalem(&AgoType::Float(5.0), &AgoType::Float(5.0)),
+        aequalam(&AgoType::Float(5.0), &AgoType::Float(5.0)),
         AgoType::Bool(true)
     );
     assert_eq!(
-        aequalem(
+        aequalam(
             &AgoType::String("hello".to_string()),
             &AgoType::String("hello".to_string())
         ),
         AgoType::Bool(true)
     );
     assert_eq!(
-        aequalem(&AgoType::Bool(true), &AgoType::Bool(true)),
+        aequalam(&AgoType::Bool(true), &AgoType::Bool(true)),
         AgoType::Bool(true)
     );
     assert_eq!(
-        aequalem(&AgoType::Null, &AgoType::Null),
+        aequalam(&AgoType::Null, &AgoType::Null),
         AgoType::Bool(true)
     );
 
     // Same type, different value
     assert_eq!(
-        aequalem(&AgoType::Int(5), &AgoType::Int(6)),
+        aequalam(&AgoType::Int(5), &AgoType::Int(6)),
         AgoType::Bool(false)
     );
     assert_eq!(
-        aequalem(&AgoType::Float(5.0), &AgoType::Float(5.1)),
+        aequalam(&AgoType::Float(5.0), &AgoType::Float(5.1)),
         AgoType::Bool(false)
     );
     assert_eq!(
-        aequalem(
+        aequalam(
             &AgoType::String("hello".to_string()),
             &AgoType::String("world".to_string())
         ),
         AgoType::Bool(false)
     );
     assert_eq!(
-        aequalem(&AgoType::Bool(true), &AgoType::Bool(false)),
+        aequalam(&AgoType::Bool(true), &AgoType::Bool(false)),
         AgoType::Bool(false)
     );
 
     // Different types, same conceptual value (should be false due to strict equality)
     assert_eq!(
-        aequalem(&AgoType::Int(5), &AgoType::Float(5.0)),
+        aequalam(&AgoType::Int(5), &AgoType::Float(5.0)),
         AgoType::Bool(false)
     );
     assert_eq!(
-        aequalem(&AgoType::Int(1), &AgoType::Bool(true)),
+        aequalam(&AgoType::Int(1), &AgoType::Bool(true)),
         AgoType::Bool(false)
     );
     assert_eq!(
-        aequalem(&AgoType::String("5".to_string()), &AgoType::Int(5)),
+        aequalam(&AgoType::String("5".to_string()), &AgoType::Int(5)),
         AgoType::Bool(false)
     );
 
     // Different types, different values
     assert_eq!(
-        aequalem(&AgoType::Int(5), &AgoType::String("hello".to_string())),
+        aequalam(&AgoType::Int(5), &AgoType::String("hello".to_string())),
         AgoType::Bool(false)
     );
     assert_eq!(
-        aequalem(&AgoType::Float(1.0), &AgoType::Bool(false)),
+        aequalam(&AgoType::Float(1.0), &AgoType::Bool(false)),
         AgoType::Bool(false)
     );
 }

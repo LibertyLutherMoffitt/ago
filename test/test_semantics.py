@@ -1,7 +1,10 @@
 # test/test_semantics.py
 import pytest
-from src.AgoParser import parser
+from src.AgoParser import AgoParser
 from src.AgoSemanticChecker import AgoSemanticChecker
+
+# Create a module-level parser instance
+parser = AgoParser()
 
 
 def run_semantics(source: str):

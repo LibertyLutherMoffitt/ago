@@ -207,6 +207,45 @@ class AgoSemanticChecker:
         self.current_lambda: Optional[Symbol] = None
         # Track if current function has a return statement
         self.function_has_return: bool = False
+        # Register stdlib functions
+        self._register_stdlib()
+
+    def _register_stdlib(self) -> None:
+        """Register standard library functions in the symbol table."""
+        # Format: (name, return_type, param_types_list)
+        # param_types_list is a list of type strings
+        stdlib_functions = [
+            # Output functions
+            ("dici", "null", ["string"]),  # prints string
+            # Type inspection
+            ("species", "string", ["Any"]),  # returns type name as string
+            # File operations
+            ("apertu", "struct", ["string"]),  # opens file, returns struct
+            # Program control
+            ("exei", "null", ["int"]),  # exits program
+            # Comparison
+            ("aequalam", "bool", ["Any", "Any"]),  # equality check
+            # Collection operations
+            ("claverum", "string_list", ["struct"]),  # get struct keys
+            # Collection access/mutation
+            ("get", "Any", ["Any", "Any"]),
+            ("set", "null", ["Any", "Any", "Any"]),
+            ("insero", "null", ["Any", "Any", "Any"]),
+            ("removeo", "Any", ["Any", "Any"]),
+            # Iteration
+            ("into_iter", "list_any", ["Any"]),
+        ]
+
+        for func_name, return_type, param_types in stdlib_functions:
+            func_sym = Symbol(
+                name=func_name,
+                type_t="function",
+                category="func",
+                num_of_params=len(param_types),
+                param_types=param_types,
+                return_type=return_type,
+            )
+            self.sym_table.add_symbol(func_sym)
 
     # --- Error Reporting ---
 
@@ -1510,7 +1549,9 @@ class AgoSemanticChecker:
         d = to_dict(call_node)
 
         # call_stmt structure: {recv, first, chain}
+        recv = d.get("recv")
         first = d.get("first")
+        
         if first:
             first_d = to_dict(first)
             func_name = first_d.get("func")
@@ -1522,20 +1563,26 @@ class AgoSemanticChecker:
                         f"Use of undeclared identifier '{func_name}'", call_node
                     )
                 elif sym.category == "func":
-                    self._validate_call_args(first, sym)
+                    # For method chains, recv becomes the first argument
+                    self._validate_call_args(first, sym, receiver=recv)
                 elif sym.type_t == "function":
                     # Variable holding a lambda - validate call args
-                    self._validate_call_args(first, sym)
+                    self._validate_call_args(first, sym, receiver=recv)
                 else:
                     self.report_error(
                         f"'{func_name}' is not callable (type '{sym.type_t}')",
                         call_node,
                     )
 
-    def _validate_call_args(self, call_node, func_sym: Symbol):
+    def _validate_call_args(self, call_node, func_sym: Symbol, receiver=None):
         """Validate function call arguments (count and types)."""
         d = to_dict(call_node)
         args = []
+        
+        # If there's a receiver (method chain), it becomes the first argument
+        if receiver is not None:
+            args.append(receiver)
+        
         args_node = d.get("args")
         if args_node:
             args_d = to_dict(args_node)
