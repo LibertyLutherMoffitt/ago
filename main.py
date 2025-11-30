@@ -137,13 +137,13 @@ def print_help():
   {Y}--verbose{E}              Show verbose output
 
 {C}Examples:{E}
-  {D}${E} ago hello.ago              {D}# Run the program{E}
-  {D}${E} ago hello.ago {Y}--check{E}      {D}# Check for errors{E}
-  {D}${E} ago hello.ago {Y}--emit{E}=rust  {D}# Output Rust code{E}
+  {D}${E} ago hello.ago                      {D}# Run the program{E}
+  {D}${E} ago hello.ago {Y}--check{E}              {D}# Check for errors{E}
+  {D}${E} ago hello.ago {Y}--emit{E}=rust          {D}# Output Rust code{E}
   {D}${E} ago hello.ago {Y}--emit{E}=bin {Y}-o{E} hello  {D}# Compile to binary{E}
 
 {C}Type Endings:{E}
-  {G}-a{E}    int        {G}-ae{E}   float      {G}-es{E}   string     {G}-am{E}   bool
+  {G}-a{E}    int        {G}-ae{E}   float      {G}-es{E}    string     {G}-am{E}   bool
   {G}-aem{E}  int[]      {G}-arum{E} float[]    {G}-erum{E}  string[]   {G}-as{E}   bool[]
   {G}-u{E}    struct     {G}-o{E}    function   {G}-e{E}     range      {G}-i{E}    null
   {G}-ium{E}  any        {G}-uum{E}  any[]
