@@ -78,7 +78,7 @@ impl AgoType {
                         }
                     })
                     .collect();
-                AgoType::String(items.join("\n\n"))
+                AgoType::String(items.join("\n"))
             }
 
             // --- List/Struct/Range to Bool ---
@@ -335,6 +335,60 @@ impl AgoType {
                         if let AgoType::Bool(b) =
                             AgoType::String(item.clone()).as_type(TargetType::Bool)
                         {
+                            b
+                        } else {
+                            unreachable!()
+                        }
+                    })
+                    .collect();
+                AgoType::BoolList(new_list)
+            }
+
+            // --- ListAny to typed lists ---
+            (AgoType::ListAny(val), TargetType::StringList) => {
+                let new_list = val
+                    .iter()
+                    .map(|item| {
+                        if let AgoType::String(s) = item.clone().as_type(TargetType::String) {
+                            s
+                        } else {
+                            unreachable!()
+                        }
+                    })
+                    .collect();
+                AgoType::StringList(new_list)
+            }
+            (AgoType::ListAny(val), TargetType::IntList) => {
+                let new_list = val
+                    .iter()
+                    .map(|item| {
+                        if let AgoType::Int(i) = item.clone().as_type(TargetType::Int) {
+                            i
+                        } else {
+                            unreachable!()
+                        }
+                    })
+                    .collect();
+                AgoType::IntList(new_list)
+            }
+            (AgoType::ListAny(val), TargetType::FloatList) => {
+                let new_list = val
+                    .iter()
+                    .map(|item| {
+                        if let AgoType::Float(f) = item.clone().as_type(TargetType::Float) {
+                            f
+                        } else {
+                            unreachable!()
+                        }
+                    })
+                    .collect();
+                AgoType::FloatList(new_list)
+            }
+            (AgoType::ListAny(val), TargetType::BoolList) => {
+                let new_list = val
+                    .iter()
+                    .map(|item| {
+                        if let AgoType::Bool(b) = item.clone().as_type(TargetType::Bool) {
                             b
                         } else {
                             unreachable!()

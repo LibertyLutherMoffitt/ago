@@ -11,5 +11,9 @@ use ago_stdlib::{
 use std::collections::HashMap;
 
 fn main() {
-    dici(&AgoType::String("Salvete Ibi".to_string()));
+    let mut xas = AgoType::ListAny(vec![AgoType::Bool(true), AgoType::Bool(false)]);
+    dici(&xas.clone().as_type(TargetType::String));
+    let mut xarum = xas.clone().as_type(TargetType::FloatList);
+    dici(&AgoType::String("".to_string()));
+    dici(&xarum.clone().as_type(TargetType::String));
 }

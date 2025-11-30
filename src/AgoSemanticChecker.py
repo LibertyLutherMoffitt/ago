@@ -97,6 +97,14 @@ def get_element_type(list_type: str) -> str:
     return "unknown"
 
 
+def get_stem(name: str) -> Optional[str]:
+    """Extract the stem from a variable name by removing the type suffix."""
+    for ending in ENDINGS_BY_LENGTH:
+        if name.endswith(ending) and len(name) > len(ending):
+            return name[:-len(ending)]
+    return None
+
+
 def is_type_compatible(from_type: str, to_type: str) -> bool:
     """
     Check if from_type can be used where to_type is expected.
@@ -1374,7 +1382,8 @@ class AgoSemanticChecker:
         expected_type = self.require_type_from_name(var_name, ast)
         value = d.get("value")
 
-        # Check if value is a lambda declaration
+        # First, evaluate the RHS expression (before removing old variables with same stem)
+        # This allows `xarum := xarum` to work - RHS refers to existing `xas` variable
         if self._is_lambda_decl(value):
             lambda_sym = self._handle_lambda_decl(value, expected_type)
             actual_type = "function"
@@ -1389,11 +1398,37 @@ class AgoSemanticChecker:
             )
         else:
             actual_type = self.infer_expr_type(value)
-            symbol = Symbol(name=var_name, type_t=expected_type, category="var")
+            # If actual_type is function (returned from another function),
+            # use -1 to indicate unknown param count
+            if actual_type == "function" or expected_type == "function":
+                symbol = Symbol(
+                    name=var_name,
+                    type_t=expected_type,
+                    category="var",
+                    num_of_params=-1,  # Unknown param count
+                )
+            else:
+                symbol = Symbol(name=var_name, type_t=expected_type, category="var")
 
         self.check_type_compatible(
             actual_type, expected_type, f"declaration of '{var_name}'", ast
         )
+
+        # In Ago, only one variable per stem can exist in a scope.
+        # If declaring a new variable with the same stem, remove the old one.
+        # This happens AFTER evaluating the RHS so the old variable is available for casting.
+        new_stem = get_stem(var_name)
+        if new_stem:
+            # Find and remove any existing variable with the same stem in current scope
+            current_scope_symbols = self.sym_table.scopes.get(
+                self.sym_table.current_scope, {}
+            )
+            for existing_name in list(current_scope_symbols.keys()):
+                existing_sym = current_scope_symbols[existing_name]
+                if existing_sym.category == "var":  # Only variables, not functions
+                    existing_stem = get_stem(existing_name)
+                    if existing_stem == new_stem and existing_name != var_name:
+                        self.sym_table.remove_symbol_from_current_scope(existing_name)
 
         self.declare_symbol(symbol, ast)
 
@@ -1601,6 +1636,10 @@ class AgoSemanticChecker:
 
         expected_count = func_sym.num_of_params
         actual_count = len(args)
+
+        # Skip validation if param count is unknown (-1 means function returned from another function)
+        if expected_count < 0:
+            return
 
         # Check argument count
         if actual_count != expected_count:

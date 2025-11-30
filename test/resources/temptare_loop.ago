@@ -1,5 +1,4 @@
 xa := 0
 dum xa < 10 {
-    frio
+    xes.dici()
 }
-yes := xes

@@ -1,13 +1,9 @@
 des sato(){
-    redeo des () {
-        legi()
+    redeo des {
+        dici(ides)
     }
 }
 
-des sato_duo() {
-    redeo des { legi() }
-}
+eo := sato()
 
-des legi() {
-    xa := 1
-}
+eo(["Salvete", "Mundi"])

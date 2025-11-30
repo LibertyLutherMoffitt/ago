@@ -37,6 +37,17 @@ ENDING_TO_TARGET_TYPE = {
 # Sorted by length descending for proper matching
 ENDINGS_BY_LENGTH = sorted(ENDING_TO_TARGET_TYPE.keys(), key=len, reverse=True)
 
+# Standard library functions (take &AgoType parameters)
+STDLIB_FUNCTIONS = {
+    "dici", "apertu", "species", "exei", "aequalam", "claverum",
+    "add", "subtract", "multiply", "divide", "modulo",
+    "greater_than", "greater_equal", "less_than", "less_equal",
+    "and", "or", "not", "bitwise_and", "bitwise_or", "bitwise_xor",
+    "slice", "sliceto", "contains", "elvis",
+    "unary_minus", "unary_plus",
+    "get", "set", "insero", "removeo", "into_iter",
+}
+
 
 def get_suffix_and_stem(name: str) -> tuple[Optional[str], Optional[str]]:
     """Get the type suffix and stem from a variable name."""
@@ -58,6 +69,9 @@ class AgoCodeGenerator:
         self.declared_vars: set[str] = set()
         # Track functions for forward declarations
         self.functions: list[str] = []
+        # Track generated lambdas
+        self.lambdas: list[str] = []
+        self.lambda_counter = 0
 
     def indent(self) -> str:
         """Return current indentation string."""
@@ -70,6 +84,7 @@ class AgoCodeGenerator:
         If `name` is directly declared, return `name.clone()`.
         If `name` has a suffix that differs from a declared variable with same stem,
         generate a cast: `base_var.clone().as_type(TargetType::X)`.
+        Special case: `id` variants (ides, ida, etc.) in lambdas.
         """
         # Direct reference to declared variable
         if name in self.declared_vars:
@@ -78,6 +93,12 @@ class AgoCodeGenerator:
         # Check for variable casting via suffix
         suffix, stem = get_suffix_and_stem(name)
         if stem and suffix:
+            # Special case: `id` variants in lambdas (ides, ida, idam, etc.)
+            if stem == "id" and "id" in self.declared_vars:
+                target_type = ENDING_TO_TARGET_TYPE.get(suffix)
+                if target_type:
+                    return f"id.clone().as_type(TargetType::{target_type})"
+            
             # Look for a variable with the same stem but different suffix
             for declared_var in self.declared_vars:
                 decl_suffix, decl_stem = get_suffix_and_stem(declared_var)
@@ -102,8 +123,19 @@ class AgoCodeGenerator:
         """Generate Rust code from the AST and return as string."""
         # Emit prelude
         self._emit_prelude()
+        
+        # First pass: collect lambdas (they need to be defined before user functions)
+        self._collect_lambdas(ast)
+        
+        # Emit lambda type alias and lambda functions (before user functions)
+        if self.lambdas:
+            self.emit_raw("")
+            self.emit_raw("type AgoLambda = Box<dyn Fn(&[AgoType]) -> AgoType>;")
+            for lambda_code in self.lambdas:
+                self.emit_raw("")
+                self.emit_raw(lambda_code)
 
-        # First pass: collect function declarations
+        # Second pass: collect and emit user function declarations
         self._collect_functions(ast)
 
         # Generate main function wrapper
@@ -118,6 +150,93 @@ class AgoCodeGenerator:
         self.emit_raw("}")
 
         return "\n".join(self.output_lines)
+    
+    def _collect_lambdas(self, ast: Any, seen: set = None) -> None:
+        """First pass to collect all lambda declarations."""
+        if seen is None:
+            seen = set()
+        if ast is None:
+            return
+        # Use id() to track nodes we've already visited
+        node_id = id(ast)
+        if node_id in seen:
+            return
+        seen.add(node_id)
+        
+        if isinstance(ast, (list, tuple)):
+            for item in ast:
+                self._collect_lambdas(item, seen)
+            return
+        if isinstance(ast, dict) or hasattr(ast, "parseinfo"):
+            d = to_dict(ast)
+            # Check if this is a lambda (has body but no name)
+            # Exclude loops (while has 'cond', for has 'iterator'/'iterable')
+            is_lambda = (
+                d.get("body") is not None 
+                and "name" not in d
+                and "cond" not in d  # not a while loop
+                and "iterator" not in d  # not a for loop
+                and "iterable" not in d  # not a for loop
+            )
+            if is_lambda:
+                self._register_lambda(d)
+                # Don't recurse into lambda body (it's already processed)
+                return
+            # Recurse
+            for key, val in d.items():
+                if val is not None:
+                    self._collect_lambdas(val, seen)
+    
+    def _register_lambda(self, d: dict) -> int:
+        """Register a lambda and return its ID."""
+        lambda_id = self.lambda_counter
+        self.lambda_counter += 1
+        
+        params = self._parse_params(d.get("params"))
+        
+        # Save current state
+        old_lines = self.output_lines
+        old_indent = self.indent_level
+        old_declared = self.declared_vars.copy()
+        old_in_lambda = getattr(self, '_in_id_lambda', False)
+        
+        # Set up for lambda generation
+        self.output_lines = []
+        self.indent_level = 1
+        
+        # Emit function header
+        self.output_lines.append(f"fn __lambda_{lambda_id}(args: &[AgoType]) -> AgoType {{")
+        
+        if params:
+            # Explicit params - unpack from args array
+            for i, p in enumerate(params):
+                self.emit(f"let {p} = args.get({i}).cloned().unwrap_or(AgoType::Null);")
+                self.declared_vars.add(p)
+            self._in_id_lambda = False
+        else:
+            # No explicit params - this is an `id` lambda
+            # Create the implicit `id` parameter from args[0]
+            self.emit("let id = args.get(0).cloned().unwrap_or(AgoType::Null);")
+            self.declared_vars.add("id")
+            self._in_id_lambda = True
+        
+        # Generate body
+        body = d.get("body")
+        if body:
+            self._process_block(body)
+        
+        self.emit("AgoType::Null")
+        self.output_lines.append("}")
+        
+        # Capture and restore state
+        lambda_code = '\n'.join(self.output_lines)
+        self.output_lines = old_lines
+        self.indent_level = old_indent
+        self.declared_vars = old_declared
+        self._in_id_lambda = old_in_lambda
+        
+        self.lambdas.append(lambda_code)
+        return lambda_id
 
     def _emit_prelude(self) -> None:
         """Emit the Rust prelude with imports."""
@@ -183,18 +302,46 @@ class AgoCodeGenerator:
         # Process as statement
         self._generate_statement(item)
 
+    def _function_returns_lambda(self, body: Any) -> bool:
+        """Check if function body returns a lambda."""
+        if body is None:
+            return False
+        if isinstance(body, (list, tuple)):
+            for item in body:
+                if self._function_returns_lambda(item):
+                    return True
+            return False
+        if isinstance(body, dict) or hasattr(body, "parseinfo"):
+            d = to_dict(body)
+            # Check if this is a return statement with a lambda
+            if d.get("value") is not None:
+                value = d["value"]
+                value_d = to_dict(value) if not isinstance(value, str) else {}
+                # Lambda: has body but no name
+                if value_d.get("body") is not None and "name" not in value_d:
+                    return True
+            # Recurse
+            for key, val in d.items():
+                if val is not None and self._function_returns_lambda(val):
+                    return True
+        return False
+
     def _generate_function(self, ast: Any) -> None:
         """Generate a Rust function from a method declaration."""
         d = to_dict(ast)
         func_name = str(d["name"])
 
-        # Parse parameters
+        # Parse parameters (all mut since they can be reassigned in Ago)
         params = self._parse_params(d.get("params"))
-        param_str = ", ".join(f"{name}: AgoType" for name in params)
+        param_str = ", ".join(f"mut {name}: AgoType" for name in params)
+        
+        # Check if this function returns a lambda
+        returns_lambda = self._function_returns_lambda(d.get("body"))
+        return_type = "AgoLambda" if returns_lambda else "AgoType"
 
         # Emit function signature
         self.emit_raw("")
-        self.emit_raw(f"fn {func_name}({param_str}) -> AgoType {{")
+        self.emit_raw(f"fn {func_name}({param_str}) -> {return_type} {{")
         self.indent_level += 1
 
         # Track parameters as declared
@@ -202,19 +349,25 @@ class AgoCodeGenerator:
         for p in params:
             self.declared_vars.add(p)
 
+        # Track if current function returns lambda (for use in return generation)
+        old_returns_lambda = getattr(self, '_current_func_returns_lambda', False)
+        self._current_func_returns_lambda = returns_lambda
+
         # Process body
         body = d.get("body")
         if body:
             self._process_block(body)
 
-        # Default return if no explicit return
-        self.emit("AgoType::Null")
+        # Default return if no explicit return (only for non-lambda returning functions)
+        if not returns_lambda:
+            self.emit("AgoType::Null")
 
         self.indent_level -= 1
         self.emit_raw("}")
 
-        # Restore declared vars
+        # Restore state
         self.declared_vars = old_declared
+        self._current_func_returns_lambda = old_returns_lambda
 
     def _parse_params(self, params_node: Any) -> list[str]:
         """Parse parameter list into variable names."""
@@ -345,7 +498,22 @@ class AgoCodeGenerator:
         var_name = str(d["name"])
         value = d.get("value")
 
+        # First, generate the RHS expression (before removing old variables with same stem)
+        # This allows `xarum := xarum` to work - RHS refers to existing `xas` variable
         expr = self._generate_expr(value)
+        
+        # In Ago, only one variable per stem can exist at a time.
+        # Remove any existing variable with the same stem AFTER evaluating RHS.
+        new_suffix, new_stem = get_suffix_and_stem(var_name)
+        if new_stem:
+            to_remove = []
+            for existing_var in self.declared_vars:
+                existing_suffix, existing_stem = get_suffix_and_stem(existing_var)
+                if existing_stem == new_stem and existing_var != var_name:
+                    to_remove.append(existing_var)
+            for var in to_remove:
+                self.declared_vars.discard(var)
+
         self.emit(f"let mut {var_name} = {expr};")
         self.declared_vars.add(var_name)
 
@@ -744,14 +912,25 @@ class AgoCodeGenerator:
                 recv_expr = self._generate_expr(recv)
                 args = [recv_expr] + args
             
-            # Add references to arguments for functions that take &AgoType
-            ref_args = []
-            for arg in args:
-                if not arg.startswith("&"):
-                    ref_args.append(f"&{arg}")
-                else:
-                    ref_args.append(arg)
-            args_str = ", ".join(ref_args)
+            # Check if this is a lambda variable (ends with 'o' and is a declared var)
+            if func_name in self.declared_vars:
+                # Lambda call - pass args as slice
+                args_str = ", ".join(args)
+                return f"{func_name}(&[{args_str}])"
+            
+            # Only add references for stdlib functions (they take &AgoType)
+            # User-defined functions take AgoType by value
+            if func_name in STDLIB_FUNCTIONS:
+                ref_args = []
+                for arg in args:
+                    if not arg.startswith("&"):
+                        ref_args.append(f"&{arg}")
+                    else:
+                        ref_args.append(arg)
+                args_str = ", ".join(ref_args)
+            else:
+                # User-defined function - pass by value
+                args_str = ", ".join(args)
             return f"{func_name}({args_str})"
 
         return "AgoType::Null"
@@ -880,8 +1059,16 @@ class AgoCodeGenerator:
                 return
             if isinstance(node, str):
                 if node not in (",", "[", "]"):
-                    # Could be a variable reference
-                    items.append(node)
+                    # Handle boolean and null literals
+                    if node == "verum":
+                        items.append("AgoType::Bool(true)")
+                    elif node == "falsus":
+                        items.append("AgoType::Bool(false)")
+                    elif node == "inanis":
+                        items.append("AgoType::Null")
+                    else:
+                        # Variable reference
+                        items.append(self._generate_variable_ref(node))
                 return
             if isinstance(node, (list, tuple)):
                 for item in node:
@@ -960,13 +1147,23 @@ class AgoCodeGenerator:
         return "AgoType::Struct(HashMap::new())"
 
     def _generate_lambda(self, d: dict) -> str:
-        """Generate lambda/closure."""
+        """Generate lambda/closure reference."""
+        # Find the lambda ID by looking for it in our registered lambdas
+        # We need to find the matching lambda by generating it again and comparing
+        # For simplicity, use a counter that matches registration order
         params = self._parse_params(d.get("params"))
-        params_str = ", ".join(f"{p}: AgoType" for p in params)
-
-        # For now, generate as a closure
-        # This is simplified - full lambda support would need more work
-        return f"/* lambda */ AgoType::Null"
+        
+        # Find or create the lambda ID
+        # Since we already collected lambdas, find the matching one
+        # This is a simplified approach - track lambda_ids during generation
+        if not hasattr(self, '_lambda_gen_counter'):
+            self._lambda_gen_counter = 0
+        
+        lambda_id = self._lambda_gen_counter
+        self._lambda_gen_counter += 1
+        
+        # Return a boxed reference to the lambda function
+        return f"Box::new(__lambda_{lambda_id}) as AgoLambda"
 
     def _roman_to_int(self, roman: str) -> int:
         """Convert Roman numeral to integer."""

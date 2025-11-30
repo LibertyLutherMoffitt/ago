@@ -131,3 +131,10 @@ class SymbolTable:
     def symbol_exists_in_current_scope(self, name: str) -> bool:
         """Check if a symbol exists in the current scope only."""
         return self.get_symbol_current_scope_only(name) is not None
+
+    def remove_symbol_from_current_scope(self, name: str) -> bool:
+        """Remove a symbol from the current scope. Returns True if removed."""
+        if name in self.scopes.get(self.current_scope, {}):
+            del self.scopes[self.current_scope][name]
+            return True
+        return False
