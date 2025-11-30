@@ -143,8 +143,10 @@ def print_help():
   {D}${E} ago hello.ago {Y}--emit{E}=bin {Y}-o{E} hello  {D}# Compile to binary{E}
 
 {C}Type Endings:{E}
-  {G}-a{E}    int        {G}-ae{E}   float      {G}-es{E}   string
-  {G}-am{E}   bool       {G}-u{E}    struct     {G}-o{E}    function
+  {G}-a{E}    int        {G}-ae{E}   float      {G}-es{E}   string     {G}-am{E}   bool
+  {G}-aem{E}  int[]      {G}-arum{E} float[]    {G}-erum{E}  string[]   {G}-as{E}   bool[]
+  {G}-u{E}    struct     {G}-o{E}    function   {G}-e{E}     range      {G}-i{E}    null
+  {G}-ium{E}  any        {G}-uum{E}  any[]
 
 {D}Learn more: https://github.com/libertyluthermoffitt/ago{E}
 """)
