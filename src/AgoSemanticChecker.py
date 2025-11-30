@@ -291,7 +291,7 @@ class AgoSemanticChecker:
             # Check for mapstruct pattern ['{', content, '}'] first
             if len(expr) >= 2 and expr[0] == "{" and expr[-1] == "}":
                 return "struct"
-            
+
             if len(expr) == 0:
                 return "list_any"
             elem_types = set()
@@ -336,7 +336,7 @@ class AgoSemanticChecker:
             isinstance(d.get("id"), str) and d.get("id") == "id"
         ):
             return self._handle_id_keyword(node)
-        
+
         # Check for 'id' as a plain string in value wrapper
         if "value" in d and d.get("value") == "id":
             return self._handle_id_keyword(node)
@@ -410,7 +410,7 @@ class AgoSemanticChecker:
         if d.get("mapstruct") is not None:
             self._validate_mapstruct(d["mapstruct"], node)
             return "struct"
-        
+
         # Check if this is a mapstruct as a list pattern
         mapstruct_content = self._get_mapstruct_content(node)
         if mapstruct_content is not None:
@@ -477,7 +477,9 @@ class AgoSemanticChecker:
         if isinstance(node, (list, tuple)) and len(node) >= 2:
             if node[0] == "{" and node[-1] == "}":
                 # Content is between { and }
-                return node[1:-1] if len(node) > 2 else node[1] if len(node) == 3 else None
+                return (
+                    node[1:-1] if len(node) > 2 else node[1] if len(node) == 3 else None
+                )
         # Also check wrapped in value
         d = to_dict(node) if not isinstance(node, (list, tuple, str)) else {}
         if "value" in d and d.get("value") is not None:
@@ -491,7 +493,7 @@ class AgoSemanticChecker:
         """Validate mapstruct content for key naming conventions."""
         if content is None:
             return
-        
+
         # Content could be a list like ['key', ':', value] or nested
         if isinstance(content, (list, tuple)):
             i = 0
@@ -738,9 +740,6 @@ class AgoSemanticChecker:
         """Validate struct/map key naming conventions match value types."""
         if mapstruct_node is None:
             return
-
-        # Extract mapcontent from the mapstruct
-        d = to_dict(mapstruct_node)
 
         # mapstruct is typically ['{', nl?, mapcontent?, nl?, '}']
         # We need to find the mapcontent
@@ -1179,7 +1178,10 @@ class AgoSemanticChecker:
 
         # Check for missing return statement
         # Functions returning 'null' don't need explicit return (implicit null)
-        if return_type not in ("null", "unknown", "Any") and not self.function_has_return:
+        if (
+            return_type not in ("null", "unknown", "Any")
+            and not self.function_has_return
+        ):
             self.report_error(
                 f"Function '{func_name}' expects to return '{return_type}' "
                 f"but has no return statement",
@@ -1243,13 +1245,13 @@ class AgoSemanticChecker:
         if node is None:
             return False
         d = to_dict(node)
-        
+
         # Unwrap 'value' wrapper if present
         if "value" in d and d.get("value") is not None:
             inner = d["value"]
             if isinstance(inner, dict) or hasattr(inner, "parseinfo"):
                 d = to_dict(inner)
-        
+
         # Lambda has 'body' but no 'name' (unlike method_decl)
         return "body" in d and "name" not in d
 
