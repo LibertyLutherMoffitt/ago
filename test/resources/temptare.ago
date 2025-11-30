@@ -1,3 +1,16 @@
+des lego() {
+    xae := 3.14
+}
+
+des tondeo() {
+    lego()
+}
+
+des decido(xes) {
+    tondeo()
+}
+
+
 des sates() {
     xa := II
     yae := -1.2

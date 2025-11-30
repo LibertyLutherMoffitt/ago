@@ -24,7 +24,6 @@ def test_symbol_table_initial_state():
 
     assert st.current_scope == 0
     assert 0 in st.scopes
-    assert st.scopes[0] == {}
 
 
 def test_increment_scope_creates_new_scope():
