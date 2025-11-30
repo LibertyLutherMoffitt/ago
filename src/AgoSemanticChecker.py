@@ -753,13 +753,64 @@ class AgoSemanticChecker:
                         sym = self.sym_table.get_symbol(func_name_str)
 
                         if sym is None:
-                            # Method not found - might be a stdlib function
-                            # Infer from function name suffix
-                            inferred = infer_type_from_name(func_name_str)
-                            if inferred:
-                                current_type = inferred
+                            # Method not found directly
+                            # Check if it's a bare type suffix (e.g., .es(), .a())
+                            if func_name_str in ENDING_TO_TYPE:
+                                # Valid type cast
+                                current_type = ENDING_TO_TYPE[func_name_str]
                             else:
-                                current_type = "Any"
+                                # Check if it's a stem+suffix that matches a function
+                                suffix, stem = None, None
+                                for ending in ENDINGS_BY_LENGTH:
+                                    if func_name_str.endswith(ending) and len(
+                                        func_name_str
+                                    ) > len(ending):
+                                        suffix = ending
+                                        stem = func_name_str[: -len(ending)]
+                                        break
+
+                                if stem and suffix:
+                                    # Look for a function with matching stem
+                                    found_func = None
+                                    for scope in self.sym_table.scopes.values():
+                                        for name, s in scope.items():
+                                            if s.category == "func":
+                                                func_stem = None
+                                                for e in ENDINGS_BY_LENGTH:
+                                                    if name.endswith(e) and len(
+                                                        name
+                                                    ) > len(e):
+                                                        func_stem = name[: -len(e)]
+                                                        break
+                                                if func_stem == stem:
+                                                    found_func = s
+                                                    break
+                                        if found_func:
+                                            break
+
+                                    if found_func:
+                                        # Valid stem-based function call with cast
+                                        if suffix in ENDING_TO_TYPE:
+                                            current_type = ENDING_TO_TYPE[suffix]
+                                        elif found_func.return_type:
+                                            current_type = found_func.return_type
+                                        else:
+                                            current_type = "Any"
+                                    else:
+                                        # No matching function found - error
+                                        self.report_error(
+                                            f"No function with stem '{stem}' found for '{func_name_str}'. "
+                                            f"Use '.{suffix}()' for type casting.",
+                                            parent_node,
+                                        )
+                                        current_type = "Any"
+                                else:
+                                    # Not a valid suffix pattern - might be stdlib
+                                    inferred = infer_type_from_name(func_name_str)
+                                    if inferred:
+                                        current_type = inferred
+                                    else:
+                                        current_type = "Any"
                         elif sym.category == "func" or sym.type_t == "function":
                             # Validate the call - first arg should be compatible with current_type
                             self._validate_method_chain_call(

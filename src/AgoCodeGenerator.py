@@ -607,12 +607,12 @@ class AgoCodeGenerator:
     def _generate_indexing(self, index_node: Any) -> str:
         """Generate index expression."""
         d = to_dict(index_node)
-        
+
         # The index expression is in 'expr' at the top level
         expr = d.get("expr")
         if expr:
             return self._generate_expr(expr)
-        
+
         # Fallback: check indexes array for backwards compatibility
         indexes = d.get("indexes", [])
         if indexes:
@@ -868,7 +868,7 @@ class AgoCodeGenerator:
     def _generate_binary_op(self, d: dict) -> str:
         """Generate binary operation."""
         op = d.get("op")
-        
+
         # Short-circuit evaluation for et (and) and vel (or)
         # We need to NOT evaluate the right side if the left side determines the result
         if op == "et":
@@ -876,13 +876,13 @@ class AgoCodeGenerator:
             right = self._generate_expr(d.get("right"))
             # If left is false, return false without evaluating right
             return f"(if matches!(({left}).as_type(TargetType::Bool), AgoType::Bool(true)) {{ {right} }} else {{ AgoType::Bool(false) }})"
-        
+
         if op == "vel":
             left = self._generate_expr(d.get("left"))
             right = self._generate_expr(d.get("right"))
             # If left is true, return true without evaluating right
             return f"(if matches!(({left}).as_type(TargetType::Bool), AgoType::Bool(true)) {{ AgoType::Bool(true) }} else {{ {right} }})"
-        
+
         left = self._generate_expr(d.get("left"))
         right = self._generate_expr(d.get("right"))
 
@@ -979,10 +979,16 @@ class AgoCodeGenerator:
                                     args = self._parse_args(sub_d["args"])
                                 # Check if this is a type cast (no args, name is or ends with type suffix)
                                 # BUT only if it's not a known stdlib or user function
-                                if not args and func_name_str not in STDLIB_FUNCTIONS and func_name_str not in self.user_functions:
+                                if (
+                                    not args
+                                    and func_name_str not in STDLIB_FUNCTIONS
+                                    and func_name_str not in self.user_functions
+                                ):
                                     # First check if the name IS a type suffix (e.g., .a(), .es())
                                     if func_name_str in ENDING_TO_TARGET_TYPE:
-                                        target_type = ENDING_TO_TARGET_TYPE[func_name_str]
+                                        target_type = ENDING_TO_TARGET_TYPE[
+                                            func_name_str
+                                        ]
                                         result = f"{result}.as_type(TargetType::{target_type})"
                                         continue
                                     # Then check if it ends with a type suffix (e.g., .ida(), .ides())
@@ -1008,7 +1014,11 @@ class AgoCodeGenerator:
                             args = self._parse_args(item_d["args"])
                         # Check if this is a type cast (no args, name is or ends with type suffix)
                         # BUT only if it's not a known stdlib or user function
-                        if not args and func_name_str not in STDLIB_FUNCTIONS and func_name_str not in self.user_functions:
+                        if (
+                            not args
+                            and func_name_str not in STDLIB_FUNCTIONS
+                            and func_name_str not in self.user_functions
+                        ):
                             # First check if the name IS a type suffix (e.g., .a(), .es())
                             if func_name_str in ENDING_TO_TARGET_TYPE:
                                 target_type = ENDING_TO_TARGET_TYPE[func_name_str]
@@ -1170,18 +1180,44 @@ class AgoCodeGenerator:
                             args = self._parse_args(args_node)
                         # Check if this is a type cast (no args, name is or ends with type suffix)
                         # BUT only if it's not a known stdlib or user function
-                        if not args and func_name_str not in STDLIB_FUNCTIONS and func_name_str not in self.user_functions:
+                        if (
+                            not args
+                            and func_name_str not in STDLIB_FUNCTIONS
+                            and func_name_str not in self.user_functions
+                        ):
                             # First check if the name IS a type suffix (e.g., .a(), .es())
+                            # ONLY bare suffixes are allowed for casting
                             if func_name_str in ENDING_TO_TARGET_TYPE:
                                 target_type = ENDING_TO_TARGET_TYPE[func_name_str]
                                 result = f"{result}.as_type(TargetType::{target_type})"
                                 continue
-                            # Then check if it ends with a type suffix (e.g., .ida(), .ides())
+                            # Check if it's a stem-based function call (e.g., .mines() calls minium())
                             suffix, stem = get_suffix_and_stem(func_name_str)
-                            if suffix and suffix in ENDING_TO_TARGET_TYPE:
-                                target_type = ENDING_TO_TARGET_TYPE[suffix]
-                                result = f"{result}.as_type(TargetType::{target_type})"
-                                continue
+                            if suffix and stem:
+                                # Look for a user function with the same stem
+                                found_func = None
+                                for uf in self.user_functions:
+                                    uf_suffix, uf_stem = get_suffix_and_stem(uf)
+                                    if uf_stem == stem and uf != func_name_str:
+                                        found_func = uf
+                                        break
+                                if found_func:
+                                    # Call the function with receiver as first arg, then cast result
+                                    receiver = (
+                                        result if result.startswith("&") else result
+                                    )
+                                    call_result = f"{found_func}({receiver}.clone())"
+                                    if suffix in ENDING_TO_TARGET_TYPE:
+                                        target_type = ENDING_TO_TARGET_TYPE[suffix]
+                                        result = f"{call_result}.as_type(TargetType::{target_type})"
+                                    else:
+                                        result = call_result
+                                    continue
+                                else:
+                                    # No matching function found - this is an error
+                                    # Don't silently cast, let it fail at Rust compile time
+                                    # with a clear "unknown function" error
+                                    pass  # Fall through to regular method call which will error
                         # Method chaining: receiver becomes first arg (as reference)
                         # Wrap result in reference if it's not already
                         receiver = (
