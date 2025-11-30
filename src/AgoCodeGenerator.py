@@ -944,6 +944,8 @@ class AgoCodeGenerator:
         first = d.get("first")
         chain = d.get("chain")
 
+        recv = d.get("recv")
+        
         if first and chain and isinstance(chain, (list, tuple)) and len(chain) > 0:
             # Method chain: receiver.method1().method2()
             # first is the receiver (identifier or call)
@@ -952,12 +954,36 @@ class AgoCodeGenerator:
             else:
                 first_d = to_dict(first)
                 if first_d.get("func"):
-                    # first is a nodotcall_stmt
-                    func_name = first_d.get("func")
+                    # first is a nodotcall_stmt (method call)
+                    func_name = str(first_d.get("func"))
                     args = []
                     if first_d.get("args"):
                         args = self._parse_args(first_d["args"])
-                    result = f"{func_name}({', '.join(args)})"
+                    
+                    # If there's a recv (e.g., [1,2,3].minium()), include it as first arg
+                    if recv is not None:
+                        recv_expr = self._generate_expr(recv)
+                        args = [recv_expr] + args
+                    
+                    # Check for stem-based function call (e.g., mina() -> minium())
+                    actual_func = func_name
+                    cast_suffix = None
+                    if func_name not in self.user_functions and func_name not in STDLIB_FUNCTIONS:
+                        suffix, stem = get_suffix_and_stem(func_name)
+                        if stem and suffix:
+                            for uf in self.user_functions:
+                                uf_suffix, uf_stem = get_suffix_and_stem(uf)
+                                if uf_stem == stem:
+                                    actual_func = uf
+                                    cast_suffix = suffix
+                                    break
+                    
+                    args_str = ", ".join(args)
+                    result = f"{actual_func}({args_str})"
+                    
+                    if cast_suffix and cast_suffix in ENDING_TO_TARGET_TYPE:
+                        target_type = ENDING_TO_TARGET_TYPE[cast_suffix]
+                        result = f"{result}.as_type(TargetType::{target_type})"
                 else:
                     result = self._generate_expr(first)
 
