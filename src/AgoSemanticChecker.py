@@ -968,9 +968,18 @@ class AgoSemanticChecker:
 
         if op in ("==", "!="):
             # Equality can compare same types or numeric types with each other
-            if left_type != right_type and not (
-                left_type in NUMERIC_TYPES and right_type in NUMERIC_TYPES
-            ):
+            # Also allow comparing any type with null or Any
+            types_compatible = (
+                left_type == right_type
+                or (left_type in NUMERIC_TYPES and right_type in NUMERIC_TYPES)
+                or left_type == "null"
+                or right_type == "null"
+                or left_type == "Any"
+                or right_type == "Any"
+                or left_type == "unknown"
+                or right_type == "unknown"
+            )
+            if not types_compatible:
                 self.report_error(
                     f"{left_type} {op} {right_type} is an invalid comparison between types."
                 )

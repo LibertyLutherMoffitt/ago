@@ -194,7 +194,7 @@ ph
 
 list
     = 
-    LBRACKET { item COMMA }* [ item ] RBRACKET
+    LBRACKET { expression COMMA }* [ expression ] RBRACKET
     ;
 
 

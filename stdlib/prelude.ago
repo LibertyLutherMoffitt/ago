@@ -1,9 +1,17 @@
 # Ago Standard Library Prelude
 # These functions are automatically available in all Ago programs.
 
-# longitudoa - Returns the length of any list as an int
-# Works with all list types: -aem, -arum, -as, -erum, -uum
-# Casting a list to int (.a()) gives its length
-des longitudoa(listuum) {
-    redeo listuum.a()
+# minium - Returns the minimum element of any list
+# Works with all list types containing comparable elements
+# Returns inanis for empty lists
+des minium(listuum) {
+    mium := inanis 
+    pro xium in listuum {
+        si mium == inanis {
+            mium = xium
+        } aluid xium < mium {
+            mium = xium
+        }
+    }
+    redeo mium
 }

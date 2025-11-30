@@ -670,11 +670,11 @@ class AgoParser(Parser):
         self._LBRACKET_()
 
         def block0():
-            self._item_()
+            self._expression_()
             self._COMMA_()
         self._closure(block0)
         with self._optional():
-            self._item_()
+            self._expression_()
         self._RBRACKET_()
 
     @tatsumasu()

@@ -83,6 +83,8 @@ In Ago, variable names must end with a suffix that indicates their type:
 | `-erum` | String List | `namerum := ["a", "b"]` |
 | `-arum` | Float List | `valarum := [1.0, 2.0]` |
 | `-as` | Bool List | `flagas := [verum, falsus]` |
+| `-uum` | Any List | `mixuum := [1, "two", 3.0]` |
+| `-ium` | Any | `xium := mixuum[0]` |
 
 ### Implicit Type Casting
 

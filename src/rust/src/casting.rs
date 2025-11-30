@@ -23,6 +23,12 @@ impl AgoType {
             (AgoType::Range(val), TargetType::Range) => AgoType::Range(val.clone()),
             (AgoType::Null, TargetType::Null) => AgoType::Null,
 
+            // --- Null Conversions ---
+            (AgoType::Null, TargetType::Bool) => AgoType::Bool(false),
+            (AgoType::Null, TargetType::String) => AgoType::String("inanis".to_string()),
+            (AgoType::Null, TargetType::Int) => AgoType::Int(0),
+            (AgoType::Null, TargetType::Float) => AgoType::Float(0.0),
+
             // --- Meaningful Conversions ---
             (AgoType::Int(val), TargetType::Float) => AgoType::Float(*val as f64),
             (AgoType::Int(val), TargetType::String) => AgoType::String(val.to_string()),

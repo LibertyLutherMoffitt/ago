@@ -856,6 +856,21 @@ class AgoCodeGenerator:
     def _generate_binary_op(self, d: dict) -> str:
         """Generate binary operation."""
         op = d.get("op")
+        
+        # Short-circuit evaluation for et (and) and vel (or)
+        # We need to NOT evaluate the right side if the left side determines the result
+        if op == "et":
+            left = self._generate_expr(d.get("left"))
+            right = self._generate_expr(d.get("right"))
+            # If left is false, return false without evaluating right
+            return f"(if matches!(({left}).as_type(TargetType::Bool), AgoType::Bool(true)) {{ {right} }} else {{ AgoType::Bool(false) }})"
+        
+        if op == "vel":
+            left = self._generate_expr(d.get("left"))
+            right = self._generate_expr(d.get("right"))
+            # If left is true, return true without evaluating right
+            return f"(if matches!(({left}).as_type(TargetType::Bool), AgoType::Bool(true)) {{ AgoType::Bool(true) }} else {{ {right} }})"
+        
         left = self._generate_expr(d.get("left"))
         right = self._generate_expr(d.get("right"))
 
@@ -869,8 +884,6 @@ class AgoCodeGenerator:
             ">=": "greater_equal",
             "<": "less_than",
             "<=": "less_equal",
-            "et": "and",
-            "vel": "or",
             "&": "bitwise_and",
             "|": "bitwise_or",
             "^": "bitwise_xor",
@@ -1270,6 +1283,12 @@ class AgoCodeGenerator:
             elif d.get("value"):
                 items.append(self._generate_expr(node))
             elif d.get("list"):
+                items.append(self._generate_expr(node))
+            elif d.get("op") and d.get("right"):
+                # Unary operation (e.g., -3)
+                items.append(self._generate_expr(node))
+            elif d.get("left") and d.get("op") and d.get("right"):
+                # Binary operation
                 items.append(self._generate_expr(node))
 
         if hasattr(list_node, "__iter__") and not isinstance(list_node, str):
