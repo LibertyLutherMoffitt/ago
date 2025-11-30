@@ -386,7 +386,7 @@ addo := des (xa, ya) {
 """
     errors = run_semantics(src)
     assert len(errors) >= 1
-    assert any("exactly 1 parameter" in str(e) for e in errors)
+    assert any("0 or 1 parameter" in str(e) for e in errors)
 
 
 def test_id_keyword_in_single_param_lambda_is_ok():

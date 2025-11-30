@@ -42,7 +42,36 @@ statement
 lambda_decl
     = 
     DEF [ LPAREN [ params:expression_list ] RPAREN ]
-    body:block
+    body:lambda_block
+    ;
+
+lambda_block
+    =
+    LBRACE
+        [ nl ]
+        [ stmts:lambda_statement_list ]
+        [ nl ]
+    RBRACE
+    ;
+
+lambda_statement_list
+    =
+    first:lambda_statement
+    rest:{ { nl }+ lambda_statement }*
+    ;
+
+lambda_statement
+    =
+    | declaration_stmt
+    | reassignment_stmt
+    | if_stmt:if_stmt
+    | for_stmt:for_stmt
+    | while_stmt:while_stmt
+    | return_stmt:(RETURN value:expression)
+    | PASS
+    | BREAK
+    | CONTINUE
+    | implicit_return:expression
     ;
 
 
@@ -211,19 +240,19 @@ mapcontent
 
 item
     =
-    | paren:(LPAREN expr:expression RPAREN)
     | mchain:(
         base:item
         chain:{ PERIOD method:nodotcall_stmt }+
       ) 
-    | call:nodotcall_stmt
-    | list
-    | mapstruct
-    | indexed:(identifier idx:indexing)
     | struct_indexed:(
         base:item
         chain:{ PERIOD sub_item:(identifier | STR_LIT)}+
     )
+    | paren:(LPAREN expr:expression RPAREN)
+    | call:nodotcall_stmt
+    | list
+    | mapstruct
+    | indexed:(identifier idx:indexing)
     | lambda_decl
     | roman:ROMAN_NUMERAL
     | id:identifier

@@ -212,7 +212,8 @@ pub fn set(iter: &mut AgoType, n: &AgoType, value: AgoType) {
 }
 
 /// Inserts a value into an indexable AgoType. Panics on error.
-pub fn insero(coll: &mut AgoType, key: &AgoType, value: AgoType) {
+/// Name ends in -i (returns null/inanis)
+pub fn inseri(coll: &mut AgoType, key: &AgoType, value: AgoType) {
     match (coll, key) {
         // --- List Insertion ---
         (AgoType::IntList(list), AgoType::Int(index)) => {
@@ -269,12 +270,13 @@ pub fn insero(coll: &mut AgoType, key: &AgoType, value: AgoType) {
         ) => {
             panic!("Index must be an Int, but got {:?}", other)
         }
-        (other, _) => panic!("Cannot call 'insero' on type {:?}", other),
+        (other, _) => panic!("Cannot call 'inseri' on type {:?}", other),
     }
 }
 
 /// Removes a value from an indexable AgoType and returns it. Panics on error.
-pub fn removeo(coll: &mut AgoType, key: &AgoType) -> AgoType {
+/// Name ends in -ium (returns Any)
+pub fn removium(coll: &mut AgoType, key: &AgoType) -> AgoType {
     match (coll, key) {
         // --- List Removal ---
         (AgoType::IntList(list), AgoType::Int(index)) => {
@@ -315,7 +317,7 @@ pub fn removeo(coll: &mut AgoType, key: &AgoType) -> AgoType {
         ) => {
             panic!("Index must be an Int, but got {:?}", other)
         }
-        (other, _) => panic!("Cannot call 'removeo' on type {:?}", other),
+        (other, _) => panic!("Cannot call 'removium' on type {:?}", other),
     }
 }
 

@@ -1,6 +1,6 @@
 //! Integration tests for the ago_stdlib crate.
 
-use ago_stdlib::collections::{get, insero, removeo, set};
+use ago_stdlib::collections::{get, inseri, removium, set};
 use ago_stdlib::functions::{aequalam, claverum, species};
 use ago_stdlib::operators::{
     add, and, bitwise_and, bitwise_or, bitwise_xor, contains, divide, elvis, greater_equal,
@@ -305,25 +305,25 @@ fn test_set_list_wrong_value_type() {
 }
 
 #[test]
-fn test_insero() {
+fn test_inseri() {
     // List start
     let mut list_start = AgoType::IntList(vec![10, 30]);
-    insero(&mut list_start, &AgoType::Int(0), AgoType::Int(5));
+    inseri(&mut list_start, &AgoType::Int(0), AgoType::Int(5));
     assert_eq!(list_start, AgoType::IntList(vec![5, 10, 30]));
 
     // List middle
     let mut list_mid = AgoType::IntList(vec![10, 30]);
-    insero(&mut list_mid, &AgoType::Int(1), AgoType::Int(20));
+    inseri(&mut list_mid, &AgoType::Int(1), AgoType::Int(20));
     assert_eq!(list_mid, AgoType::IntList(vec![10, 20, 30]));
 
     // List end
     let mut list_end = AgoType::IntList(vec![10, 30]);
-    insero(&mut list_end, &AgoType::Int(2), AgoType::Int(40));
+    inseri(&mut list_end, &AgoType::Int(2), AgoType::Int(40));
     assert_eq!(list_end, AgoType::IntList(vec![10, 30, 40]));
 
     // Struct (same as set)
     let mut s = sample_struct();
-    insero(
+    inseri(
         &mut s,
         &AgoType::String("c".to_string()),
         AgoType::Bool(true),
@@ -336,22 +336,22 @@ fn test_insero() {
 
 #[test]
 #[should_panic]
-fn test_insero_list_wrong_value_type() {
+fn test_inseri_list_wrong_value_type() {
     let mut list = AgoType::StringList(vec!["a".to_string()]);
-    insero(&mut list, &AgoType::Int(0), AgoType::Int(123));
+    inseri(&mut list, &AgoType::Int(0), AgoType::Int(123));
 }
 
 #[test]
-fn test_removeo() {
+fn test_removium() {
     // List
     let mut list = AgoType::IntList(vec![10, 20, 30]);
-    let removed_list = removeo(&mut list, &AgoType::Int(1));
+    let removed_list = removium(&mut list, &AgoType::Int(1));
     assert_eq!(removed_list, AgoType::Int(20));
     assert_eq!(list, AgoType::IntList(vec![10, 30]));
 
     // Struct
     let mut s = sample_struct();
-    let removed_struct = removeo(&mut s, &AgoType::String("a".to_string()));
+    let removed_struct = removium(&mut s, &AgoType::String("a".to_string()));
     assert_eq!(removed_struct, AgoType::Int(1));
     if let AgoType::Struct(map) = s {
         assert!(!map.contains_key("a"));
@@ -363,9 +363,9 @@ fn test_removeo() {
 
 #[test]
 #[should_panic]
-fn test_removeo_struct_key_not_found() {
+fn test_removium_struct_key_not_found() {
     let mut s = sample_struct();
-    removeo(&mut s, &AgoType::String("z".to_string()));
+    removium(&mut s, &AgoType::String("z".to_string()));
 }
 
 #[test]

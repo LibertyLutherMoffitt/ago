@@ -29,6 +29,7 @@ pub type AgoBoolList = Vec<AgoBool>;
 pub type AgoStringList = Vec<AgoString>;
 pub type AgoStruct = HashMap<String, AgoType>;
 pub type AgoListAny = Vec<AgoType>;
+pub type AgoLambda = Box<dyn Fn(&[AgoType]) -> AgoType>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AgoRange {

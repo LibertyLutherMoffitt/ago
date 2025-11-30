@@ -247,8 +247,8 @@ class AgoSemanticChecker:
             # Collection access/mutation
             ("get", "Any", ["Any", "Any"]),
             ("set", "null", ["Any", "Any", "Any"]),
-            ("insero", "null", ["Any", "Any", "Any"]),
-            ("removeo", "Any", ["Any", "Any"]),
+            ("inseri", "null", ["Any", "Any", "Any"]),
+            ("removium", "Any", ["Any", "Any"]),
             # Iteration
             ("into_iter", "list_any", ["Any"]),
         ]
@@ -1223,6 +1223,9 @@ class AgoSemanticChecker:
         """
         Handle the 'id' keyword which references the single parameter of a lambda.
         The actual type accessed depends on the suffix: ida = int, ides = string, etc.
+        
+        Bare `id` (without suffix) works like `idium` and returns Any type.
+        For lambdas with no explicit params, `id` provides access to the implicit first arg.
         """
         if self.current_lambda is None:
             self.report_error(
@@ -1230,15 +1233,17 @@ class AgoSemanticChecker:
             )
             return "unknown"
 
-        if self.current_lambda.num_of_params != 1:
+        # For id lambdas (no explicit params), num_of_params is 0 but id accesses
+        # the implicit first argument. Allow both 0 and 1.
+        if self.current_lambda.num_of_params > 1:
             self.report_error(
-                f"'id' keyword can only be used in lambdas with exactly 1 parameter, "
+                f"'id' keyword can only be used in lambdas with 0 or 1 parameter, "
                 f"but this lambda has {self.current_lambda.num_of_params} parameters",
                 node,
             )
             return "unknown"
 
-        # The base type is the lambda's single parameter type
+        # The base type is the lambda's single parameter type, or Any for id lambdas
         if self.current_lambda.param_types:
             return self.current_lambda.param_types[0]
         return "Any"
@@ -1255,9 +1260,11 @@ class AgoSemanticChecker:
             )
             return "unknown"
 
-        if self.current_lambda.num_of_params != 1:
+        # For id lambdas (no explicit params), num_of_params is 0 but id accesses
+        # the implicit first argument. Allow both 0 and 1.
+        if self.current_lambda.num_of_params > 1:
             self.report_error(
-                f"'{name}' (id keyword variant) can only be used in lambdas with exactly 1 parameter",
+                f"'{name}' (id keyword variant) can only be used in lambdas with 0 or 1 parameter",
                 node,
             )
             return "unknown"
@@ -1461,7 +1468,7 @@ class AgoSemanticChecker:
         # Process body
         body = d.get("body")
         if body:
-            self._process_block(body)
+            self._process_lambda_block(body)
 
         # Exit lambda context
         self.sym_table.decrement_scope()
@@ -1469,6 +1476,51 @@ class AgoSemanticChecker:
         self.current_function = previous_function
 
         return lambda_symbol
+
+    def _process_lambda_block(self, block):
+        """Process a lambda block, which may contain lambda_statement_list."""
+        if block is None:
+            return
+
+        d = to_dict(block)
+        stmts = d.get("stmts")
+        if stmts is None:
+            return
+
+        stmts_d = to_dict(stmts)
+        first = stmts_d.get("first")
+        if first:
+            self._process_lambda_statement(first)
+
+        rest = stmts_d.get("rest")
+        if rest:
+            for item in rest:
+                if isinstance(item, list):
+                    for sub in item:
+                        if (
+                            sub
+                            and sub != "\n"
+                            and not (isinstance(sub, str) and sub.strip() == "")
+                        ):
+                            self._process_lambda_statement(sub)
+                elif item and item != "\n":
+                    self._process_lambda_statement(item)
+
+    def _process_lambda_statement(self, stmt):
+        """Process a lambda statement, which may include implicit_return."""
+        if stmt is None:
+            return
+
+        d = to_dict(stmt)
+        
+        # Check for implicit_return (expression statement in lambda)
+        if "implicit_return" in d:
+            # Just validate the expression type
+            self.infer_expr_type(d["implicit_return"])
+            return
+        
+        # Otherwise, process as normal statement
+        self._process_statement(stmt)
 
     def _is_lambda_decl(self, node: Any) -> bool:
         """Check if a node is a lambda declaration."""
@@ -1493,12 +1545,19 @@ class AgoSemanticChecker:
         d = to_dict(params_node)
         symbols = []
 
+        def make_param_symbol(name: str) -> Symbol:
+            """Create a symbol for a parameter, handling function types specially."""
+            type_t = self.require_type_from_name(name, params_node)
+            # If parameter is a function type (ends in -o), mark it as callable
+            if type_t == "function":
+                return Symbol(name=name, type_t=type_t, category="var", num_of_params=-1)
+            return Symbol(name=name, type_t=type_t)
+
         first = d.get("first")
         if first:
             name = self._extract_identifier(first)
             if name:
-                type_t = self.require_type_from_name(name, params_node)
-                symbols.append(Symbol(name=name, type_t=type_t))
+                symbols.append(make_param_symbol(name))
 
         rest = d.get("rest")
         if rest:
@@ -1510,8 +1569,7 @@ class AgoSemanticChecker:
                 if expr:
                     name = self._extract_identifier(expr)
                     if name:
-                        type_t = self.require_type_from_name(name, params_node)
-                        symbols.append(Symbol(name=name, type_t=type_t))
+                        symbols.append(make_param_symbol(name))
 
         return symbols
 
@@ -1777,8 +1835,21 @@ class AgoSemanticChecker:
         if first:
             first_d = to_dict(first)
             func_name = first_d.get("func")
+            args_node = first_d.get("args")
             if func_name:
                 func_name = str(func_name)
+                
+                # Check if this is a bare type suffix with no args (type cast)
+                # e.g., (0..10).aem() should be recognized as a cast, not a function
+                if recv is not None and func_name in ENDING_TO_TYPE and not args_node:
+                    # This is a valid type cast - just validate the receiver
+                    self.infer_expr_type(recv)
+                    # Continue to validate the rest of the chain
+                    chain = d.get("chain")
+                    if chain:
+                        self._validate_call_chain(chain, ENDING_TO_TYPE[func_name], call_node)
+                    return
+                
                 sym, cast_type = self._find_function_by_stem(func_name)
 
                 if sym is None:
@@ -1816,6 +1887,96 @@ class AgoSemanticChecker:
                         f"'{func_name}' is not callable (type '{sym.type_t}')",
                         call_node,
                     )
+
+    def _validate_call_chain(self, chain, current_type: str, parent_node: Any):
+        """Validate the rest of a method call chain after the first call."""
+        if not chain or not isinstance(chain, (list, tuple)):
+            return
+        
+        for item in chain:
+            if item is None or item == ".":
+                continue
+            
+            # Extract method from chain item
+            method = None
+            if isinstance(item, (list, tuple)):
+                for sub in item:
+                    if sub != "." and sub is not None:
+                        if isinstance(sub, dict) or hasattr(sub, "parseinfo"):
+                            method = sub
+                            break
+            else:
+                item_d = to_dict(item) if not isinstance(item, str) else {}
+                method = item_d.get("method") or item_d.get("more") or item
+            
+            if method:
+                method_d = to_dict(method)
+                func_name = method_d.get("func")
+                args_node = method_d.get("args")
+                
+                if func_name:
+                    func_name_str = str(func_name)
+                    
+                    # Check for bare type suffix (type cast)
+                    if func_name_str in ENDING_TO_TYPE and not args_node:
+                        current_type = ENDING_TO_TYPE[func_name_str]
+                        continue
+                    
+                    # Look up the function
+                    sym, cast_type = self._find_function_by_stem(func_name_str)
+                    
+                    if sym is None:
+                        # Check if it's a stem-based function call
+                        suffix, stem = None, None
+                        for ending in ENDINGS_BY_LENGTH:
+                            if func_name_str.endswith(ending) and len(func_name_str) > len(ending):
+                                suffix = ending
+                                stem = func_name_str[:-len(ending)]
+                                break
+                        
+                        if stem and suffix:
+                            # Look for a function with matching stem
+                            found_func = None
+                            for scope in self.sym_table.scopes.values():
+                                for name, s in scope.items():
+                                    if s.category == "func":
+                                        func_stem = None
+                                        for e in ENDINGS_BY_LENGTH:
+                                            if name.endswith(e) and len(name) > len(e):
+                                                func_stem = name[:-len(e)]
+                                                break
+                                        if func_stem == stem:
+                                            found_func = s
+                                            break
+                                if found_func:
+                                    break
+                            
+                            if found_func:
+                                # Valid stem-based function call
+                                if suffix in ENDING_TO_TYPE:
+                                    current_type = ENDING_TO_TYPE[suffix]
+                                elif found_func.return_type:
+                                    current_type = found_func.return_type
+                                else:
+                                    current_type = "Any"
+                                continue
+                        
+                        self.report_error(
+                            f"Use of undeclared identifier '{func_name_str}'", parent_node
+                        )
+                    elif sym.category == "func" or sym.type_t == "function":
+                        # Valid function call
+                        if cast_type:
+                            current_type = cast_type
+                        elif sym.return_type and sym.return_type not in ("null", "function"):
+                            current_type = sym.return_type
+                        else:
+                            current_type = "Any"
+                    else:
+                        self.report_error(
+                            f"'{func_name_str}' is not callable (type '{sym.type_t}')",
+                            parent_node,
+                        )
 
     def _validate_call_args(self, call_node, func_sym: Symbol, receiver=None):
         """Validate function call arguments (count and types)."""

@@ -6,7 +6,7 @@ pub mod operators;
 pub mod types;
 
 // Re-export everything for easy importing
-pub use collections::{get, insero, removeo, set, validate_list_type};
+pub use collections::{get, inseri, removium, set, validate_list_type};
 pub use functions::{aequalam, apertu, claverum, dici, exei, species};
 pub use iterators::into_iter;
 pub use operators::{
@@ -14,5 +14,5 @@ pub use operators::{
     greater_than, less_equal, less_than, modulo, multiply, not, or, slice, sliceto, subtract,
     unary_minus, unary_plus,
 };
-pub use types::{AgoBool, AgoFloat, AgoInt, AgoRange, AgoString, AgoType, TargetType};
+pub use types::{AgoBool, AgoFloat, AgoInt, AgoLambda, AgoRange, AgoString, AgoType, TargetType};
 // Note: casting is done via AgoType::as_type(TargetType::X)

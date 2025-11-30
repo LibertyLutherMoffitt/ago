@@ -570,6 +570,49 @@ dici(xes)
 """)
         assert output.strip() == "10"
 
+    def test_lambda_implicit_return(self):
+        """Test lambda with implicit return (no redeo needed)."""
+        output = compile_and_run("""
+xo := des { ida * 2 }
+xa := xo(5)
+dici(xes)
+""")
+        assert output.strip() == "10"
+
+    def test_lambda_implicit_return_comparison(self):
+        """Test lambda with implicit return of a comparison."""
+        output = compile_and_run("""
+xo := des { ida % 2 == 0 }
+xam := xo(4)
+dici(xes)
+""")
+        assert output.strip() == "true"
+
+    def test_lambda_filter_with_implicit_return(self):
+        """Test filter using lambda with implicit return - the main use case."""
+        output = compile_and_run("""
+# Define liquum filter function (from prelude)
+des liquum(luum, xo) {
+    ia := 0
+    dum ia < luum.a() {
+        si non xo(luum[ia]) {
+            luum.removium(ia)
+        } aluid {
+            ia = ia + 1
+        }
+    }
+    redeo luum
+}
+
+# Test: (0..10).aem().liqes(des { id % 2 == 0 }).dici()
+# Range 0..10 cast to int list, filter evens with implicit return, print as string
+(0..10).aem().liqes(des { id % 2 == 0 }).dici()
+""")
+        # Should contain 0, 2, 4, 6, 8, 10 (even numbers from 0 to 10)
+        lines = output.strip().split("\n")
+        expected = ["0", "2", "4", "6", "8", "10"]
+        assert lines == expected
+
 
 # =============================================================================
 # LISTS

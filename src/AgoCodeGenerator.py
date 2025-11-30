@@ -69,9 +69,16 @@ STDLIB_FUNCTIONS = {
     "unary_plus",
     "get",
     "set",
-    "insero",
-    "removeo",
+    "inseri",
+    "removium",
     "into_iter",
+}
+
+# Stdlib functions that mutate their first argument (need &mut)
+MUTATING_STDLIB_FUNCTIONS = {
+    "set",
+    "inseri",
+    "removium",
 }
 
 
@@ -133,10 +140,15 @@ class AgoCodeGenerator:
         If `name` has a suffix that differs from a declared variable with same stem,
         generate a cast: `base_var.clone().as_type(TargetType::X)`.
         Special case: `id` variants (ides, ida, etc.) in lambdas.
+        Special case: bare `id` without suffix works like `idium` (Any type).
         """
         # Direct reference to declared variable
         if name in self.declared_vars:
             return f"{name}.clone()"
+
+        # Special case: bare `id` without suffix (works like idium - Any type)
+        if name == "id" and "id" in self.declared_vars:
+            return "id.clone()"
 
         # Check for variable casting via suffix
         suffix, stem = get_suffix_and_stem(name)
@@ -177,10 +189,8 @@ class AgoCodeGenerator:
         # First pass: collect lambdas (they need to be defined before user functions)
         self._collect_lambdas(ast)
 
-        # Emit lambda type alias and lambda functions (before user functions)
+        # Emit lambda functions (before user functions)
         if self.lambdas:
-            self.emit_raw("")
-            self.emit_raw("type AgoLambda = Box<dyn Fn(&[AgoType]) -> AgoType>;")
             for lambda_code in self.lambdas:
                 self.emit_raw("")
                 self.emit_raw(lambda_code)
@@ -272,12 +282,13 @@ class AgoCodeGenerator:
             self.declared_vars.add("id")
             self._in_id_lambda = True
 
-        # Generate body
+        # Generate body - for lambdas, the final expression is implicitly returned
         body = d.get("body")
         if body:
-            self._process_block(body)
+            self._process_lambda_block(body)
+        else:
+            self.emit("AgoType::Null")
 
-        self.emit("AgoType::Null")
         self.output_lines.append("}")
 
         # Capture and restore state
@@ -290,16 +301,172 @@ class AgoCodeGenerator:
         self.lambdas.append(lambda_code)
         return lambda_id
 
+    def _process_lambda_block(self, block: Any) -> None:
+        """Process a lambda block where the final statement is implicitly returned."""
+        if block is None:
+            self.emit("AgoType::Null")
+            return
+
+        d = to_dict(block)
+        
+        stmts = d.get("stmts")
+        if stmts is None:
+            self.emit("AgoType::Null")
+            return
+
+        stmts_d = to_dict(stmts)
+        first = stmts_d.get("first")
+        rest = stmts_d.get("rest")
+
+        # Collect all statements
+        all_stmts = []
+        if first:
+            all_stmts.append(first)
+
+        if rest:
+            for item in rest:
+                if isinstance(item, list):
+                    for sub in item:
+                        if (
+                            sub
+                            and sub != "\n"
+                            and not (isinstance(sub, str) and sub.strip() == "")
+                        ):
+                            all_stmts.append(sub)
+                elif item and item != "\n":
+                    all_stmts.append(item)
+
+        if not all_stmts:
+            self.emit("AgoType::Null")
+            return
+
+        # Process all statements except the last normally
+        for stmt in all_stmts[:-1]:
+            self._generate_lambda_statement(stmt)
+
+        # For the last statement, check if it's an expression that should be returned
+        last_stmt = all_stmts[-1]
+        self._generate_lambda_final_statement(last_stmt)
+
+    def _generate_lambda_statement(self, stmt: Any) -> None:
+        """Generate code for a lambda statement (may include implicit_return)."""
+        if stmt is None:
+            return
+        
+        d = to_dict(stmt)
+        
+        # Check for implicit_return (expression statement in lambda)
+        # This includes function calls since they are valid expressions
+        if "implicit_return" in d:
+            # This is an expression statement - just evaluate it (not return, since it's not last)
+            expr = self._generate_expr(d["implicit_return"])
+            self.emit(f"{expr};")
+            return
+        
+        # Otherwise, generate as normal statement (declarations, control flow, etc.)
+        self._generate_statement(stmt)
+
+    def _generate_lambda_final_statement(self, stmt: Any) -> None:
+        """
+        Generate the final statement of a lambda, implicitly returning expressions.
+        
+        If the final statement is a pure expression (not a declaration, assignment,
+        control flow, etc.), it's returned implicitly. Otherwise, process it normally
+        and return Null.
+        """
+        if stmt is None:
+            self.emit("AgoType::Null")
+            return
+
+        if isinstance(stmt, str):
+            # Keywords like verum, falsus, inanis are expressions
+            if stmt == "verum":
+                self.emit("AgoType::Bool(true)")
+            elif stmt == "falsus":
+                self.emit("AgoType::Bool(false)")
+            elif stmt == "inanis":
+                self.emit("AgoType::Null")
+            elif stmt in ("frio", "pergo", "omitto"):
+                # Control flow - process normally and return Null
+                self._generate_statement(stmt)
+                self.emit("AgoType::Null")
+            else:
+                # Likely a variable reference - return it
+                expr = self._generate_variable_ref(stmt)
+                self.emit(expr)
+            return
+
+        if isinstance(stmt, list):
+            # Could be an expression wrapped in a list
+            for sub in stmt:
+                if sub is not None and sub not in (",", "[", "]", "{", "}"):
+                    self._generate_lambda_final_statement(sub)
+                    return
+            self.emit("AgoType::Null")
+            return
+
+        d = to_dict(stmt)
+
+        # Check for implicit_return (expression statement in lambda) - return it
+        if "implicit_return" in d:
+            expr = self._generate_expr(d["implicit_return"])
+            self.emit(expr)
+            return
+
+        # Check if this is a statement (should be processed normally)
+        # vs an expression (should be returned)
+        
+        # Return statement - handle explicitly
+        if "return_stmt" in d or ("value" in d and d.get("return_stmt") is not None):
+            self._generate_return(stmt)
+            return
+        
+        # Declaration - process normally, return Null
+        if "name" in d and "value" in d and "target" not in d:
+            self._generate_declaration(stmt)
+            self.emit("AgoType::Null")
+            return
+        
+        # Reassignment - process normally, return Null
+        if "target" in d and "value" in d:
+            self._generate_reassignment(stmt)
+            self.emit("AgoType::Null")
+            return
+        
+        # Control flow (if, while, for) - process normally, return Null
+        if "if_stmt" in d or ("cond" in d and "then" in d):
+            self._generate_if(d.get("if_stmt") or stmt)
+            self.emit("AgoType::Null")
+            return
+        if "while_stmt" in d or ("cond" in d and "body" in d and "iterator" not in d):
+            self._generate_while(d.get("while_stmt") or stmt)
+            self.emit("AgoType::Null")
+            return
+        if "for_stmt" in d or ("iterator" in d and "iterable" in d):
+            self._generate_for(d.get("for_stmt") or stmt)
+            self.emit("AgoType::Null")
+            return
+
+        # Call statement - the result should be returned
+        if "call" in d:
+            expr = self._generate_expr(d["call"])
+            self.emit(expr)
+            return
+
+        # Everything else is treated as an expression - return it
+        expr = self._generate_expr(stmt)
+        self.emit(expr)
+
     def _emit_prelude(self) -> None:
         """Emit the Rust prelude with imports."""
         self.emit_raw("use ago_stdlib::{")
-        self.emit_raw("    AgoType, AgoRange, TargetType,")
+        self.emit_raw("    AgoType, AgoRange, AgoLambda, TargetType,")
         self.emit_raw("    add, subtract, multiply, divide, modulo,")
         self.emit_raw("    greater_than, greater_equal, less_than, less_equal,")
         self.emit_raw("    and, or, not, bitwise_and, bitwise_or, bitwise_xor,")
         self.emit_raw("    slice, sliceto, contains, elvis,")
         self.emit_raw("    unary_minus, unary_plus,")
-        self.emit_raw("    get, set, insero, removeo, validate_list_type, into_iter,")
+        self.emit_raw("    get, set, inseri, removium, validate_list_type, into_iter,")
         self.emit_raw("    dici, apertu, species, exei, aequalam, claverum,")
         self.emit_raw("};")
         self.emit_raw("use std::collections::HashMap;")
@@ -388,7 +555,19 @@ class AgoCodeGenerator:
 
         # Parse parameters (all mut since they can be reassigned in Ago)
         params = self._parse_params(d.get("params"))
-        param_str = ", ".join(f"mut {name}: AgoType" for name in params)
+        
+        # Generate parameter string with correct types
+        # Parameters ending in -o are lambda types
+        param_parts = []
+        lambda_params = set()  # Track which params are lambdas
+        for name in params:
+            # Check if this is a lambda parameter (ends in 'o' with at least one char before)
+            if len(name) > 1 and name.endswith("o"):
+                param_parts.append(f"{name}: AgoLambda")
+                lambda_params.add(name)
+            else:
+                param_parts.append(f"mut {name}: AgoType")
+        param_str = ", ".join(param_parts)
 
         # Check if this function returns a lambda
         returns_lambda = self._function_returns_lambda(d.get("body"))
@@ -401,6 +580,8 @@ class AgoCodeGenerator:
 
         # Track parameters as declared
         old_declared = self.declared_vars.copy()
+        old_lambda_params = getattr(self, "_lambda_params", set()).copy()
+        self._lambda_params = lambda_params
         for p in params:
             self.declared_vars.add(p)
 
@@ -422,6 +603,7 @@ class AgoCodeGenerator:
 
         # Restore state
         self.declared_vars = old_declared
+        self._lambda_params = old_lambda_params
         self._current_func_returns_lambda = old_returns_lambda
 
     def _parse_params(self, params_node: Any) -> list[str]:
@@ -948,6 +1130,11 @@ class AgoCodeGenerator:
         
         if first and chain and isinstance(chain, (list, tuple)) and len(chain) > 0:
             # Method chain: receiver.method1().method2()
+            # Track base variable name for mutating functions
+            base_var_name = None
+            if isinstance(first, str):
+                base_var_name = first
+            
             # first is the receiver (identifier or call)
             if isinstance(first, str):
                 result = self._generate_variable_ref(first)
@@ -960,30 +1147,47 @@ class AgoCodeGenerator:
                     if first_d.get("args"):
                         args = self._parse_args(first_d["args"])
                     
-                    # If there's a recv (e.g., [1,2,3].minium()), include it as first arg
+                    # Generate receiver expression if there is one
+                    recv_expr = None
                     if recv is not None:
                         recv_expr = self._generate_expr(recv)
-                        args = [recv_expr] + args
                     
-                    # Check for stem-based function call (e.g., mina() -> minium())
-                    actual_func = func_name
-                    cast_suffix = None
-                    if func_name not in self.user_functions and func_name not in STDLIB_FUNCTIONS:
-                        suffix, stem = get_suffix_and_stem(func_name)
-                        if stem and suffix:
-                            for uf in self.user_functions:
-                                uf_suffix, uf_stem = get_suffix_and_stem(uf)
-                                if uf_stem == stem:
-                                    actual_func = uf
-                                    cast_suffix = suffix
-                                    break
-                    
-                    args_str = ", ".join(args)
-                    result = f"{actual_func}({args_str})"
-                    
-                    if cast_suffix and cast_suffix in ENDING_TO_TARGET_TYPE:
-                        target_type = ENDING_TO_TARGET_TYPE[cast_suffix]
-                        result = f"{result}.as_type(TargetType::{target_type})"
+                    # Check if func_name is a bare type suffix (type cast)
+                    # e.g., (0..10).aem() should cast to IntList, not call aem()
+                    if (
+                        not args
+                        and func_name in ENDING_TO_TARGET_TYPE
+                        and func_name not in STDLIB_FUNCTIONS
+                        and func_name not in self.user_functions
+                        and recv_expr is not None
+                    ):
+                        # This is a type cast
+                        target_type = ENDING_TO_TARGET_TYPE[func_name]
+                        result = f"{recv_expr}.as_type(TargetType::{target_type})"
+                    else:
+                        # This is a function call
+                        if recv_expr is not None:
+                            args = [recv_expr] + args
+                        
+                        # Check for stem-based function call (e.g., mina() -> minium())
+                        actual_func = func_name
+                        cast_suffix = None
+                        if func_name not in self.user_functions and func_name not in STDLIB_FUNCTIONS:
+                            suffix, stem = get_suffix_and_stem(func_name)
+                            if stem and suffix:
+                                for uf in self.user_functions:
+                                    uf_suffix, uf_stem = get_suffix_and_stem(uf)
+                                    if uf_stem == stem:
+                                        actual_func = uf
+                                        cast_suffix = suffix
+                                        break
+                        
+                        args_str = ", ".join(args)
+                        result = f"{actual_func}({args_str})"
+                        
+                        if cast_suffix and cast_suffix in ENDING_TO_TARGET_TYPE:
+                            target_type = ENDING_TO_TARGET_TYPE[cast_suffix]
+                            result = f"{result}.as_type(TargetType::{target_type})"
                 else:
                     result = self._generate_expr(first)
 
@@ -1023,13 +1227,53 @@ class AgoCodeGenerator:
                                         target_type = ENDING_TO_TARGET_TYPE[suffix]
                                         result = f"{result}.as_type(TargetType::{target_type})"
                                         continue
-                                receiver = (
-                                    f"&{result}"
-                                    if not result.startswith("&")
-                                    else result
-                                )
-                                all_args = [receiver] + args
-                                result = f"{func_name_str}({', '.join(all_args)})"
+                                # Try stem-based function resolution first
+                                actual_func_name = func_name_str
+                                cast_target = None
+                                if (
+                                    func_name_str not in self.user_functions
+                                    and func_name_str not in STDLIB_FUNCTIONS
+                                ):
+                                    call_suffix, call_stem = get_suffix_and_stem(func_name_str)
+                                    if call_stem and call_suffix:
+                                        for uf in self.user_functions:
+                                            uf_suffix, uf_stem = get_suffix_and_stem(uf)
+                                            if uf_stem == call_stem and uf != func_name_str:
+                                                actual_func_name = uf
+                                                cast_target = ENDING_TO_RUST_TARGET.get(call_suffix)
+                                                break
+                                
+                                # Handle mutating stdlib functions
+                                if actual_func_name in MUTATING_STDLIB_FUNCTIONS and base_var_name:
+                                    actual_var = base_var_name
+                                    if base_var_name not in self.declared_vars:
+                                        suffix, stem = get_suffix_and_stem(base_var_name)
+                                        if stem:
+                                            for dv in self.declared_vars:
+                                                dv_suffix, dv_stem = get_suffix_and_stem(dv)
+                                                if dv_stem == stem:
+                                                    actual_var = dv
+                                                    break
+                                    receiver = f"&mut {actual_var}"
+                                    ref_args = [f"&{arg}" if not arg.startswith("&") else arg for arg in args]
+                                    all_args = [receiver] + ref_args
+                                elif actual_func_name in STDLIB_FUNCTIONS:
+                                    # Stdlib functions take &AgoType references
+                                    receiver = (
+                                        f"&{result}"
+                                        if not result.startswith("&")
+                                        else result
+                                    )
+                                    ref_args = [f"&{arg}" if not arg.startswith("&") else arg for arg in args]
+                                    all_args = [receiver] + ref_args
+                                else:
+                                    # User-defined functions take AgoType by value
+                                    all_args = [result] + args
+                                result = f"{actual_func_name}({', '.join(all_args)})"
+                                
+                                # Apply cast if needed
+                                if cast_target:
+                                    result = f"{result}.as_type(TargetType::{cast_target})"
                 else:
                     item_d = to_dict(item) if not isinstance(item, str) else {}
                     func_name = item_d.get("func")
@@ -1056,11 +1300,51 @@ class AgoCodeGenerator:
                                 target_type = ENDING_TO_TARGET_TYPE[suffix]
                                 result = f"{result}.as_type(TargetType::{target_type})"
                                 continue
-                        receiver = (
-                            f"&{result}" if not result.startswith("&") else result
-                        )
-                        all_args = [receiver] + args
-                        result = f"{func_name_str}({', '.join(all_args)})"
+                        # Try stem-based function resolution first
+                        actual_func_name = func_name_str
+                        cast_target = None
+                        if (
+                            func_name_str not in self.user_functions
+                            and func_name_str not in STDLIB_FUNCTIONS
+                        ):
+                            call_suffix, call_stem = get_suffix_and_stem(func_name_str)
+                            if call_stem and call_suffix:
+                                for uf in self.user_functions:
+                                    uf_suffix, uf_stem = get_suffix_and_stem(uf)
+                                    if uf_stem == call_stem and uf != func_name_str:
+                                        actual_func_name = uf
+                                        cast_target = ENDING_TO_RUST_TARGET.get(call_suffix)
+                                        break
+                        
+                        # Handle mutating stdlib functions
+                        if actual_func_name in MUTATING_STDLIB_FUNCTIONS and base_var_name:
+                            actual_var = base_var_name
+                            if base_var_name not in self.declared_vars:
+                                suffix, stem = get_suffix_and_stem(base_var_name)
+                                if stem:
+                                    for dv in self.declared_vars:
+                                        dv_suffix, dv_stem = get_suffix_and_stem(dv)
+                                        if dv_stem == stem:
+                                            actual_var = dv
+                                            break
+                            receiver = f"&mut {actual_var}"
+                            ref_args = [f"&{arg}" if not arg.startswith("&") else arg for arg in args]
+                            all_args = [receiver] + ref_args
+                        elif actual_func_name in STDLIB_FUNCTIONS:
+                            # Stdlib functions take &AgoType references
+                            receiver = (
+                                f"&{result}" if not result.startswith("&") else result
+                            )
+                            ref_args = [f"&{arg}" if not arg.startswith("&") else arg for arg in args]
+                            all_args = [receiver] + ref_args
+                        else:
+                            # User-defined functions take AgoType by value
+                            all_args = [result] + args
+                        result = f"{actual_func_name}({', '.join(all_args)})"
+                        
+                        # Apply cast if needed
+                        if cast_target:
+                            result = f"{result}.as_type(TargetType::{cast_target})"
 
             return result
 
@@ -1093,6 +1377,18 @@ class AgoCodeGenerator:
             # If there's a receiver (method chain), it becomes the first argument
             if recv is not None:
                 recv_expr = self._generate_expr(recv)
+                
+                # Check if func_name is a bare type suffix (e.g., .aem(), .es())
+                # If so, this is a type cast, not a function call
+                if (
+                    not args  # no additional args
+                    and func_name in ENDING_TO_TARGET_TYPE
+                    and func_name not in STDLIB_FUNCTIONS
+                    and func_name not in self.user_functions
+                ):
+                    target_type = ENDING_TO_TARGET_TYPE[func_name]
+                    return f"{recv_expr}.as_type(TargetType::{target_type})"
+                
                 args = [recv_expr] + args
 
             # Check if this is a lambda variable (ends with 'o' and is a declared var)
@@ -1177,6 +1473,14 @@ class AgoCodeGenerator:
             base = d.get("base")
             chain = d.get("chain")
 
+        # Track base variable name for mutating functions
+        base_var_name = None
+        base_d = to_dict(base) if not isinstance(base, str) else {}
+        if isinstance(base, str):
+            base_var_name = base
+        elif base_d.get("id"):
+            base_var_name = str(base_d["id"])
+
         result = self._generate_expr(base)
 
         if chain and isinstance(chain, (list, tuple)):
@@ -1244,12 +1548,33 @@ class AgoCodeGenerator:
                                     # Don't silently cast, let it fail at Rust compile time
                                     # with a clear "unknown function" error
                                     pass  # Fall through to regular method call which will error
-                        # Method chaining: receiver becomes first arg (as reference)
-                        # Wrap result in reference if it's not already
-                        receiver = (
-                            f"&{result}" if not result.startswith("&") else result
-                        )
-                        all_args = [receiver] + args
+                        # Method chaining: receiver becomes first arg
+                        # For mutating stdlib functions, use &mut on the base variable
+                        if func_name_str in MUTATING_STDLIB_FUNCTIONS and base_var_name:
+                            # Resolve the actual variable name (handle stem-based references)
+                            actual_var = base_var_name
+                            if base_var_name not in self.declared_vars:
+                                suffix, stem = get_suffix_and_stem(base_var_name)
+                                if stem:
+                                    for dv in self.declared_vars:
+                                        dv_suffix, dv_stem = get_suffix_and_stem(dv)
+                                        if dv_stem == stem:
+                                            actual_var = dv
+                                            break
+                            receiver = f"&mut {actual_var}"
+                            # Add & to other args for stdlib functions
+                            ref_args = [f"&{arg}" if not arg.startswith("&") else arg for arg in args]
+                            all_args = [receiver] + ref_args
+                        elif func_name_str in STDLIB_FUNCTIONS:
+                            # Stdlib functions take &AgoType references
+                            receiver = (
+                                f"&{result}" if not result.startswith("&") else result
+                            )
+                            ref_args = [f"&{arg}" if not arg.startswith("&") else arg for arg in args]
+                            all_args = [receiver] + ref_args
+                        else:
+                            # User-defined functions take AgoType by value
+                            all_args = [result] + args
                         result = f"{func_name_str}({', '.join(all_args)})"
 
         return result

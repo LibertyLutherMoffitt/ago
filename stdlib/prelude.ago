@@ -13,3 +13,18 @@ des minium(luum) {
     }
     redeo mium
 }
+
+# liquum - Filter a list, returning elements where predicate returns true
+# Takes a list and a predicate lambda, returns a new list with matching elements
+# Name ends in -uum (returns list_any)
+des liquum(luum, xo) {
+    ia := 0
+    dum ia < la {
+        si non xo(luum[ia]) {
+            luum.removium(ia)
+        } aluid {
+            ia = ia + 1
+        }
+    }
+    redeo luum
+}

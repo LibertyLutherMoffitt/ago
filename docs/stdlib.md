@@ -8,7 +8,7 @@ All Ago values are represented by the `ago_stdlib::AgoType` enum in Rust. The fo
 
 ```rust
 use ago_stdlib::{
-    aperto, claverum, dico, exeo, get, insero, removeo, set, species, AgoType, FileStruct,
+    apertu, claverum, dici, exei, get, inseri, removium, set, species, AgoType,
     TargetType,
 };
 use std::collections::HashMap;
@@ -96,40 +96,40 @@ Updates a value in a mutable collection (`List` or `Struct`). For a `Struct`, it
 
 ---
 
-### insero
+### inseri
 
 Inserts a value into a collection. For `List`s, it inserts at an index, shifting other elements. For `Struct`s, it behaves identically to `set`.
 
-- **Rust Signature:** `pub fn insero(coll: &mut AgoType, key: &AgoType, value: AgoType)`
+- **Rust Signature:** `pub fn inseri(coll: &mut AgoType, key: &AgoType, value: AgoType)`
 - **Parameters:**
   - `coll` (`&mut AgoType`): A mutable reference to the collection.
   - `key` (`&AgoType`): The `AgoType::Int` index for Lists or `AgoType::String` key for Structs.
   - `value` (`AgoType`): The new value to insert.
-- **Returns:** None.
+- **Returns:** None (name ends in -i indicating inanis/null return).
 - **Errors:** Panics if the index is out of bounds for a List or if the value's type doesn't match a typed List's type.
 - **Example:**
   ```rust
   let mut my_list = AgoType::IntList(vec![10, 30]);
-  insero(&mut my_list, &AgoType::Int(1), AgoType::Int(20));
+  inseri(&mut my_list, &AgoType::Int(1), AgoType::Int(20));
   assert_eq!(my_list, AgoType::IntList(vec![10, 20, 30]));
   ```
 
 ---
 
-### removeo
+### removium
 
 Removes a value from a collection by its index or key and returns the removed value.
 
-- **Rust Signature:** `pub fn removeo(coll: &mut AgoType, key: &AgoType) -> AgoType`
+- **Rust Signature:** `pub fn removium(coll: &mut AgoType, key: &AgoType) -> AgoType`
 - **Parameters:**
   - `coll` (`&mut AgoType`): A mutable reference to the collection.
   - `key` (`&AgoType`): The `AgoType::Int` index for Lists or `AgoType::String` key for Structs.
-- **Returns:** (`AgoType`): The value that was removed.
+- **Returns:** (`AgoType`): The value that was removed (name ends in -ium indicating Any return).
 - **Errors:** Panics if the index is out of bounds or the key is not found.
 - **Example:**
   ```rust
   let mut my_list = AgoType::IntList(vec![10, 20, 30]);
-  let removed_val = removeo(&mut my_list, &AgoType::Int(1));
+  let removed_val = removium(&mut my_list, &AgoType::Int(1));
   assert_eq!(removed_val, AgoType::Int(20));
   assert_eq!(my_list, AgoType::IntList(vec![10, 30]));
   ```
