@@ -1,3 +1,26 @@
+# =============================================================================
+# Ago Project Specific
+# =============================================================================
+
+# Generated output directory (compiled Ago programs)
+output/
+
+# Nix build outputs
+result
+result-*
+
+# Rust target directories (build artifacts)
+target/
+**/target/
+
+# IDE/Editor settings
+.vscode/
+.idea/
+
+# =============================================================================
+# Python
+# =============================================================================
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
