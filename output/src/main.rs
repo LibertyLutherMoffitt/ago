@@ -10,10 +10,11 @@ use ago_stdlib::{
 };
 use std::collections::HashMap;
 
+fn numbera() -> AgoType {
+    return AgoType::Int(99);
+    AgoType::Null
+}
+
 fn main() {
-    let mut producta = AgoType::Int(1);
-    for ia in into_iter(&slice(&AgoType::Int(1), &AgoType::Int(5))) {
-        producta = multiply(&producta.clone(), &ia.clone());
-    }
-    dici(&producta.clone().as_type(TargetType::String));
+    dici(&numbera().as_type(TargetType::String));
 }

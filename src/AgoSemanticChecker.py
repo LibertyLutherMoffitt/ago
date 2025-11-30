@@ -565,6 +565,42 @@ class AgoSemanticChecker:
                 if k not in ("parseinfo",) and isinstance(v, (list, tuple)):
                     self._validate_mapstruct_content(v, parent_node)
 
+    def _find_function_by_stem(self, func_name: str) -> tuple[Optional[Symbol], Optional[str]]:
+        """
+        Find a function by name or by stem.
+        Returns (symbol, target_cast_type) where target_cast_type is None if exact match,
+        or the type to cast to if found via stem.
+        """
+        # First try exact match
+        sym = self.sym_table.get_symbol(func_name)
+        if sym and (sym.category == "func" or sym.type_t == "function"):
+            return (sym, None)
+        
+        # Try to find by stem - e.g., aae() should find aa()
+        stem = get_stem(func_name)
+        if stem:
+            # Get the ending of the call name to determine cast type
+            call_ending = None
+            for ending in ENDINGS_BY_LENGTH:
+                if func_name.endswith(ending) and len(func_name) > len(ending):
+                    call_ending = ending
+                    break
+            
+            # Look for functions with the same stem
+            visible = self.sym_table.get_all_visible_symbols()
+            for sym_name, sym in visible.items():
+                if sym.category != "func" and sym.type_t != "function":
+                    continue
+                sym_stem = get_stem(sym_name)
+                if sym_stem == stem and sym_name != func_name:
+                    # Found a function with the same stem
+                    if call_ending:
+                        target_type = ENDING_TO_TYPE.get(call_ending)
+                        if target_type:
+                            return (sym, target_type)
+        
+        return (None, None)
+
     def _infer_call_type(self, call_node: Any) -> str:
         """Infer return type of a function call."""
         d = to_dict(call_node)
@@ -574,9 +610,13 @@ class AgoSemanticChecker:
             first_d = to_dict(first)
             func_name = first_d.get("func")
             if func_name:
-                sym = self.sym_table.get_symbol(str(func_name))
+                func_name = str(func_name)
+                sym, cast_type = self._find_function_by_stem(func_name)
                 if sym:
-                    if sym.category == "func" and sym.return_type:
+                    if cast_type:
+                        # Calling with different ending - return the cast type
+                        return cast_type
+                    elif sym.category == "func" and sym.return_type:
                         return sym.return_type
                     elif sym.type_t == "function" and sym.return_type:
                         # Lambda stored in variable
@@ -1592,14 +1632,31 @@ class AgoSemanticChecker:
             func_name = first_d.get("func")
             if func_name:
                 func_name = str(func_name)
-                sym = self.sym_table.get_symbol(func_name)
+                sym, cast_type = self._find_function_by_stem(func_name)
+                
                 if sym is None:
-                    self.report_error(
-                        f"Use of undeclared identifier '{func_name}'", call_node
-                    )
+                    # Check if there's a non-callable symbol with this exact name
+                    exact_sym = self.sym_table.get_symbol(func_name)
+                    if exact_sym and exact_sym.category != "func" and exact_sym.type_t != "function":
+                        self.report_error(
+                            f"'{func_name}' is not callable (type '{exact_sym.type_t}')",
+                            call_node,
+                        )
+                    else:
+                        self.report_error(
+                            f"Use of undeclared identifier '{func_name}'", call_node
+                        )
                 elif sym.category == "func":
                     # For method chains, recv becomes the first argument
                     self._validate_call_args(first, sym, receiver=recv)
+                    # If casting, validate the cast is possible
+                    if cast_type and sym.return_type:
+                        if not can_cast(sym.return_type, cast_type):
+                            self.report_error(
+                                f"Cannot cast return type '{sym.return_type}' of '{sym.name}' "
+                                f"to '{cast_type}' when calling as '{func_name}'",
+                                call_node,
+                            )
                 elif sym.type_t == "function":
                     # Variable holding a lambda - validate call args
                     self._validate_call_args(first, sym, receiver=recv)

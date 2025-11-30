@@ -57,6 +57,25 @@ def get_suffix_and_stem(name: str) -> tuple[Optional[str], Optional[str]]:
     return None, None
 
 
+# Mapping from Ago type suffixes to Rust TargetType enum
+ENDING_TO_RUST_TARGET = {
+    "a": "Int",
+    "ae": "Float",
+    "am": "Bool",
+    "es": "String",
+    "aem": "IntList",
+    "arum": "FloatList",
+    "as": "BoolList",
+    "erum": "StringList",
+    "u": "Struct",
+    # These don't have direct TargetType equivalents
+    # "uum": "ListAny",
+    # "e": "Range",
+    # "o": "Function",
+    # "i": "Null",
+}
+
+
 class AgoCodeGenerator:
     """
     Generates Rust code from an Ago AST.
@@ -69,6 +88,8 @@ class AgoCodeGenerator:
         self.declared_vars: set[str] = set()
         # Track functions for forward declarations
         self.functions: list[str] = []
+        # Track user-defined function names for stem-based resolution
+        self.user_functions: set[str] = set()
         # Track generated lambdas
         self.lambdas: list[str] = []
         self.lambda_counter = 0
@@ -330,6 +351,9 @@ class AgoCodeGenerator:
         """Generate a Rust function from a method declaration."""
         d = to_dict(ast)
         func_name = str(d["name"])
+        
+        # Track this function for stem-based resolution
+        self.user_functions.add(func_name)
 
         # Parse parameters (all mut since they can be reassigned in Ago)
         params = self._parse_params(d.get("params"))
@@ -918,9 +942,27 @@ class AgoCodeGenerator:
                 args_str = ", ".join(args)
                 return f"{func_name}(&[{args_str}])"
             
+            # Check for stem-based function call (e.g., aae() to call aa() and cast to float)
+            actual_func_name = func_name
+            cast_target = None
+            
+            # If function doesn't exist directly, try to find by stem
+            if func_name not in self.user_functions and func_name not in STDLIB_FUNCTIONS:
+                call_suffix, call_stem = get_suffix_and_stem(func_name)
+                if call_stem and call_suffix:
+                    # Look for user-defined function with the same stem
+                    for uf in self.user_functions:
+                        uf_suffix, uf_stem = get_suffix_and_stem(uf)
+                        if uf_stem == call_stem and uf != func_name:
+                            # Found a function with the same stem
+                            actual_func_name = uf
+                            # Determine the cast target type
+                            cast_target = ENDING_TO_RUST_TARGET.get(call_suffix)
+                            break
+            
             # Only add references for stdlib functions (they take &AgoType)
             # User-defined functions take AgoType by value
-            if func_name in STDLIB_FUNCTIONS:
+            if actual_func_name in STDLIB_FUNCTIONS:
                 ref_args = []
                 for arg in args:
                     if not arg.startswith("&"):
@@ -931,7 +973,14 @@ class AgoCodeGenerator:
             else:
                 # User-defined function - pass by value
                 args_str = ", ".join(args)
-            return f"{func_name}({args_str})"
+            
+            call_expr = f"{actual_func_name}({args_str})"
+            
+            # If we need to cast the result, wrap with .as_type()
+            if cast_target:
+                return f"{call_expr}.as_type(TargetType::{cast_target})"
+            
+            return call_expr
 
         return "AgoType::Null"
 

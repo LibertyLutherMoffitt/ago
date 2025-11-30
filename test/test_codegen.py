@@ -912,3 +912,134 @@ dici(productes)
 ''')
         # 5! = 120
         assert output.strip() == "120"
+
+
+# =============================================================================
+# FUNCTION CALL CASTING (Stem-based)
+# =============================================================================
+
+class TestFunctionCallCasting:
+    """Test stem-based function call casting (e.g., aae() calls aa() with float cast)."""
+    
+    def test_int_to_float_cast(self):
+        """Calling geta() as getae() casts result to float."""
+        output = compile_and_run('''
+des geta() {
+    redeo 42
+}
+xae := getae()
+dici(xes)
+''')
+        assert "42" in output.strip()
+    
+    def test_int_to_string_cast(self):
+        """Calling geta() as getes() casts result to string."""
+        output = compile_and_run('''
+des geta() {
+    redeo 123
+}
+xes := getes()
+dici(xes)
+''')
+        assert output.strip() == "123"
+    
+    def test_int_to_bool_cast(self):
+        """Calling geta() as getam() casts result to bool."""
+        output = compile_and_run('''
+des geta() {
+    redeo 1
+}
+xam := getam()
+dici(xes)
+''')
+        assert output.strip() == "true"
+    
+    def test_zero_to_bool_cast(self):
+        """Calling geta() as getam() casts 0 to false."""
+        output = compile_and_run('''
+des zeroa() {
+    redeo 0
+}
+xam := zeroam()
+dici(xes)
+''')
+        assert output.strip() == "false"
+    
+    def test_float_to_int_cast(self):
+        """Calling getae() as geta() casts result to int (truncation)."""
+        output = compile_and_run('''
+des pirae() {
+    redeo 3.14
+}
+xa := pira()
+dici(xes)
+''')
+        assert output.strip() == "3"
+    
+    def test_float_to_string_cast(self):
+        """Calling getae() as getes() casts result to string."""
+        output = compile_and_run('''
+des pirae() {
+    redeo 3.14
+}
+xes := pires()
+dici(xes)
+''')
+        assert "3.14" in output.strip()
+    
+    def test_bool_to_string_cast(self):
+        """Calling getam() as getes() casts result to string."""
+        output = compile_and_run('''
+des flagam() {
+    redeo verum
+}
+xes := flages()
+dici(xes)
+''')
+        assert output.strip() == "true"
+    
+    def test_function_with_params_cast(self):
+        """Function with parameters can also have its result casted."""
+        output = compile_and_run('''
+des adda(xa, ya) {
+    redeo xa + ya
+}
+xae := addae(3, 4)
+dici(xes)
+''')
+        assert "7" in output.strip()
+    
+    def test_recursive_function_cast(self):
+        """Recursive function call with cast on the outer call."""
+        output = compile_and_run('''
+des facta(na) {
+    si na <= 1 {
+        redeo 1
+    }
+    redeo na * facta(na - 1)
+}
+xes := factes(5)
+dici(xes)
+''')
+        assert output.strip() == "120"
+    
+    def test_cast_in_expression(self):
+        """Cast result used in expression."""
+        output = compile_and_run('''
+des geta() {
+    redeo 10
+}
+xae := getae() + 0.5
+dici(xes)
+''')
+        assert "10.5" in output.strip()
+    
+    def test_direct_print_cast(self):
+        """Cast result directly used without assignment."""
+        output = compile_and_run('''
+des numbera() {
+    redeo 99
+}
+dici(numberes())
+''')
+        assert output.strip() == "99"
