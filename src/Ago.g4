@@ -79,8 +79,8 @@ else_fragment
 if_stmt
     =
     IF cond:expression then:block
-        elifs:{ [nl] ELSE elif_cond:expression elif_body:block [nl] }*
-        [else_fragment]
+        elifs:{ [nl] ELSE elif_cond:expression elif_body:block }*
+        [ [nl] else_frag:else_fragment ]
     ;
 
 block

@@ -11,9 +11,9 @@ use ago_stdlib::{
 use std::collections::HashMap;
 
 fn main() {
-    let mut xas = AgoType::ListAny(vec![AgoType::Bool(true), AgoType::Bool(false)]);
-    dici(&xas.clone().as_type(TargetType::String));
-    let mut xarum = xas.clone().as_type(TargetType::FloatList);
-    dici(&AgoType::String("".to_string()));
-    dici(&xarum.clone().as_type(TargetType::String));
+    let mut producta = AgoType::Int(1);
+    for ia in into_iter(&slice(&AgoType::Int(1), &AgoType::Int(5))) {
+        producta = multiply(&producta.clone(), &ia.clone());
+    }
+    dici(&producta.clone().as_type(TargetType::String));
 }

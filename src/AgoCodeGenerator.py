@@ -602,7 +602,7 @@ class AgoCodeGenerator:
                     self.indent_level -= 1
 
         # Handle else
-        else_frag = d.get("else_fragment")
+        else_frag = d.get("else_frag") or d.get("else_fragment")
         if else_frag:
             else_d = to_dict(else_frag)
             self.emit("} else {")
@@ -749,9 +749,9 @@ class AgoCodeGenerator:
         if d.get("indexed") is not None:
             return self._generate_indexed(d["indexed"])
 
-        # Struct field access
+        # Struct field access - base and chain are in the same dict as struct_indexed
         if d.get("struct_indexed") is not None:
-            return self._generate_struct_indexed(d["struct_indexed"])
+            return self._generate_struct_indexed(d)
 
         # Binary operators
         if d.get("op") is not None and d.get("left") is not None:
@@ -1036,16 +1036,29 @@ class AgoCodeGenerator:
             for item in chain:
                 if item is None or item == ".":
                     continue
-                item_d = to_dict(item) if not isinstance(item, str) else {}
-                sub_item = item_d.get("sub_item") if item_d else item
-                if sub_item:
-                    if isinstance(sub_item, str):
-                        if sub_item.startswith('"'):
-                            key = sub_item
-                        else:
-                            key = f'"{sub_item}"'
+                
+                # Handle different chain formats
+                field_name = None
+                
+                if isinstance(item, str):
+                    if item != ".":
+                        field_name = item
+                elif isinstance(item, (list, tuple)):
+                    # Chain item is like ['.', 'fieldname'] or ['.', '"field name"']
+                    for sub in item:
+                        if sub and sub != ".":
+                            field_name = sub if isinstance(sub, str) else str(sub)
+                            break
+                else:
+                    item_d = to_dict(item)
+                    field_name = item_d.get("sub_item")
+                
+                if field_name:
+                    # Handle quoted vs unquoted field names
+                    if field_name.startswith('"') and field_name.endswith('"'):
+                        key = field_name  # Already quoted
                     else:
-                        key = f'"{sub_item}"'
+                        key = f'"{field_name}"'
                     result = f"get(&{result}, &AgoType::String({key}.to_string()))"
 
         return result

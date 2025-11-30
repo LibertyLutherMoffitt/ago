@@ -253,14 +253,16 @@ class AgoParser(Parser):
             self.name_last_node('elif_cond')
             self._block_()
             self.name_last_node('elif_body')
-            with self._optional():
-                self._nl_()
             self._define(['elif_body', 'elif_cond'], [])
         self._closure(block0)
         self.name_last_node('elifs')
         with self._optional():
+            with self._optional():
+                self._nl_()
             self._else_fragment_()
-        self._define(['cond', 'elif_body', 'elif_cond', 'elifs', 'then'], [])
+            self.name_last_node('else_frag')
+            self._define(['else_frag'], [])
+        self._define(['cond', 'elif_body', 'elif_cond', 'elifs', 'else_frag', 'then'], [])
 
     @tatsumasu()
     def _block_(self):
