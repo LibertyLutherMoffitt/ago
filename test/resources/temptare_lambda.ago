@@ -1,9 +1,13 @@
 des sato(){
     redeo des () {
-        lego()
+        legi()
     }
 }
 
 des sato_duo() {
-    redeo des { lego() }
+    redeo des { legi() }
+}
+
+des legi() {
+    xa := 1
 }

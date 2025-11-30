@@ -405,13 +405,31 @@ def test_parenthesized_expressions_preserve_type():
     assert sem3.errors == []
 
 
-# ---------- empty and null values (if supported) ----------
+# ---------- null values ----------
 
 
-def test_null_or_void_type():
-    # If your language has null/void
-    # TODO
-    pass
+def test_null_type():
+    """inanis literal should have null type."""
+    t, sem = infer_type("inanis")
+    assert t == "null"
+    assert sem.errors == []
+
+
+def test_null_variable_declaration():
+    """Variable with -i ending can hold null."""
+    src = """
+xi := inanis
+"""
+    sem = run_program(src)
+    assert sem.errors == []
+
+
+def test_elvis_operator_with_null():
+    """Elvis operator returns right side when left is null."""
+    # Test the elvis operator type inference
+    t, sem = infer_type("inanis ?: 5")
+    assert t == "int"  # Right side type when left is null
+    assert sem.errors == []
 
 
 # ---------- type checking across scopes ----------

@@ -1,13 +1,13 @@
-des lego() {
+des legi() {
     xae := 3.14
 }
 
-des tondeo(xes) {
-    lego()
+des tondei(xes) {
+    legi()
 }
 
-des decido(xes, yes) {
-    tondeo(xes)
+des decidi(xes, yes) {
+    tondei(xes)
 }
 
 
@@ -19,16 +19,16 @@ des sates() {
     listaem := [1, 2, 3]
     tabu := {"key":3}
 
-    lego()
-    werum := lego().tondeo().decido(", ")
+    legi()
+    werum := legi().tondei().decidi(", ")
 
-    pro ies in werum[0 .< werum[0..5].diu() - II] {
+    pro ies in werum[0 .< 5] {
         si (ia ^ I) > 0 {
-            dixit(ies)
+            omitto
         }
 
         si iae + -.1 > 0 {
-            dixit(ies)
+            omitto
         } aluid (iam et falsus) {
             frio
         } aluid {

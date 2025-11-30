@@ -167,7 +167,7 @@ dum xa < 10 {
 
 def test_break_in_function_but_outside_loop_is_error():
     src = """\
-des fooa() {
+des fooi() {
     frio
 }
 """
@@ -523,10 +523,10 @@ adda(1)
 def test_function_call_wrong_arg_type():
     """Function called with wrong arg type should error (struct vs int_list)."""
     src = """
-des processo(listaem) {
+des processi(listaem) {
     xa := listaem[0]
 }
-processo({keya: 1})
+processi({keya: 1})
 """
     errors = run_semantics(src)
     assert len(errors) == 1
@@ -570,12 +570,211 @@ des makeo() {
     assert errors == []
 
 
-def test_function_o_ending_void_return():
-    """Function with -o ending with no return is valid (void)."""
+def test_function_i_ending_null_return():
+    """Function with -i ending returning null is valid."""
     src = """
-des printo() {
+des printi() {
+    xa := 5
+    redeo inanis
+}
+"""
+    errors = run_semantics(src)
+    assert errors == []
+
+
+def test_function_i_ending_implicit_null():
+    """Function with -i ending with no explicit return is valid (implicit null)."""
+    src = """
+des doi() {
+    xa := 5
+}
+"""
+    errors = run_semantics(src)
+    # No return statement, but -i ending expects null, which is the default
+    assert errors == []
+
+
+# ---------- NEW OPERATORS TESTS ----------
+
+
+def test_not_equals_operator():
+    """!= operator should work for same types."""
+    src = """
+xa := 5
+xam := xa != 3
+"""
+    errors = run_semantics(src)
+    assert errors == []
+
+
+def test_not_equals_different_types_reports_error():
+    """!= operator should error for incompatible types."""
+    src = """
+xa := 5
+xes := "hello"
+xam := xa != xes
+"""
+    errors = run_semantics(src)
+    assert len(errors) == 1
+    assert "invalid comparison" in str(errors[0]).lower()
+
+
+def test_in_operator_string_membership():
+    """'in' operator for string substring check."""
+    src = """
+xes := "hello"
+xam := "ell" in xes
+"""
+    errors = run_semantics(src)
+    assert errors == []
+
+
+def test_in_operator_list_membership():
+    """'in' operator for list element check."""
+    src = """
+xaem := [1, 2, 3]
+xam := 2 in xaem
+"""
+    errors = run_semantics(src)
+    assert errors == []
+
+
+def test_in_operator_struct_key_check():
+    """'in' operator for struct key membership."""
+    src = """
+xu := {keya: 1, namees: "test"}
+xam := "keya" in xu
+"""
+    errors = run_semantics(src)
+    assert errors == []
+
+
+def test_in_operator_invalid_haystack_reports_error():
+    """'in' operator with non-collection reports error."""
+    src = """
+xa := 5
+xam := 2 in xa
+"""
+    errors = run_semantics(src)
+    assert len(errors) == 1
+    assert "Cannot use 'in' operator" in str(errors[0])
+
+
+def test_in_operator_wrong_needle_type_for_string():
+    """'in' with non-string needle for string haystack reports error."""
+    src = """
+xes := "hello"
+xam := 5 in xes
+"""
+    errors = run_semantics(src)
+    assert len(errors) == 1
+    assert "String membership requires string needle" in str(errors[0])
+
+
+def test_in_operator_wrong_needle_type_for_struct():
+    """'in' with non-string needle for struct haystack reports error."""
+    src = """
+xu := {keya: 1}
+xam := 5 in xu
+"""
+    errors = run_semantics(src)
+    assert len(errors) == 1
+    assert "Struct key lookup requires string needle" in str(errors[0])
+
+
+def test_est_operator_same_type():
+    """'est' operator checks if operands are same type."""
+    src = """
+xa := 5
+ya := 10
+xam := xa est ya
+"""
+    errors = run_semantics(src)
+    assert errors == []
+
+
+def test_est_operator_different_types():
+    """'est' operator works with different types (returns false at runtime)."""
+    src = """
+xa := 5
+xes := "hello"
+xam := xa est xes
+"""
+    errors = run_semantics(src)
+    # Should not error - est can compare any types
+    assert errors == []
+
+
+def test_string_to_string_list_cast():
+    """String can be cast to string_list (chars) via variable name ending."""
+    src = """
+des geterum() {
+    xes := "hello"
+    redeo xerum
+}
+"""
+    errors = run_semantics(src)
+    # xes can be accessed as xerum (cast string to string_list)
+    # Function returns string_list, name ends in 'erum' which matches
+    assert errors == []
+
+
+# ---------- MISSING RETURN VALIDATION TESTS ----------
+
+
+def test_function_missing_return_reports_error():
+    """Function expecting return but missing return statement should error."""
+    src = """
+des geta() {
+    xa := 5
+}
+"""
+    errors = run_semantics(src)
+    assert len(errors) == 1
+    assert "no return statement" in str(errors[0])
+    assert "geta" in str(errors[0])
+
+
+def test_function_with_return_is_valid():
+    """Function with proper return statement should not error."""
+    src = """
+des geta() {
+    redeo 5
+}
+"""
+    errors = run_semantics(src)
+    assert errors == []
+
+
+def test_null_function_no_return_is_valid():
+    """Function returning null (-i ending) without return is valid."""
+    src = """
+des doi() {
     xa := 5
 }
 """
     errors = run_semantics(src)
     assert errors == []
+
+
+def test_null_function_explicit_return_is_valid():
+    """Function returning null with explicit return inanis is valid."""
+    src = """
+des doi() {
+    redeo inanis
+}
+"""
+    errors = run_semantics(src)
+    assert errors == []
+
+
+def test_lambda_returning_function_missing_return():
+    """Function returning lambda (-o ending) must have return."""
+    src = """
+des makeo() {
+    xa := 5
+}
+"""
+    errors = run_semantics(src)
+    assert len(errors) == 1
+    assert "no return statement" in str(errors[0])

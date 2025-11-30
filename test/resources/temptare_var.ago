@@ -1,4 +1,4 @@
-des sato() {
+des sati() {
     xa := II
     yae := -1.2
     yae = 1.3
@@ -6,4 +6,4 @@ des sato() {
     tabu := {"key":3, "abc":4, "efg":5}
 }
 
-sato()
+sati()

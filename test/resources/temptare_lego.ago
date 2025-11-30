@@ -1,20 +1,20 @@
-des lego() {
+des legi() {
     xae := 3.14
 }
 
-des tondeo(xes) {
-    lego()
+des tondei(xes) {
+    legi()
 }
 
-des decido(xes, yes) {
-    tondeo(xes)
+des decidi(xes, yes) {
+    tondei(xes)
 }
 
-des sato() {
+des sati() {
     xae := 4.2
     yae := -3.9
-    werum := lego().tondeo().decido(", ")
+    werum := legi().tondei().decidi(", ")
     xa := xa & ya
 }
 
-sato()
+sati()

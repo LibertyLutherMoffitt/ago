@@ -22,7 +22,7 @@ PRIMITIVE_TYPES = {"int", "float", "bool", "string"}
 ALL_TYPES = (
     PRIMITIVE_TYPES
     | LIST_TYPES
-    | {"struct", "function", "void", "Any", "unknown", "range"}
+    | {"struct", "function", "null", "Any", "unknown", "range"}
 )
 
 ENDING_TO_TYPE = {
@@ -38,6 +38,7 @@ ENDING_TO_TYPE = {
     "uum": "list_any",
     "e": "range",
     "o": "function",
+    "i": "null",
 }
 
 # Sorted by length descending for proper matching
@@ -146,10 +147,12 @@ def can_cast(from_type: str, to_type: str) -> bool:
     # Anything can cast to string (stringify)
     if to_type == "string":
         return True
-    # String can cast to numeric (parsing) or bool (non-empty check)
+    # String can cast to numeric (parsing), bool (non-empty check), or string_list (chars)
     if from_type == "string" and to_type in NUMERIC_TYPES:
         return True
     if from_type == "string" and to_type == "bool":
+        return True
+    if from_type == "string" and to_type == "string_list":
         return True
     # Range can cast to int_list, bool, or string
     if from_type == "range" and to_type in ("int_list", "bool", "string"):
@@ -202,6 +205,8 @@ class AgoSemanticChecker:
         self.current_function: Optional[Symbol] = None
         # Track lambda context: None if not in lambda, else the Symbol for the lambda
         self.current_lambda: Optional[Symbol] = None
+        # Track if current function has a return statement
+        self.function_has_return: bool = False
 
     # --- Error Reporting ---
 
@@ -262,7 +267,7 @@ class AgoSemanticChecker:
     def infer_expr_type(self, expr: Any) -> str:
         """Infer the type of an expression."""
         if expr is None:
-            return "void"
+            return "null"
 
         # String keywords
         if isinstance(expr, str):
@@ -271,7 +276,7 @@ class AgoSemanticChecker:
             if expr == "falsus":
                 return "bool"
             if expr == "inanis":
-                return "void"
+                return "null"
             sym = self.sym_table.get_symbol(expr)
             if sym:
                 return sym.type_t
@@ -311,7 +316,7 @@ class AgoSemanticChecker:
                 if inner in ("verum", "falsus"):
                     return "bool"
                 if inner == "inanis":
-                    return "void"
+                    return "null"
             if isinstance(inner, dict) or hasattr(inner, "parseinfo"):
                 return self._infer_node_type(inner)
 
@@ -593,10 +598,10 @@ class AgoSemanticChecker:
                                 method, sym, current_type, parent_node
                             )
                             # Update current type to return type
-                            # For method chaining, void/function returns are treated as Any
-                            # since -o ending functions may or may not return values
+                            # For method chaining, null/function returns are treated as Any
+                            # since they can't meaningfully continue the chain
                             if sym.return_type and sym.return_type not in (
-                                "void",
+                                "null",
                                 "function",
                             ):
                                 current_type = sym.return_type
@@ -870,6 +875,49 @@ class AgoSemanticChecker:
                 )
             return "bool"
 
+        if op == "est":
+            # 'est' checks if two values are the same type - always returns bool
+            # No type restrictions - any two values can be compared for type equality
+            return "bool"
+
+        if op == "in":
+            # 'in' membership operator: needle in haystack
+            # haystack must be a collection type (string, list, struct)
+            valid_haystack = (
+                right_type == "string"
+                or right_type in LIST_TYPES
+                or right_type == "struct"
+                or right_type in ("Any", "unknown")
+            )
+            if not valid_haystack:
+                self.report_error(
+                    f"Cannot use 'in' operator with '{right_type}' - "
+                    f"right operand must be string, list, or struct",
+                    d,
+                )
+            # Validate needle type matches haystack element type
+            if right_type == "string":
+                if left_type != "string" and left_type not in ("Any", "unknown"):
+                    self.report_error(
+                        f"String membership requires string needle, got '{left_type}'",
+                        d,
+                    )
+            elif right_type == "struct":
+                if left_type != "string" and left_type not in ("Any", "unknown"):
+                    self.report_error(
+                        f"Struct key lookup requires string needle, got '{left_type}'",
+                        d,
+                    )
+            elif right_type in LIST_TYPES:
+                elem_type = get_element_type(right_type)
+                if elem_type != "Any" and not is_type_compatible(left_type, elem_type):
+                    self.report_error(
+                        f"List membership: needle type '{left_type}' incompatible "
+                        f"with list element type '{elem_type}'",
+                        d,
+                    )
+            return "bool"
+
         if op in ("<", ">", "<=", ">="):
             # Ordering comparisons only work on: numeric vs numeric, string vs string
             # Based on Rust runtime - bool comparisons are NOT allowed
@@ -916,7 +964,7 @@ class AgoSemanticChecker:
             return "range"
 
         if op == "?:":
-            return left_type if left_type != "void" else right_type
+            return left_type if left_type != "null" else right_type
 
         return "Any"
 
@@ -1093,11 +1141,9 @@ class AgoSemanticChecker:
         d = to_dict(ast)
         func_name = str(d["name"])
 
-        return_type = "unknown"
-        if func_name.endswith("o"):
-            return_type = "function"
-        else:
-            return_type = self.require_type_from_name(func_name, ast)
+        # Function return type is inferred from name ending:
+        # -o returns function/lambda, -i returns null, -a returns int, etc.
+        return_type = self.require_type_from_name(func_name, ast)
 
         # Parse parameters
         param_symbols = self._parse_params(d.get("params"))
@@ -1116,7 +1162,9 @@ class AgoSemanticChecker:
 
         # Enter function context
         previous_function = self.current_function
+        previous_has_return = self.function_has_return
         self.current_function = func_symbol
+        self.function_has_return = False
         self.sym_table.increment_scope()
 
         # Declare parameters
@@ -1129,9 +1177,19 @@ class AgoSemanticChecker:
         if body:
             self._process_block(body)
 
+        # Check for missing return statement
+        # Functions returning 'null' don't need explicit return (implicit null)
+        if return_type not in ("null", "unknown", "Any") and not self.function_has_return:
+            self.report_error(
+                f"Function '{func_name}' expects to return '{return_type}' "
+                f"but has no return statement",
+                ast,
+            )
+
         # Exit function context
         self.sym_table.decrement_scope()
         self.current_function = previous_function
+        self.function_has_return = previous_has_return
 
     def _handle_lambda_decl(self, ast, expected_type: str = "function") -> Symbol:
         """Handle lambda declaration and return a Symbol representing it."""
@@ -1519,6 +1577,9 @@ class AgoSemanticChecker:
         if self.current_function is None:
             self.report_error("'redeo' (return) outside of function", ast)
             return
+
+        # Mark that this function has a return statement
+        self.function_has_return = True
 
         d = to_dict(ast)
         # return_stmt is ["redeo", value] or value is directly available

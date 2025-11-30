@@ -105,7 +105,7 @@ while_stmt
 
 for_stmt
     =
-    FOR iterator:expression IN iterable:expression body:block
+    FOR iterator:identifier IN iterable:expression body:block
     ;
 
 # --- CALLS ---
@@ -146,7 +146,7 @@ pb
 
 pc
     =
-    | left:pd op:(EQ | GE | LE | LT | GT) right:pd
+    | left:pd op:(EQ | NE | GE | LE | LT | GT | IS | IN) right:pd
     | pd
     ;
 
@@ -260,6 +260,7 @@ GT = '>' ;
 LE = '<=' ;
 LT = '<' ;
 EQ = '==' ;
+NE = '!=' ;
 
 ASSIGNMENT_OP   = ':=' ;
 REASSIGNMENT_OP = '=' ;
