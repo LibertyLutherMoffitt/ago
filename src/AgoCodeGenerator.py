@@ -1174,7 +1174,8 @@ class AgoCodeGenerator:
             if items:
                 base = items[0]
                 if isinstance(base, str):
-                    base_expr = f"{base}.clone()"
+                    # Use _generate_variable_ref to handle stem-based variable resolution
+                    base_expr = self._generate_variable_ref(base)
                 else:
                     base_expr = self._generate_expr(base)
 
