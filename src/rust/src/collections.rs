@@ -1,9 +1,20 @@
-use crate::types::AgoType;
+use crate::types::{AgoRange, AgoType};
+
+/// Helper to compute slice bounds from a range
+fn range_bounds(range: &AgoRange, len: usize) -> (usize, usize) {
+    let start = range.start.max(0) as usize;
+    let end = if range.inclusive {
+        (range.end + 1).min(len as i128) as usize
+    } else {
+        range.end.min(len as i128) as usize
+    };
+    (start.min(len), end.min(len))
+}
 
 /// Gets a value from an indexable AgoType. Panics on error.
 pub fn get(iter: &AgoType, n: &AgoType) -> AgoType {
     match (iter, n) {
-        // --- List Access ---
+        // --- List Access by Index ---
         (AgoType::IntList(list), AgoType::Int(index)) => {
             let idx = *index as usize;
             list.get(idx)
@@ -35,6 +46,28 @@ pub fn get(iter: &AgoType, n: &AgoType) -> AgoType {
                 .expect(&format!("Index out of bounds: {}", idx))
         }
 
+        // --- List Access by Range (sublists) ---
+        (AgoType::IntList(list), AgoType::Range(range)) => {
+            let (start, end) = range_bounds(range, list.len());
+            AgoType::IntList(list[start..end].to_vec())
+        }
+        (AgoType::FloatList(list), AgoType::Range(range)) => {
+            let (start, end) = range_bounds(range, list.len());
+            AgoType::FloatList(list[start..end].to_vec())
+        }
+        (AgoType::BoolList(list), AgoType::Range(range)) => {
+            let (start, end) = range_bounds(range, list.len());
+            AgoType::BoolList(list[start..end].to_vec())
+        }
+        (AgoType::StringList(list), AgoType::Range(range)) => {
+            let (start, end) = range_bounds(range, list.len());
+            AgoType::StringList(list[start..end].to_vec())
+        }
+        (AgoType::ListAny(list), AgoType::Range(range)) => {
+            let (start, end) = range_bounds(range, list.len());
+            AgoType::ListAny(list[start..end].to_vec())
+        }
+
         // --- String Access (get character) ---
         (AgoType::String(s), AgoType::Int(index)) => {
             let idx = *index as usize;
@@ -42,6 +75,13 @@ pub fn get(iter: &AgoType, n: &AgoType) -> AgoType {
                 .nth(idx)
                 .map(|c| AgoType::String(c.to_string()))
                 .expect(&format!("Index out of bounds: {}", idx))
+        }
+
+        // --- String Access by Range (substring) ---
+        (AgoType::String(s), AgoType::Range(range)) => {
+            let chars: Vec<char> = s.chars().collect();
+            let (start, end) = range_bounds(range, chars.len());
+            AgoType::String(chars[start..end].iter().collect())
         }
 
         // --- Struct Access ---
@@ -61,7 +101,7 @@ pub fn get(iter: &AgoType, n: &AgoType) -> AgoType {
             | AgoType::String(_),
             other,
         ) => {
-            panic!("Index must be an Int, but got {:?}", other)
+            panic!("Index must be an Int or Range, but got {:?}", other)
         }
         (other, _) => panic!("Cannot call 'get' on type {:?}", other),
     }

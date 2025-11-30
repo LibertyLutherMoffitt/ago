@@ -595,10 +595,15 @@ class AgoCodeGenerator:
     def _generate_indexing(self, index_node: Any) -> str:
         """Generate index expression."""
         d = to_dict(index_node)
+        
+        # The index expression is in 'expr' at the top level
+        expr = d.get("expr")
+        if expr:
+            return self._generate_expr(expr)
+        
+        # Fallback: check indexes array for backwards compatibility
         indexes = d.get("indexes", [])
-
         if indexes:
-            # Get the first index expression
             if isinstance(indexes, list) and len(indexes) > 0:
                 first = indexes[0]
                 first_d = to_dict(first)
@@ -694,12 +699,28 @@ class AgoCodeGenerator:
         iterable = d.get("iterable")
         iterable_expr = self._generate_expr(iterable)
 
+        # In Ago, only one variable per stem can exist at a time.
+        # Save and remove variables with the same stem as the iterator.
+        iter_suffix, iter_stem = get_suffix_and_stem(iterator)
+        shadowed_vars = []
+        if iter_stem:
+            for existing_var in list(self.declared_vars):
+                existing_suffix, existing_stem = get_suffix_and_stem(existing_var)
+                if existing_stem == iter_stem and existing_var != iterator:
+                    shadowed_vars.append(existing_var)
+                    self.declared_vars.discard(existing_var)
+
         self.emit(f"for {iterator} in into_iter(&{iterable_expr}) {{")
         self.indent_level += 1
         self.declared_vars.add(iterator)
         self._process_block(d.get("body"))
         self.indent_level -= 1
         self.emit("}")
+
+        # Restore shadowed variables after loop exits
+        self.declared_vars.discard(iterator)
+        for var in shadowed_vars:
+            self.declared_vars.add(var)
 
     def _generate_expr(self, expr: Any) -> str:
         """Generate an expression and return as string."""
@@ -1157,10 +1178,16 @@ class AgoCodeGenerator:
                 else:
                     base_expr = self._generate_expr(base)
 
-                # Get index
+                # Get index expression
                 if len(items) > 1:
                     idx_node = items[1]
                     idx_d = to_dict(idx_node)
+                    # The index expression is in 'expr' at the top level
+                    expr = idx_d.get("expr")
+                    if expr:
+                        idx_expr = self._generate_expr(expr)
+                        return f"get(&{base_expr}, &{idx_expr})"
+                    # Fallback: check indexes array for backwards compatibility
                     indexes = idx_d.get("indexes", [])
                     if indexes and len(indexes) > 0:
                         first_idx = indexes[0]
