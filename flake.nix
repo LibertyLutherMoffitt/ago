@@ -10,7 +10,7 @@
     flake-parts.lib.mkFlake {inherit inputs;} {
       systems = ["x86_64-linux" "aarch64-linux" "aarch64-darwin" "x86_64-darwin"];
 
-      perSystem = {pkgs, ...}: let
+      perSystem = {pkgs, self', ...}: let
         # Python environment with dependencies
         pythonEnv = pkgs.python3.withPackages (p: with p; [tatsu pytest tkinter]);
         
@@ -40,6 +40,9 @@
             # Copy source files needed at runtime
             cp -r src $out/lib/ago/
             cp main.py $out/lib/ago/
+            
+            # Copy stdlib (Ago standard library prelude)
+            cp -r stdlib $out/lib/ago/
             
             # Copy the compiled stdlib (needed for linking)
             cp -r src/rust/target $out/lib/ago/src/rust/
@@ -261,12 +264,13 @@ MAN
             pkgs.pyright
             pkgs.rustfmt
             pkgs.rust-analyzer
+            self'.packages.default  # Make 'ago' command available
           ];
           
           shellHook = ''
             echo "🏛️  Ago Development Shell"
+            echo "   Run ago:     ago <file.ago>"
             echo "   Run tests:   pytest test/"
-            echo "   Run ago:     python main.py <file.ago>"
             echo "   Format:      nix run .#fmt"
             echo "   Check fmt:   nix run .#check-fmt"
           '';

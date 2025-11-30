@@ -52,6 +52,7 @@ pub enum TargetType {
     ListAny,
     Range,
     Null,
+    Any, // For generic/dynamic typing - returns value as-is
 }
 
 pub struct FileStruct {

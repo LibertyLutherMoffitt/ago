@@ -5,6 +5,10 @@ impl AgoType {
     // It now panics on error instead of returning a Result.
     pub fn as_type(&self, target: TargetType) -> AgoType {
         match (self, target) {
+            // --- Any Conversions (dynamic/generic typing) ---
+            // Casting TO Any: just clone the value (AgoType IS the Any type)
+            (_, TargetType::Any) => self.clone(),
+
             // --- Identity Conversions ---
             (AgoType::Int(val), TargetType::Int) => AgoType::Int(*val),
             (AgoType::Float(val), TargetType::Float) => AgoType::Float(*val),
@@ -342,6 +346,20 @@ impl AgoType {
                     })
                     .collect();
                 AgoType::BoolList(new_list)
+            }
+
+            // --- Typed lists to ListAny ---
+            (AgoType::IntList(val), TargetType::ListAny) => {
+                AgoType::ListAny(val.iter().map(|&i| AgoType::Int(i)).collect())
+            }
+            (AgoType::FloatList(val), TargetType::ListAny) => {
+                AgoType::ListAny(val.iter().map(|&f| AgoType::Float(f)).collect())
+            }
+            (AgoType::BoolList(val), TargetType::ListAny) => {
+                AgoType::ListAny(val.iter().map(|&b| AgoType::Bool(b)).collect())
+            }
+            (AgoType::StringList(val), TargetType::ListAny) => {
+                AgoType::ListAny(val.iter().map(|s| AgoType::String(s.clone())).collect())
             }
 
             // --- ListAny to typed lists ---

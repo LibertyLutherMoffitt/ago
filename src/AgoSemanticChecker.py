@@ -39,6 +39,7 @@ ENDING_TO_TYPE = {
     "e": "range",
     "o": "function",
     "i": "null",
+    "ium": "Any",
 }
 
 # Sorted by length descending for proper matching
@@ -92,6 +93,8 @@ def get_element_type(list_type: str) -> str:
     """Get the element type of a list type."""
     if list_type == "list_any":
         return "Any"
+    if list_type == "Any":
+        return "Any"  # Indexing Any returns Any
     if list_type.endswith("_list"):
         return list_type[:-5]  # Remove "_list" suffix
     return "unknown"
@@ -140,9 +143,15 @@ def can_cast(from_type: str, to_type: str) -> bool:
     """
     if from_type == to_type:
         return True
+    # Any type can be cast to/from anything
     if from_type == "Any" or to_type == "Any":
         return True
     if from_type == "unknown" or to_type == "unknown":
+        return True
+    # list_any elements are Any, so list_any is compatible with specific lists
+    if from_type == "list_any" and to_type in LIST_TYPES:
+        return True
+    if from_type in LIST_TYPES and to_type == "list_any":
         return True
     # Numeric types can cast between each other (int, float)
     if from_type in NUMERIC_TYPES and to_type in NUMERIC_TYPES:
@@ -785,10 +794,14 @@ class AgoSemanticChecker:
                     sym = self.sym_table.get_symbol(base)
                     if sym:
                         base_type = sym.type_t
+                        if base_type == "list_any":
+                            return "Any"  # Elements of list_any are Any
                         if base_type in LIST_TYPES:
                             return get_element_type(base_type)
                         if base_type == "string":
                             return "string"
+                        if base_type == "Any":
+                            return "Any"  # Indexing Any returns Any
         return "Any"
 
     def _infer_struct_indexed_type(self, struct_indexed: Any) -> str:

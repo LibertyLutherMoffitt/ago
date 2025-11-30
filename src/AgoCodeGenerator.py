@@ -32,6 +32,7 @@ ENDING_TO_TARGET_TYPE = {
     "u": "Struct",
     "uum": "ListAny",
     "e": "Range",
+    "ium": "Any",
 }
 
 # Sorted by length descending for proper matching
@@ -93,8 +94,9 @@ ENDING_TO_RUST_TARGET = {
     "as": "BoolList",
     "erum": "StringList",
     "u": "Struct",
+    "uum": "ListAny",
+    "ium": "Any",
     # These don't have direct TargetType equivalents
-    # "uum": "ListAny",
     # "e": "Range",
     # "o": "Function",
     # "i": "Null",
@@ -925,28 +927,58 @@ class AgoCodeGenerator:
                             sub_d = to_dict(sub)
                             func_name = sub_d.get("func")
                             if func_name:
+                                func_name_str = str(func_name)
                                 args = []
                                 if sub_d.get("args"):
                                     args = self._parse_args(sub_d["args"])
+                                # Check if this is a type cast (no args, name is or ends with type suffix)
+                                # BUT only if it's not a known stdlib or user function
+                                if not args and func_name_str not in STDLIB_FUNCTIONS and func_name_str not in self.user_functions:
+                                    # First check if the name IS a type suffix (e.g., .a(), .es())
+                                    if func_name_str in ENDING_TO_TARGET_TYPE:
+                                        target_type = ENDING_TO_TARGET_TYPE[func_name_str]
+                                        result = f"{result}.as_type(TargetType::{target_type})"
+                                        continue
+                                    # Then check if it ends with a type suffix (e.g., .ida(), .ides())
+                                    suffix, stem = get_suffix_and_stem(func_name_str)
+                                    if suffix and suffix in ENDING_TO_TARGET_TYPE:
+                                        target_type = ENDING_TO_TARGET_TYPE[suffix]
+                                        result = f"{result}.as_type(TargetType::{target_type})"
+                                        continue
                                 receiver = (
                                     f"&{result}"
                                     if not result.startswith("&")
                                     else result
                                 )
                                 all_args = [receiver] + args
-                                result = f"{func_name}({', '.join(all_args)})"
+                                result = f"{func_name_str}({', '.join(all_args)})"
                 else:
                     item_d = to_dict(item) if not isinstance(item, str) else {}
                     func_name = item_d.get("func")
                     if func_name:
+                        func_name_str = str(func_name)
                         args = []
                         if item_d.get("args"):
                             args = self._parse_args(item_d["args"])
+                        # Check if this is a type cast (no args, name is or ends with type suffix)
+                        # BUT only if it's not a known stdlib or user function
+                        if not args and func_name_str not in STDLIB_FUNCTIONS and func_name_str not in self.user_functions:
+                            # First check if the name IS a type suffix (e.g., .a(), .es())
+                            if func_name_str in ENDING_TO_TARGET_TYPE:
+                                target_type = ENDING_TO_TARGET_TYPE[func_name_str]
+                                result = f"{result}.as_type(TargetType::{target_type})"
+                                continue
+                            # Then check if it ends with a type suffix (e.g., .ida(), .ides())
+                            suffix, stem = get_suffix_and_stem(func_name_str)
+                            if suffix and suffix in ENDING_TO_TARGET_TYPE:
+                                target_type = ENDING_TO_TARGET_TYPE[suffix]
+                                result = f"{result}.as_type(TargetType::{target_type})"
+                                continue
                         receiver = (
                             f"&{result}" if not result.startswith("&") else result
                         )
                         all_args = [receiver] + args
-                        result = f"{func_name}({', '.join(all_args)})"
+                        result = f"{func_name_str}({', '.join(all_args)})"
 
             return result
 
@@ -1085,17 +1117,32 @@ class AgoCodeGenerator:
                     method_d = to_dict(method)
                     func_name = method_d.get("func")
                     if func_name:
+                        func_name_str = str(func_name)
                         args = []
                         args_node = method_d.get("args")
                         if args_node:
                             args = self._parse_args(args_node)
+                        # Check if this is a type cast (no args, name is or ends with type suffix)
+                        # BUT only if it's not a known stdlib or user function
+                        if not args and func_name_str not in STDLIB_FUNCTIONS and func_name_str not in self.user_functions:
+                            # First check if the name IS a type suffix (e.g., .a(), .es())
+                            if func_name_str in ENDING_TO_TARGET_TYPE:
+                                target_type = ENDING_TO_TARGET_TYPE[func_name_str]
+                                result = f"{result}.as_type(TargetType::{target_type})"
+                                continue
+                            # Then check if it ends with a type suffix (e.g., .ida(), .ides())
+                            suffix, stem = get_suffix_and_stem(func_name_str)
+                            if suffix and suffix in ENDING_TO_TARGET_TYPE:
+                                target_type = ENDING_TO_TARGET_TYPE[suffix]
+                                result = f"{result}.as_type(TargetType::{target_type})"
+                                continue
                         # Method chaining: receiver becomes first arg (as reference)
                         # Wrap result in reference if it's not already
                         receiver = (
                             f"&{result}" if not result.startswith("&") else result
                         )
                         all_args = [receiver] + args
-                        result = f"{func_name}({', '.join(all_args)})"
+                        result = f"{func_name_str}({', '.join(all_args)})"
 
         return result
 

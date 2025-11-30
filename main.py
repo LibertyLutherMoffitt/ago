@@ -30,6 +30,10 @@ SCRIPT_DIR = Path(__file__).parent.resolve()
 # Use AGO_HOME if set (for nix package), otherwise use script dir
 AGO_HOME = Path(os.environ.get("AGO_HOME", SCRIPT_DIR))
 
+# Standard library location
+STDLIB_DIR = AGO_HOME / "stdlib"
+PRELUDE_FILE = STDLIB_DIR / "prelude.ago"
+
 # For output, use XDG_CACHE_HOME or ~/.cache/ago
 CACHE_DIR = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "ago"
 OUTPUT_DIR = CACHE_DIR / "build"
@@ -175,17 +179,36 @@ def parse_args():
     return parser.parse_args()
 
 
+def load_prelude() -> str:
+    """Load the standard library prelude if it exists."""
+    if PRELUDE_FILE.exists():
+        try:
+            with open(PRELUDE_FILE, "r") as f:
+                return f.read() + "\n"
+        except (PermissionError, IOError):
+            # Silently skip prelude if we can't read it
+            return ""
+    return ""
+
+
 def read_source(file_path: Path) -> str:
-    """Read source file."""
+    """Read source file with automatic stdlib prelude inclusion."""
+    # Load stdlib prelude
+    prelude = load_prelude()
+
+    # Load user code
     try:
         with open(file_path, "r") as f:
-            return f.read() + "\n"
+            user_code = f.read() + "\n"
     except FileNotFoundError:
         print_error(f"file not found: {file_path}")
         sys.exit(1)
     except PermissionError:
         print_error(f"permission denied: {file_path}")
         sys.exit(1)
+
+    # Combine prelude + user code
+    return prelude + user_code
 
 
 def parse_source(source: str, file_path: Path):

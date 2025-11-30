@@ -118,6 +118,8 @@ call_stmt
 
 literal_item
     =
+    | list:list
+    | mapstruct:mapstruct
     | str:STR_LIT
     | float:FLOATLIT
     | int:INTLIT
@@ -187,9 +189,7 @@ pg
 
 ph
     =
-    | list:list
-    | value:item
-    | mapstruct:mapstruct
+    value:item
     ;
 
 list
@@ -217,6 +217,7 @@ item
         chain:{ PERIOD method:nodotcall_stmt }+
       ) 
     | call:nodotcall_stmt
+    | list
     | mapstruct
     | indexed:(identifier idx:indexing)
     | struct_indexed:(
