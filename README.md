@@ -74,17 +74,18 @@ In Ago, variable names must end with a suffix that indicates their type:
 |--------|------|---------|
 | `-a` | Integer | `xa := 42` |
 | `-ae` | Float | `xae := 3.14` |
-| `-es` | String | `xes := "hello"` |
 | `-am` | Boolean | `xam := verum` |
+| `-es` | String | `xes := "hello"` |
 | `-u` | Struct | `personu := {"namees": "Alice"}` |
-| `-o` | Function/Lambda | `addo := des (a, b) { redeo a + b }` |
-| `-i` | Null (inanis) | Function returns nothing |
+| `-ium` | Any | `xium := mixuum[0]` |
 | `-aem` | Int List | `numaem := [1, 2, 3]` |
-| `-erum` | String List | `namerum := ["a", "b"]` |
 | `-arum` | Float List | `valarum := [1.0, 2.0]` |
 | `-as` | Bool List | `flagas := [verum, falsus]` |
+| `-erum` | String List | `namerum := ["a", "b"]` |
 | `-uum` | Any List | `mixuum := [1, "two", 3.0]` |
-| `-ium` | Any | `xium := mixuum[0]` |
+| `-e` | Range | `re := 1..100` |
+| `-o` | Function/Lambda | `addo := des (a, b) { redeo a + b }` |
+| `-i` | Null (inanis) | Function returns nothing |
 
 ### Implicit Type Casting
 

@@ -250,8 +250,9 @@ class AgoParser(Parser):
                 "'frio' 'omitto' 'pergo' 'redeo' <BREAK>"
                 '<CONTINUE> <FOR> <IF> <PASS> <RETURN>'
                 '<WHILE> <declaration_stmt> <expression>'
-                '<for_stmt> <identifier> <if_stmt> <pa>'
-                '<reassignment_stmt> <while_stmt>'
+                '<for_stmt> <identifier> <if_stmt>'
+                '<reassignment_stmt> <ternary>'
+                '<while_stmt>'
             )
 
     @tatsumasu()
@@ -514,7 +515,28 @@ class AgoParser(Parser):
     @tatsumasu()
     @nomemo
     def _expression_(self):
-        self._pa_()
+        self._ternary_()
+
+    @tatsumasu()
+    @nomemo
+    def _ternary_(self):
+        with self._choice():
+            with self._option():
+                self._pa_()
+                self.name_last_node('condition')
+                self._QUESTION_()
+                self._ternary_()
+                self.name_last_node('true_val')
+                self._COLON_()
+                self._ternary_()
+                self.name_last_node('false_val')
+                self._define(['condition', 'false_val', 'true_val'], [])
+            with self._option():
+                self._pa_()
+            self._error(
+                'expecting one of: '
+                '<pa> <pb>'
+            )
 
     @tatsumasu()
     @leftrec
@@ -1121,6 +1143,10 @@ class AgoParser(Parser):
     @tatsumasu()
     def _PERIOD_(self):
         self._token('.')
+
+    @tatsumasu()
+    def _QUESTION_(self):
+        self._token('?')
 
     @tatsumasu()
     def _CR_(self):

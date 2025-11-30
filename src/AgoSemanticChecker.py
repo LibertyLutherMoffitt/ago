@@ -493,6 +493,10 @@ class AgoSemanticChecker:
         if d.get("body") is not None and "name" not in d:
             return "function"
 
+        # Ternary operator (condition ? true_val : false_val)
+        if d.get("condition") is not None and d.get("true_val") is not None and d.get("false_val") is not None:
+            return self._infer_ternary_type(d, node)
+
         # Binary operators
         if d.get("op") is not None and d.get("left") is not None:
             return self._infer_binary_op_type(d)
@@ -1064,6 +1068,27 @@ class AgoSemanticChecker:
                 f"Struct key '{key_str}' expects type '{expected_type}' but value has type '{actual_type}'",
                 parent_node,
             )
+
+    def _infer_ternary_type(self, d: dict, node: Any) -> str:
+        """Infer result type of a ternary operation (condition ? true_val : false_val)."""
+        cond_type = self.infer_expr_type(d.get("condition"))
+        true_type = self.infer_expr_type(d.get("true_val"))
+        false_type = self.infer_expr_type(d.get("false_val"))
+
+        # Condition must be boolean
+        if cond_type not in ("bool", "Any", "unknown"):
+            self.report_error(
+                f"Ternary condition must be bool, got '{cond_type}'", node
+            )
+
+        # Result type is the common type of true and false branches
+        if true_type == false_type:
+            return true_type
+        # If either is Any, result is Any
+        if true_type == "Any" or false_type == "Any":
+            return "Any"
+        # Otherwise use the more general type
+        return "Any"
 
     def _infer_binary_op_type(self, d: dict) -> str:
         """Infer result type of a binary operation."""

@@ -127,6 +127,14 @@ class AgoCodeGenerator:
         # Track generated lambdas
         self.lambdas: list[str] = []
         self.lambda_counter = 0
+        # Counter for temp variables
+        self.temp_counter = 0
+
+    def _get_temp_counter(self) -> int:
+        """Get a unique temp variable counter."""
+        count = self.temp_counter
+        self.temp_counter += 1
+        return count
 
     def indent(self) -> str:
         """Return current indentation string."""
@@ -522,7 +530,7 @@ class AgoCodeGenerator:
         self._generate_statement(item)
 
     def _function_returns_lambda(self, body: Any) -> bool:
-        """Check if function body returns a lambda."""
+        """Check if function body returns a lambda directly (not as an argument)."""
         if body is None:
             return False
         if isinstance(body, (list, tuple)):
@@ -536,13 +544,35 @@ class AgoCodeGenerator:
             if d.get("value") is not None:
                 value = d["value"]
                 value_d = to_dict(value) if not isinstance(value, str) else {}
-                # Lambda: has body but no name
-                if value_d.get("body") is not None and "name" not in value_d:
+                # The return value is wrapped: value -> value -> actual_content
+                inner = value_d.get("value")
+                if inner:
+                    inner_d = to_dict(inner) if not isinstance(inner, str) else {}
+                    # Direct lambda return: inner has 'body' and 'params' keys (lambda structure)
+                    # but NOT 'base', 'chain', 'mchain', 'call', 'func' (method chain/call structure)
+                    if inner_d.get("body") is not None:
+                        # Check it's not a method chain or call
+                        if not inner_d.get("base") and not inner_d.get("chain") and not inner_d.get("call") and not inner_d.get("func"):
+                            return True
+            # Recurse into statements but NOT into expression arguments
+            stmts = d.get("stmts")
+            if stmts:
+                if self._function_returns_lambda(stmts):
                     return True
-            # Recurse
-            for key, val in d.items():
-                if val is not None and self._function_returns_lambda(val):
-                    return True
+            # Check first/rest for statement lists
+            first = d.get("first")
+            if first and self._function_returns_lambda(first):
+                return True
+            rest = d.get("rest")
+            if rest and self._function_returns_lambda(rest):
+                return True
+            # Check if/else branches
+            if_body = d.get("if_body")
+            if if_body and self._function_returns_lambda(if_body):
+                return True
+            else_body = d.get("else_body")
+            if else_body and self._function_returns_lambda(else_body):
+                return True
         return False
 
     def _generate_function(self, ast: Any) -> None:
@@ -781,8 +811,11 @@ class AgoCodeGenerator:
 
         if index:
             # Indexed assignment: var[idx] = value
+            # Evaluate RHS first to avoid borrow conflicts when RHS references var
             idx_expr = self._generate_indexing(index)
-            self.emit(f"set(&mut {var_name}, &{idx_expr}, {expr});")
+            temp_var = f"__temp_{self._get_temp_counter()}"
+            self.emit(f"let {temp_var} = {expr};")
+            self.emit(f"set(&mut {var_name}, &{idx_expr}, {temp_var});")
         else:
             self.emit(f"{var_name} = {expr};")
 
@@ -1029,6 +1062,10 @@ class AgoCodeGenerator:
         if d.get("struct_indexed") is not None:
             return self._generate_struct_indexed(d)
 
+        # Ternary operator (condition ? true_val : false_val)
+        if d.get("condition") is not None and d.get("true_val") is not None and d.get("false_val") is not None:
+            return self._generate_ternary(d)
+
         # Binary operators
         if d.get("op") is not None and d.get("left") is not None:
             return self._generate_binary_op(d)
@@ -1046,6 +1083,13 @@ class AgoCodeGenerator:
             return self._generate_lambda(d)
 
         return "AgoType::Null"
+
+    def _generate_ternary(self, d: dict) -> str:
+        """Generate ternary operator (condition ? true_val : false_val)."""
+        condition = self._generate_expr(d.get("condition"))
+        true_val = self._generate_expr(d.get("true_val"))
+        false_val = self._generate_expr(d.get("false_val"))
+        return f"(if matches!(({condition}).as_type(TargetType::Bool), AgoType::Bool(true)) {{ {true_val} }} else {{ {false_val} }})"
 
     def _generate_binary_op(self, d: dict) -> str:
         """Generate binary operation."""

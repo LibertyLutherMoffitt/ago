@@ -172,7 +172,13 @@ expression_list
 
 # --- EXPRESSIONS ---
 
-expression = pa ;
+expression = ternary ;
+
+ternary
+    =
+    | condition:pa QUESTION true_val:ternary COLON false_val:ternary
+    | pa
+    ;
 
 pa
     =
@@ -330,6 +336,7 @@ COMMA     = ',' ;
 COLON     = ':' ;
 SEMICOLON = ';' ;
 PERIOD    = '.' ;
+QUESTION  = '?' ;
 
 CR = /\r?\n/ ;
 

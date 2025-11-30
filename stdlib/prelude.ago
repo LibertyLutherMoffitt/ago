@@ -1,19 +1,6 @@
 # Ago Standard Library Prelude
 # These functions are automatically available in all Ago programs.
 
-# minium - Returns the minimum element of any list
-# Works with all list types containing comparable elements
-# Returns inanis for empty lists
-des minium(luum) {
-    mium := inanis 
-    pro lium in luum {
-        si non mam vel lium < mium {
-            mium = lium
-        }
-    }
-    redeo mium
-}
-
 # liquum - Filter a list, returning elements where predicate returns true
 # Takes a list and a predicate lambda, returns a new list with matching elements
 # Name ends in -uum (returns list_any)
@@ -28,3 +15,38 @@ des liquum(luum, xo) {
     }
     redeo luum
 }
+
+# plicium - Fold/reduce a list using a binary function
+# Takes a list and a binary lambda (accumulator, element) -> new_accumulator
+# Returns inanis for empty lists, otherwise reduces left-to-right using first element as initial value
+des plicium(luum, xo) {
+    si non lam {
+        redeo inanis
+    }
+
+    aium := luum[0]
+    pro lium in luum[1..la] {
+        aium = xo(aium, lium)
+    }
+    redeo aium
+}
+
+des mutatuum(luum, xo) {
+    pro xa in le { luum[xa] = xo(luum[xa]) }
+    redeo luum
+}
+
+# minium - Returns the minimum element of any list
+# Works with all list types containing comparable elements
+# Returns inanis for empty lists
+des minium(luum) {
+    redeo luum.plicium(des (aium, bium) {aium < bium ? aium : bium})
+}
+
+# maxium - Returns the maximum element of any list
+# Works with all list types containing comparable elements
+# Returns inanis for empty lists
+des maxium(luum) {
+    redeo luum.plicium(des (aium, bium) {aium > bium ? aium : bium})
+}
+

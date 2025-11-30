@@ -588,6 +588,24 @@ dici(xes)
 """)
         assert output.strip() == "true"
 
+    def test_ternary_operator(self):
+        """Test ternary operator (condition ? true_val : false_val)."""
+        output = compile_and_run("""
+xa := 5
+xes := xa > 3 ? "big" : "small"
+dici(xes)
+""")
+        assert output.strip() == "big"
+
+    def test_ternary_in_lambda(self):
+        """Test ternary operator inside a lambda with implicit return."""
+        output = compile_and_run("""
+xo := des (aium, bium) { aium < bium ? aium : bium }
+xa := xo(10, 5)
+dici(xes)
+""")
+        assert output.strip() == "5"
+
     def test_lambda_filter_with_implicit_return(self):
         """Test filter using lambda with implicit return - the main use case."""
         output = compile_and_run("""
