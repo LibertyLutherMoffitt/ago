@@ -37,6 +37,7 @@ ENDING_TO_TYPE = {
     "u": "struct",
     "uum": "list_any",
     "e": "range",
+    "o": "function",
 }
 
 # Sorted by length descending for proper matching
@@ -98,7 +99,8 @@ def get_element_type(list_type: str) -> str:
 def is_type_compatible(from_type: str, to_type: str) -> bool:
     """
     Check if from_type can be used where to_type is expected.
-    This implements Ago's type coercion rules.
+    Ago has strict typing - users can easily cast by changing variable name endings.
+    The only implicit conversion is int -> float in arithmetic contexts.
     """
     if from_type == to_type:
         return True
@@ -106,26 +108,63 @@ def is_type_compatible(from_type: str, to_type: str) -> bool:
         return True
     if from_type == "unknown" or to_type == "unknown":
         return True
+    # int can be promoted to float (arithmetic promotion)
+    if from_type == "int" and to_type == "float":
+        return True
+    # range is compatible with int_list (range produces ints)
+    if from_type == "range" and to_type == "int_list":
+        return True
+    # list_any is compatible with specific list types
+    if from_type == "list_any" and to_type in LIST_TYPES:
+        return True
+    if from_type in LIST_TYPES and to_type == "list_any":
+        return True
+    return False
+
+
+def can_cast(from_type: str, to_type: str) -> bool:
+    """
+    Check if explicit cast via variable name ending is allowed.
+    This is more permissive than is_type_compatible since the user
+    is explicitly requesting a cast by using a different name ending.
+    Based on Rust runtime casting rules in casting.rs.
+    """
+    if from_type == to_type:
+        return True
+    if from_type == "Any" or to_type == "Any":
+        return True
+    if from_type == "unknown" or to_type == "unknown":
+        return True
+    # Numeric types can cast between each other (int, float)
     if from_type in NUMERIC_TYPES and to_type in NUMERIC_TYPES:
         return True
+    # Bool can cast to/from numeric (bool->int: 0/1, int->bool: !=0)
     if from_type == "bool" and to_type in NUMERIC_TYPES:
         return True
     if from_type in NUMERIC_TYPES and to_type == "bool":
         return True
+    # Anything can cast to string (stringify)
     if to_type == "string":
         return True
+    # String can cast to numeric (parsing) or bool (non-empty check)
     if from_type == "string" and to_type in NUMERIC_TYPES:
         return True
-    if from_type == "range" and to_type == "bool":
+    if from_type == "string" and to_type == "bool":
         return True
-    if from_type == "range" and to_type == "int_list":
+    # Range can cast to int_list, bool, or string
+    if from_type == "range" and to_type in ("int_list", "bool", "string"):
         return True
-    if from_type in LIST_TYPES and to_type == "range":
+    # Lists can cast to int (length), bool (non-empty), string, or range
+    if from_type in LIST_TYPES and to_type in ("int", "bool", "string", "range"):
         return True
+    # Struct can cast to bool (non-empty) or string
+    if from_type == "struct" and to_type in ("bool", "string"):
+        return True
+    # List types can cast between each other if elements can cast
     if from_type in LIST_TYPES and to_type in LIST_TYPES:
         from_elem = get_element_type(from_type)
         to_elem = get_element_type(to_type)
-        return is_type_compatible(from_elem, to_elem)
+        return can_cast(from_elem, to_elem)
     return False
 
 
@@ -161,6 +200,8 @@ class AgoSemanticChecker:
         self.errors: list[SemanticError] = []
         self.loop_depth: int = 0
         self.current_function: Optional[Symbol] = None
+        # Track lambda context: None if not in lambda, else the Symbol for the lambda
+        self.current_lambda: Optional[Symbol] = None
 
     # --- Error Reporting ---
 
@@ -240,8 +281,12 @@ class AgoSemanticChecker:
         if hasattr(expr, "parseinfo") or isinstance(expr, dict):
             return self._infer_node_type(expr)
 
-        # Lists
+        # Lists and tuples
         if isinstance(expr, (list, tuple)):
+            # Check for mapstruct pattern ['{', content, '}'] first
+            if len(expr) >= 2 and expr[0] == "{" and expr[-1] == "}":
+                return "struct"
+            
             if len(expr) == 0:
                 return "list_any"
             elem_types = set()
@@ -280,9 +325,27 @@ class AgoSemanticChecker:
         if d.get("roman") is not None:
             return "int"
 
+        # Handle 'id' keyword (IT token) - only valid inside single-param lambdas
+        # Can appear as IT token, id key with value "id", or just string "id" in value wrapper
+        if d.get("IT") is not None or (
+            isinstance(d.get("id"), str) and d.get("id") == "id"
+        ):
+            return self._handle_id_keyword(node)
+        
+        # Check for 'id' as a plain string in value wrapper
+        if "value" in d and d.get("value") == "id":
+            return self._handle_id_keyword(node)
+
         # Identifier reference
         if d.get("id") is not None:
             name = str(d["id"])
+
+            # Check for 'id' keyword variants (ida, ides, etc.) inside lambdas
+            if name.startswith("id") and len(name) > 2:
+                suffix = name[2:]
+                if suffix in ENDING_TO_TYPE and self.current_lambda is not None:
+                    return self._infer_id_cast_type(name, node)
+
             sym = self.sym_table.get_symbol(name)
             if sym:
                 return sym.type_t
@@ -311,7 +374,8 @@ class AgoSemanticChecker:
                 if base_sym and req_suffix_ending is not None:
                     source_type = base_sym.type_t
                     target_type = ENDING_TO_TYPE[req_suffix_ending]
-                    if is_type_compatible(source_type, target_type):
+                    # Use can_cast for explicit casting via name endings
+                    if can_cast(source_type, target_type):
                         return target_type
                     else:
                         self.report_error(
@@ -337,21 +401,32 @@ class AgoSemanticChecker:
         if d.get("list") is not None:
             return self._infer_list_type(d["list"])
 
-        # Map/struct literal
+        # Map/struct literal - check for mapstruct key or list pattern ['{', ..., '}']
         if d.get("mapstruct") is not None:
+            self._validate_mapstruct(d["mapstruct"], node)
+            return "struct"
+        
+        # Check if this is a mapstruct as a list pattern
+        mapstruct_content = self._get_mapstruct_content(node)
+        if mapstruct_content is not None:
+            self._validate_mapstruct_content(mapstruct_content, node)
             return "struct"
 
         # Function call
         if d.get("call") is not None:
             return self._infer_call_type(d["call"])
 
-        # Method chain
+        # Method chain (a.b().c(d) = c(b(a), d))
         if d.get("mchain") is not None:
-            return "Any"
+            return self._infer_method_chain_type(d["mchain"], node)
 
         # Indexed access
         if d.get("indexed") is not None:
             return self._infer_indexed_type(d["indexed"])
+
+        # Struct field access (struct_indexed)
+        if d.get("struct_indexed") is not None:
+            return self._infer_struct_indexed_type(d["struct_indexed"])
 
         # Lambda
         if d.get("body") is not None and "name" not in d:
@@ -388,6 +463,54 @@ class AgoSemanticChecker:
             return f"{elem}_list"
         return "list_any"
 
+    def _is_mapstruct_list(self, node: Any) -> bool:
+        """Check if node is a mapstruct in list form ['{', content, '}']."""
+        return self._get_mapstruct_content(node) is not None
+
+    def _get_mapstruct_content(self, node: Any) -> Any:
+        """Get mapstruct content from node if it's a struct, else return None."""
+        if isinstance(node, (list, tuple)) and len(node) >= 2:
+            if node[0] == "{" and node[-1] == "}":
+                # Content is between { and }
+                return node[1:-1] if len(node) > 2 else node[1] if len(node) == 3 else None
+        # Also check wrapped in value
+        d = to_dict(node) if not isinstance(node, (list, tuple, str)) else {}
+        if "value" in d and d.get("value") is not None:
+            inner = d["value"]
+            if isinstance(inner, (list, tuple)) and len(inner) >= 2:
+                if inner[0] == "{" and inner[-1] == "}":
+                    return inner[1] if len(inner) == 3 else inner[1:-1]
+        return None
+
+    def _validate_mapstruct_content(self, content: Any, parent_node: Any) -> None:
+        """Validate mapstruct content for key naming conventions."""
+        if content is None:
+            return
+        
+        # Content could be a list like ['key', ':', value] or nested
+        if isinstance(content, (list, tuple)):
+            i = 0
+            while i < len(content):
+                item = content[i]
+                # Look for key:value patterns
+                if isinstance(item, str) and item not in ("{", "}", ",", ":", "\n"):
+                    # This might be a key - look for colon and value
+                    if i + 2 < len(content) and content[i + 1] == ":":
+                        key = item
+                        value = content[i + 2]
+                        self._validate_struct_key(key, value, parent_node)
+                        i += 3
+                        continue
+                elif isinstance(item, (list, tuple)):
+                    # Nested content - recurse
+                    self._validate_mapstruct_content(item, parent_node)
+                i += 1
+        elif hasattr(content, "parseinfo") or isinstance(content, dict):
+            d = to_dict(content)
+            for k, v in d.items():
+                if k not in ("parseinfo",) and isinstance(v, (list, tuple)):
+                    self._validate_mapstruct_content(v, parent_node)
+
     def _infer_call_type(self, call_node: Any) -> str:
         """Infer return type of a function call."""
         d = to_dict(call_node)
@@ -398,9 +521,163 @@ class AgoSemanticChecker:
             func_name = first_d.get("func")
             if func_name:
                 sym = self.sym_table.get_symbol(str(func_name))
-                if sym and sym.category == "func" and sym.return_type:
-                    return sym.return_type
+                if sym:
+                    if sym.category == "func" and sym.return_type:
+                        return sym.return_type
+                    elif sym.type_t == "function" and sym.return_type:
+                        # Lambda stored in variable
+                        return sym.return_type
         return "Any"
+
+    def _infer_method_chain_type(self, mchain_node: Any, parent_node: Any) -> str:
+        """
+        Infer type from method chain (e.g., a.b().c(d)).
+        Method chaining semantics: a.b() = b(a), a.b().c(d) = c(b(a), d)
+        """
+        # Handle list format: [base_item, chain_items]
+        if isinstance(mchain_node, (list, tuple)) and len(mchain_node) >= 2:
+            base = mchain_node[0]
+            chain = mchain_node[1] if len(mchain_node) > 1 else None
+        else:
+            d = to_dict(mchain_node)
+            base = d.get("base")
+            chain = d.get("chain")
+
+        if not chain:
+            # No chain, just return base type
+            return self.infer_expr_type(base)
+
+        # Track the current type through the chain
+        current_type = self.infer_expr_type(base)
+
+        # Process each method call in the chain
+        if isinstance(chain, (list, tuple)):
+            for item in chain:
+                if item is None or item == ".":
+                    continue
+
+                # Handle different chain item formats:
+                # 1. ['.', method_node] - list format
+                # 2. {'method': method_node} or {'more': method_node} - dict format
+                method = None
+                if isinstance(item, (list, tuple)):
+                    # List format: ['.', method_node]
+                    for sub in item:
+                        if sub != "." and sub is not None:
+                            if isinstance(sub, dict) or hasattr(sub, "parseinfo"):
+                                method = sub
+                                break
+                else:
+                    item_d = to_dict(item) if not isinstance(item, str) else {}
+                    method = item_d.get("method") or item_d.get("more")
+
+                if method:
+                    method_d = to_dict(method)
+                    func_name = method_d.get("func")
+
+                    if func_name:
+                        func_name_str = str(func_name)
+                        sym = self.sym_table.get_symbol(func_name_str)
+
+                        if sym is None:
+                            # Method not found - might be a stdlib function
+                            # Infer from function name suffix
+                            inferred = infer_type_from_name(func_name_str)
+                            if inferred:
+                                current_type = inferred
+                            else:
+                                current_type = "Any"
+                        elif sym.category == "func" or sym.type_t == "function":
+                            # Validate the call - first arg should be compatible with current_type
+                            self._validate_method_chain_call(
+                                method, sym, current_type, parent_node
+                            )
+                            # Update current type to return type
+                            # For method chaining, void/function returns are treated as Any
+                            # since -o ending functions may or may not return values
+                            if sym.return_type and sym.return_type not in (
+                                "void",
+                                "function",
+                            ):
+                                current_type = sym.return_type
+                            else:
+                                current_type = "Any"
+                        else:
+                            self.report_error(
+                                f"'{func_name_str}' is not callable in method chain",
+                                parent_node,
+                            )
+                            current_type = "Any"
+
+        return current_type
+
+    def _validate_method_chain_call(
+        self, call_node: Any, func_sym: Symbol, receiver_type: str, parent_node: Any
+    ) -> None:
+        """
+        Validate a method chain call.
+        In method chaining, the receiver becomes the first argument.
+        If function has 0 params, we're lenient (legacy functions without receiver).
+        """
+        d = to_dict(call_node)
+        args = []
+        args_node = d.get("args")
+
+        if args_node:
+            args_d = to_dict(args_node)
+            first = args_d.get("first")
+            if first:
+                args.append(first)
+            rest = args_d.get("rest")
+            if rest:
+                for item in rest:
+                    if isinstance(item, list) and len(item) >= 2:
+                        args.append(item[1])
+                    else:
+                        item_d = to_dict(item)
+                        if "expr" in item_d:
+                            args.append(item_d["expr"])
+
+        # In method chaining, receiver is implicitly the first argument
+        # So actual_count = len(args) + 1 (for receiver)
+        expected_count = func_sym.num_of_params
+        actual_count = len(args) + 1  # +1 for receiver
+
+        # Be lenient if function has 0 params (legacy function not designed for chaining)
+        # Only validate if function expects at least 1 param (for receiver)
+        if expected_count == 0:
+            # No validation - function wasn't designed for method chaining
+            return
+
+        if actual_count != expected_count:
+            self.report_error(
+                f"Method '{func_sym.name}' expects {expected_count} argument(s) "
+                f"(including receiver), but got {actual_count}",
+                parent_node,
+            )
+            return
+
+        # Validate receiver type (first param)
+        if func_sym.param_types:
+            first_param_type = func_sym.param_types[0]
+            if not is_type_compatible(receiver_type, first_param_type):
+                self.report_error(
+                    f"Method '{func_sym.name}' expects first argument of type "
+                    f"'{first_param_type}', but receiver has type '{receiver_type}'",
+                    parent_node,
+                )
+
+        # Validate remaining arguments
+        for i, (arg, expected_type) in enumerate(
+            zip(args, func_sym.param_types[1:]), start=2
+        ):
+            actual_type = self.infer_expr_type(arg)
+            if not is_type_compatible(actual_type, expected_type):
+                self.report_error(
+                    f"Argument {i} of '{func_sym.name}' expects type '{expected_type}', "
+                    f"but got '{actual_type}'",
+                    parent_node,
+                )
 
     def _infer_indexed_type(self, indexed: Any) -> str:
         """Infer type of an indexed access."""
@@ -417,6 +694,151 @@ class AgoSemanticChecker:
                         if base_type == "string":
                             return "string"
         return "Any"
+
+    def _infer_struct_indexed_type(self, struct_indexed: Any) -> str:
+        """Infer type from struct field access (e.g., structu.fielda)."""
+        d = to_dict(struct_indexed)
+
+        # struct_indexed has: base, chain
+        # chain contains field accesses via dot notation
+        chain = d.get("chain")
+        if chain:
+            # Get the last field in the chain to determine final type
+            last_field = None
+            if isinstance(chain, (list, tuple)):
+                for item in reversed(chain):
+                    if item is not None and item != ".":
+                        item_d = to_dict(item) if not isinstance(item, str) else {}
+                        sub_item = item_d.get("sub_item") if item_d else item
+                        if sub_item:
+                            last_field = sub_item
+                            break
+                        elif isinstance(item, str) and not item.startswith('"'):
+                            last_field = item
+                            break
+
+            if last_field:
+                # If it's a string literal, return string
+                if isinstance(last_field, str) and last_field.startswith('"'):
+                    return "Any"
+                # Infer type from field name suffix
+                field_name = str(last_field)
+                inferred = infer_type_from_name(field_name)
+                if inferred:
+                    return inferred
+
+        return "Any"
+
+    def _validate_mapstruct(self, mapstruct_node: Any, parent_node: Any) -> None:
+        """Validate struct/map key naming conventions match value types."""
+        if mapstruct_node is None:
+            return
+
+        # Extract mapcontent from the mapstruct
+        d = to_dict(mapstruct_node)
+
+        # mapstruct is typically ['{', nl?, mapcontent?, nl?, '}']
+        # We need to find the mapcontent
+        content = None
+        if isinstance(mapstruct_node, (list, tuple)):
+            for item in mapstruct_node:
+                if item is not None and item not in ("{", "}", "\n", "\r\n"):
+                    if hasattr(item, "parseinfo") or isinstance(item, dict):
+                        content = item
+                        break
+                    elif isinstance(item, list):
+                        content = item
+                        break
+        else:
+            content = mapstruct_node
+
+        if content is None:
+            return
+
+        self._validate_mapcontent(content, parent_node)
+
+    def _validate_mapcontent(self, content: Any, parent_node: Any) -> None:
+        """Recursively validate mapcontent entries."""
+        if content is None:
+            return
+
+        # mapcontent structure: [nl?, key, ':', value, (',', nl?, mapcontent)? | nl?]
+        if isinstance(content, (list, tuple)):
+            items = list(content)
+            key = None
+            value = None
+            rest = None
+
+            # Parse the content structure
+            i = 0
+            while i < len(items):
+                item = items[i]
+                if item is None or item in (",", ":", "\n", "\r\n"):
+                    i += 1
+                    continue
+                if isinstance(item, str) and item.startswith('"'):
+                    # String literal key - no naming convention needed
+                    key = item
+                    i += 1
+                elif isinstance(item, str) and item not in ("{", "}", ",", ":"):
+                    # Identifier key
+                    key = item
+                    i += 1
+                elif hasattr(item, "parseinfo") or isinstance(item, dict):
+                    if key is not None and value is None:
+                        value = item
+                    else:
+                        # Could be nested mapcontent
+                        rest = item
+                    i += 1
+                elif isinstance(item, list):
+                    if key is not None and value is None:
+                        value = item
+                    else:
+                        rest = item
+                    i += 1
+                else:
+                    i += 1
+
+            # Validate this key-value pair
+            if key is not None and value is not None:
+                self._validate_struct_key(key, value, parent_node)
+
+            # Process rest recursively
+            if rest is not None:
+                self._validate_mapcontent(rest, parent_node)
+
+        elif hasattr(content, "parseinfo") or isinstance(content, dict):
+            d = to_dict(content)
+            # Look for key-value patterns in the dict
+            for k, v in d.items():
+                if k not in ("parseinfo", "nl") and v is not None:
+                    if isinstance(v, list):
+                        self._validate_mapcontent(v, parent_node)
+
+    def _validate_struct_key(self, key: Any, value: Any, parent_node: Any) -> None:
+        """Validate that a struct key's naming matches the value's type."""
+        # Only validate identifier keys, not string literals
+        if isinstance(key, str) and key.startswith('"'):
+            return  # String literal key, no convention needed
+
+        key_str = str(key)
+        expected_type = infer_type_from_name(key_str)
+
+        if expected_type is None:
+            self.report_error(
+                f"Struct key '{key_str}' does not have a valid type suffix",
+                parent_node,
+            )
+            return
+
+        actual_type = self.infer_expr_type(value)
+
+        if not is_type_compatible(actual_type, expected_type):
+            self.report_error(
+                f"Struct key '{key_str}' expects type '{expected_type}' but value has type '{actual_type}'",
+                parent_node,
+            )
 
     def _infer_binary_op_type(self, d: dict) -> str:
         """Infer result type of a binary operation."""
@@ -438,14 +860,32 @@ class AgoSemanticChecker:
         if op in ("&", "|", "^"):
             return "int"
 
-        if op in ("==", "!=", "<", ">", "<=", ">="):
+        if op in ("==", "!="):
+            # Equality can compare same types or numeric types with each other
             if left_type != right_type and not (
                 left_type in NUMERIC_TYPES and right_type in NUMERIC_TYPES
             ):
                 self.report_error(
-                    f"{left_type} {op} {right_type} is an invalid comparision between types."
+                    f"{left_type} {op} {right_type} is an invalid comparison between types."
                 )
+            return "bool"
 
+        if op in ("<", ">", "<=", ">="):
+            # Ordering comparisons only work on: numeric vs numeric, string vs string
+            # Based on Rust runtime - bool comparisons are NOT allowed
+            valid_comparison = False
+            if left_type in NUMERIC_TYPES and right_type in NUMERIC_TYPES:
+                valid_comparison = True
+            elif left_type == "string" and right_type == "string":
+                valid_comparison = True
+            elif left_type in ("Any", "unknown") or right_type in ("Any", "unknown"):
+                valid_comparison = True
+
+            if not valid_comparison:
+                self.report_error(
+                    f"Cannot compare {left_type} {op} {right_type}. "
+                    f"Ordering comparisons only work on numeric or string types.",
+                )
             return "bool"
 
         if op in ("+", "-", "*", "/", "%"):
@@ -499,6 +939,57 @@ class AgoSemanticChecker:
                 )
                 return "unknown"
             return right_type
+
+        return "Any"
+
+    def _handle_id_keyword(self, node: Any) -> str:
+        """
+        Handle the 'id' keyword which references the single parameter of a lambda.
+        The actual type accessed depends on the suffix: ida = int, ides = string, etc.
+        """
+        if self.current_lambda is None:
+            self.report_error(
+                "'id' keyword can only be used inside a lambda function", node
+            )
+            return "unknown"
+
+        if self.current_lambda.num_of_params != 1:
+            self.report_error(
+                f"'id' keyword can only be used in lambdas with exactly 1 parameter, "
+                f"but this lambda has {self.current_lambda.num_of_params} parameters",
+                node,
+            )
+            return "unknown"
+
+        # The base type is the lambda's single parameter type
+        if self.current_lambda.param_types:
+            return self.current_lambda.param_types[0]
+        return "Any"
+
+    def _infer_id_cast_type(self, name: str, node: Any) -> str:
+        """
+        Handle 'id' with suffix casting (e.g., 'ida' for int, 'ides' for string).
+        The base 'id' accesses the parameter, and suffix converts it.
+        """
+        if self.current_lambda is None:
+            self.report_error(
+                f"'{name}' (id keyword variant) can only be used inside a lambda function",
+                node,
+            )
+            return "unknown"
+
+        if self.current_lambda.num_of_params != 1:
+            self.report_error(
+                f"'{name}' (id keyword variant) can only be used in lambdas with exactly 1 parameter",
+                node,
+            )
+            return "unknown"
+
+        # Extract suffix from name (remove 'id' prefix)
+        if name.startswith("id") and len(name) > 2:
+            suffix = name[2:]
+            if suffix in ENDING_TO_TYPE:
+                return ENDING_TO_TYPE[suffix]
 
         return "Any"
 
@@ -642,6 +1133,68 @@ class AgoSemanticChecker:
         self.sym_table.decrement_scope()
         self.current_function = previous_function
 
+    def _handle_lambda_decl(self, ast, expected_type: str = "function") -> Symbol:
+        """Handle lambda declaration and return a Symbol representing it."""
+        d = to_dict(ast)
+
+        # Unwrap 'value' wrapper if present
+        if "value" in d and d.get("value") is not None:
+            inner = d["value"]
+            if isinstance(inner, dict) or hasattr(inner, "parseinfo"):
+                d = to_dict(inner)
+
+        # Parse parameters
+        param_symbols = self._parse_params(d.get("params"))
+        param_types = [p.type_t for p in param_symbols]
+
+        lambda_symbol = Symbol(
+            name="<lambda>",
+            type_t="function",
+            category="lambda",
+            return_type="Any",  # Lambdas have inferred return type
+            param_types=param_types,
+            num_of_params=len(param_symbols),
+        )
+
+        # Enter lambda context
+        previous_lambda = self.current_lambda
+        previous_function = self.current_function
+        self.current_lambda = lambda_symbol
+        self.current_function = lambda_symbol
+        self.sym_table.increment_scope()
+
+        # Declare parameters
+        for param in param_symbols:
+            param.category = "param"
+            self.declare_symbol(param, ast)
+
+        # Process body
+        body = d.get("body")
+        if body:
+            self._process_block(body)
+
+        # Exit lambda context
+        self.sym_table.decrement_scope()
+        self.current_lambda = previous_lambda
+        self.current_function = previous_function
+
+        return lambda_symbol
+
+    def _is_lambda_decl(self, node: Any) -> bool:
+        """Check if a node is a lambda declaration."""
+        if node is None:
+            return False
+        d = to_dict(node)
+        
+        # Unwrap 'value' wrapper if present
+        if "value" in d and d.get("value") is not None:
+            inner = d["value"]
+            if isinstance(inner, dict) or hasattr(inner, "parseinfo"):
+                d = to_dict(inner)
+        
+        # Lambda has 'body' but no 'name' (unlike method_decl)
+        return "body" in d and "name" not in d
+
     def _parse_params(self, params_node) -> list[Symbol]:
         """Parse parameter list into Symbol objects."""
         if params_node is None:
@@ -720,13 +1273,29 @@ class AgoSemanticChecker:
         d = to_dict(ast)
         var_name = str(d["name"])
         expected_type = self.require_type_from_name(var_name, ast)
-        actual_type = self.infer_expr_type(d.get("value"))
+        value = d.get("value")
+
+        # Check if value is a lambda declaration
+        if self._is_lambda_decl(value):
+            lambda_sym = self._handle_lambda_decl(value, expected_type)
+            actual_type = "function"
+            # Store lambda info in the variable symbol
+            symbol = Symbol(
+                name=var_name,
+                type_t=expected_type,
+                category="var",
+                param_types=lambda_sym.param_types,
+                num_of_params=lambda_sym.num_of_params,
+                return_type=lambda_sym.return_type,
+            )
+        else:
+            actual_type = self.infer_expr_type(value)
+            symbol = Symbol(name=var_name, type_t=expected_type, category="var")
 
         self.check_type_compatible(
             actual_type, expected_type, f"declaration of '{var_name}'", ast
         )
 
-        symbol = Symbol(name=var_name, type_t=expected_type, category="var")
         self.declare_symbol(symbol, ast)
 
     def _handle_reassignment(self, ast):
@@ -769,19 +1338,40 @@ class AgoSemanticChecker:
         self._process_block(d.get("then"))
         self.sym_table.decrement_scope()
 
-        # Elif blocks
+        # Elif blocks - can be list structure ['aluid', condition, body] or dict
         elifs = d.get("elifs")
         if elifs:
             for elif_block in elifs:
-                elif_d = to_dict(elif_block)
-                elif_cond = elif_d.get("elif_cond")
+                elif_cond = None
+                elif_body = None
+
+                # Handle list structure: ['aluid', condition_expr, body_block]
+                if isinstance(elif_block, (list, tuple)):
+                    for item in elif_block:
+                        if item == "aluid":
+                            continue
+                        if elif_cond is None and item is not None:
+                            # First non-aluid item is the condition
+                            if isinstance(item, dict) or hasattr(item, "parseinfo"):
+                                elif_cond = item
+                        elif elif_body is None and item is not None:
+                            # Second non-aluid item is the body
+                            if isinstance(item, dict) or hasattr(item, "parseinfo"):
+                                elif_body = item
+                else:
+                    # Handle dict structure
+                    elif_d = to_dict(elif_block)
+                    elif_cond = elif_d.get("elif_cond")
+                    elif_body = elif_d.get("elif_body")
+
                 if elif_cond:
                     elif_cond_type = self.infer_expr_type(elif_cond)
                     self.check_type_compatible(
                         elif_cond_type, "bool", "elif condition", elif_block
                     )
+                if elif_body:
                     self.sym_table.increment_scope()
-                    self._process_block(elif_d.get("elif_body"))
+                    self._process_block(elif_body)
                     self.sym_table.decrement_scope()
 
         # Else block
@@ -873,9 +1463,17 @@ class AgoSemanticChecker:
                     )
                 elif sym.category == "func":
                     self._validate_call_args(first, sym)
+                elif sym.type_t == "function":
+                    # Variable holding a lambda - validate call args
+                    self._validate_call_args(first, sym)
+                else:
+                    self.report_error(
+                        f"'{func_name}' is not callable (type '{sym.type_t}')",
+                        call_node,
+                    )
 
     def _validate_call_args(self, call_node, func_sym: Symbol):
-        """Validate function call arguments."""
+        """Validate function call arguments (count and types)."""
         d = to_dict(call_node)
         args = []
         args_node = d.get("args")
@@ -897,19 +1495,23 @@ class AgoSemanticChecker:
         expected_count = func_sym.num_of_params
         actual_count = len(args)
 
+        # Check argument count
         if actual_count != expected_count:
             self.report_error(
-                f"Function '{func_sym.name}' expects {expected_count} arguments, "
+                f"'{func_sym.name}' expects {expected_count} argument(s), "
                 f"but got {actual_count}",
                 call_node,
             )
             return
 
+        # Check argument types
         for i, (arg, expected_type) in enumerate(zip(args, func_sym.param_types)):
             actual_type = self.infer_expr_type(arg)
-            if actual_type != expected_type:
+            if not is_type_compatible(actual_type, expected_type):
                 self.report_error(
-                    f"argument {i + 1} of '{func_sym.name} is a {actual_type}, should be a {expected_type}'"
+                    f"Argument {i + 1} of '{func_sym.name}' expects type '{expected_type}', "
+                    f"but got '{actual_type}'",
+                    call_node,
                 )
 
     def _handle_return(self, ast):
@@ -924,10 +1526,12 @@ class AgoSemanticChecker:
         if return_value is not None:
             returned_type = self.infer_expr_type(return_value)
             expected_type = self.current_function.return_type
-            if expected_type:
-                if returned_type != expected_type:
+            if expected_type and expected_type not in ("Any", "unknown"):
+                if not is_type_compatible(returned_type, expected_type):
                     self.report_error(
-                        f"return statement is a {returned_type}, should be a {expected_type}'"
+                        f"Return type mismatch: expected '{expected_type}', "
+                        f"but got '{returned_type}'",
+                        ast,
                     )
 
     def _handle_break(self, ast):

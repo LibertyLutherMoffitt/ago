@@ -300,7 +300,7 @@ xa := add(2, 2)
 def test_function_return_type_mismatch():
     src = """\
 des vala() {
-    redeo "not an int"
+    redeo {keya: 1}
 }
 """
     semantics = run_program(src)

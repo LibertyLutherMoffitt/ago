@@ -2,12 +2,12 @@ des lego() {
     xae := 3.14
 }
 
-des tondeo() {
+des tondeo(xes) {
     lego()
 }
 
-des decido(xes) {
-    tondeo()
+des decido(xes, yes) {
+    tondeo(xes)
 }
 
 des sato() {

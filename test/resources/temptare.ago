@@ -2,12 +2,12 @@ des lego() {
     xae := 3.14
 }
 
-des tondeo() {
+des tondeo(xes) {
     lego()
 }
 
-des decido(xes) {
-    tondeo()
+des decido(xes, yes) {
+    tondeo(xes)
 }
 
 
@@ -23,13 +23,13 @@ des sates() {
     werum := lego().tondeo().decido(", ")
 
     pro ies in werum[0 .< werum[0..5].diu() - II] {
-        si ia ^ I > 0 {
+        si (ia ^ I) > 0 {
             dixit(ies)
         }
 
         si iae + -.1 > 0 {
             dixit(ies)
-        } aluid (iam et falsus) < 0 {
+        } aluid (iam et falsus) {
             frio
         } aluid {
             omitto

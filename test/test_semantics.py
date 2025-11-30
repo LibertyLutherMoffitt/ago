@@ -284,3 +284,298 @@ pro item_es in rangee { # 'es' is string, but range yields int
     assert len(errors) == 1
     assert "Type mismatch" in str(errors[0])
     assert "expected 'string', got 'int'" in str(errors[0])
+
+
+# ---------- LAMBDA VARIABLE SEMANTICS ----------
+
+
+def test_lambda_variable_with_o_ending():
+    """Variables storing lambdas should have -o ending."""
+    src = """
+addo := des (xa) {
+    redeo xa + 1
+}
+"""
+    errors = run_semantics(src)
+    assert errors == []
+
+
+def test_lambda_variable_wrong_ending_reports_error():
+    """Lambda assigned to non-o ending variable should error."""
+    src = """
+adda := des (xa) {
+    redeo xa + 1
+}
+"""
+    errors = run_semantics(src)
+    assert len(errors) == 1
+    assert "Type mismatch" in str(errors[0])
+
+
+def test_lambda_can_be_called():
+    """Lambda stored in variable can be called."""
+    src = """
+addo := des (xa) {
+    redeo xa + 1
+}
+addo(5)
+"""
+    errors = run_semantics(src)
+    assert errors == []
+
+
+def test_lambda_call_wrong_arg_count():
+    """Lambda called with wrong number of args should error."""
+    src = """
+addo := des (xa) {
+    redeo xa + 1
+}
+addo(1, 2)
+"""
+    errors = run_semantics(src)
+    assert len(errors) == 1
+    assert "expects 1 argument" in str(errors[0])
+
+
+def test_lambda_call_wrong_arg_type():
+    """Lambda called with wrong arg type should error."""
+    src = """
+addo := des (listaem) {
+    redeo listaem[0]
+}
+addo({keya: 1})
+"""
+    errors = run_semantics(src)
+    assert len(errors) == 1
+    assert "Argument 1" in str(errors[0])
+
+
+def test_calling_non_callable_reports_error():
+    """Calling a non-function variable should error."""
+    src = """
+xa := 5
+xa()
+"""
+    errors = run_semantics(src)
+    assert len(errors) == 1
+    assert "not callable" in str(errors[0])
+
+
+# ---------- ID KEYWORD SEMANTICS ----------
+
+
+def test_id_keyword_outside_lambda_reports_error():
+    """Using 'id' outside a lambda should error."""
+    src = """
+xa := id
+"""
+    errors = run_semantics(src)
+    assert len(errors) >= 1
+    assert any("id" in str(e) and "lambda" in str(e) for e in errors)
+
+
+def test_id_keyword_in_multi_param_lambda_reports_error():
+    """Using 'id' in lambda with multiple params should error."""
+    src = """
+addo := des (xa, ya) {
+    redeo id + 1
+}
+"""
+    errors = run_semantics(src)
+    assert len(errors) >= 1
+    assert any("exactly 1 parameter" in str(e) for e in errors)
+
+
+def test_id_keyword_in_single_param_lambda_is_ok():
+    """Using 'id' in single-param lambda should work."""
+    src = """
+addo := des (xa) {
+    redeo ida + 1
+}
+"""
+    errors = run_semantics(src)
+    assert errors == []
+
+
+def test_id_cast_variant_in_lambda():
+    """Using ida, ides etc. in single-param lambda for casting."""
+    src = """
+stringifyo := des (xa) {
+    redeo ides
+}
+"""
+    errors = run_semantics(src)
+    assert errors == []
+
+
+# ---------- STRUCT KEY NAMING SEMANTICS ----------
+
+
+def test_struct_key_valid_type_suffix():
+    """Struct keys with proper type suffix should work."""
+    src = """
+personu := {
+    namees: "John",
+    agea: 30
+}
+"""
+    errors = run_semantics(src)
+    assert errors == []
+
+
+def test_struct_key_type_mismatch():
+    """Struct key type suffix should match value type (struct vs int_list)."""
+    src = """
+personu := {
+    listaem: {inner: 1}
+}
+"""
+    errors = run_semantics(src)
+    assert len(errors) >= 1
+    assert any("listaem" in str(e) for e in errors)
+
+
+def test_struct_string_literal_key_no_validation():
+    """String literal keys don't need type suffix validation."""
+    src = """
+datau := {
+    "anything": 123
+}
+"""
+    errors = run_semantics(src)
+    assert errors == []
+
+
+# ---------- STRUCT INDEXED TYPE INFERENCE ----------
+
+
+def test_struct_field_access_type_from_name():
+    """Accessing struct field infers type from field name suffix."""
+    src = """
+personu := {namees: "John", agea: 30}
+namees := personu.namees
+agea := personu.agea
+"""
+    errors = run_semantics(src)
+    assert errors == []
+
+
+# ---------- METHOD CHAIN SEMANTICS ----------
+
+
+def test_method_chain_type_inference():
+    """Method chain should infer return type from last function."""
+    src = """
+des processes(xes) {
+    redeo xes
+}
+des convertes(xes) {
+    redeo xes
+}
+resultes := "hello".processes().convertes()
+"""
+    errors = run_semantics(src)
+    assert errors == []
+
+
+def test_method_chain_validates_receiver_type():
+    """Method chain should validate receiver type matches first param."""
+    src = """
+des processa(listaem) {
+    redeo listaem[0]
+}
+resulta := {keya: 1}.processa()
+"""
+    errors = run_semantics(src)
+    assert len(errors) >= 1
+    assert any("expects first argument" in str(e) or "type" in str(e) for e in errors)
+
+
+def test_method_chain_validates_arg_count():
+    """Method chain should validate argument count (including receiver)."""
+    src = """
+des processa(xa, ya, za) {
+    redeo xa + ya + za
+}
+resulta := 1.processa(2)
+"""
+    errors = run_semantics(src)
+    assert len(errors) >= 1
+    assert any("expects 3 argument" in str(e) for e in errors)
+
+
+# ---------- FUNCTION PARAM CHECKING ----------
+
+
+def test_function_call_wrong_arg_count():
+    """Function called with wrong arg count should error."""
+    src = """
+des adda(xa, ya) {
+    redeo xa + ya
+}
+adda(1)
+"""
+    errors = run_semantics(src)
+    assert len(errors) == 1
+    assert "expects 2 argument" in str(errors[0])
+
+
+def test_function_call_wrong_arg_type():
+    """Function called with wrong arg type should error (struct vs int_list)."""
+    src = """
+des processo(listaem) {
+    xa := listaem[0]
+}
+processo({keya: 1})
+"""
+    errors = run_semantics(src)
+    assert len(errors) == 1
+    assert "Argument 1" in str(errors[0])
+
+
+def test_function_return_type_mismatch():
+    """Return type should match function's expected return type (struct vs int)."""
+    src = """
+des geta() {
+    redeo {keya: 1}
+}
+"""
+    errors = run_semantics(src)
+    assert len(errors) == 1
+    assert "Return type mismatch" in str(errors[0])
+
+
+def test_function_return_type_compatible():
+    """Compatible return types should not error (int -> float)."""
+    src = """
+des getae() {
+    redeo 5
+}
+"""
+    errors = run_semantics(src)
+    assert errors == []
+
+
+# ---------- FUNCTION ENDING -O SEMANTICS ----------
+
+
+def test_function_o_ending_returns_lambda():
+    """Function with -o ending returning lambda is valid."""
+    src = """
+des makeo() {
+    redeo des (xa) { redeo xa }
+}
+"""
+    errors = run_semantics(src)
+    assert errors == []
+
+
+def test_function_o_ending_void_return():
+    """Function with -o ending with no return is valid (void)."""
+    src = """
+des printo() {
+    xa := 5
+}
+"""
+    errors = run_semantics(src)
+    assert errors == []
