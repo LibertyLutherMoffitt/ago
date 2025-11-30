@@ -96,7 +96,7 @@ xa := 42           # Integer
 dici(xes)          # Automatically casts to string, prints "42"
 
 yae := 3.14        # Float  
-ya := yae          # Casts to int: ya = 3
+xa  := ya          # Casts to int: ya = 3
 ```
 
 This also works with function calls:
@@ -184,10 +184,10 @@ des makeo() {
     }
 }
 
-# Lambda with implicit 'id' parameter
+# Lambda with implicit "id" parameter
 des printo() {
     redeo des {
-        dici(ides)    # 'id' is the implicit parameter, 'ides' casts it to string
+        dici(ides)    # "id" is the implicit parameter, "ides" casts it to string
     }
 }
 
