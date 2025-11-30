@@ -19,12 +19,12 @@
 
 Ago is an experimental programming language with Latin-inspired syntax that compiles to Rust. Its most distinctive feature is a **type-indicating naming system** where variable and function name endings determine their types.
 
-```ago
+```go
 xa := 42              # Integer (ends in -a)
-xes := "Salvete!"     # String (ends in -es)
-xam := verum          # Boolean (ends in -am)
+yam := verum          # Boolean (ends in -am)
+zes := "Salvete!"     # String (ends in -es)
 
-dici(xes)             # Print: "Salvete!"
+dici(zes)             # Print: "Salvete!"
 ```
 
 ## Installation
@@ -54,7 +54,7 @@ python main.py hello.ago
 
 Create `hello.ago`:
 
-```ago
+```go
 dici("Salvete Mundi!")
 ```
 
@@ -88,7 +88,7 @@ In Ago, variable names must end with a suffix that indicates their type:
 
 One of Ago's most powerful features is **implicit casting through name endings**. If you have a variable and reference it with a different ending, it automatically casts:
 
-```ago
+```go
 xa := 42           # Integer
 dici(xes)          # Automatically casts to string, prints "42"
 
@@ -98,7 +98,7 @@ ya := yae          # Casts to int: ya = 3
 
 This also works with function calls:
 
-```ago
+```go
 des geta() {
     redeo 42       # Returns int
 }
@@ -108,7 +108,7 @@ xae := getae()     # Calls geta(), casts result to float
 
 ### Variables
 
-```ago
+```go
 # Declaration (creates new variable)
 xa := 10
 
@@ -122,7 +122,7 @@ xes := xes    # Replaces xa with xes (string version)
 
 ### Control Flow
 
-```ago
+```go
 # If/else (si/aluid)
 si xa > 10 {
     dici("big")
@@ -150,7 +150,7 @@ pro itemes in ["a", "b", "c"] {
 
 ### Functions
 
-```ago
+```go
 # Function that returns int (name ends in -a)
 des adda(xa, ya) {
     redeo xa + ya
@@ -173,7 +173,7 @@ des factoriala(na) {
 
 ### Lambdas
 
-```ago
+```go
 # Lambda with explicit parameter
 des makeo() {
     redeo des (xes) {
@@ -194,7 +194,7 @@ fo("Hello!")
 
 ### Structs
 
-```ago
+```go
 personu := {
     "namees": "Alice",
     "agea": 30
@@ -205,7 +205,7 @@ dici(personu.namees)    # Access field
 
 ### Operators
 
-```ago
+```go
 # Arithmetic
 xa := 2 + 3 * 4    # 14
 
