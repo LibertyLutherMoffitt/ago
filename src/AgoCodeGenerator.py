@@ -1351,8 +1351,21 @@ class AgoCodeGenerator:
                                                 if dv_stem == stem:
                                                     actual_var = dv
                                                     break
+                                    
+                                    # Check if any args reference the variable being mutated
+                                    # If so, evaluate them into temp vars first to avoid borrow conflicts
+                                    ref_args = []
+                                    for arg in args:
+                                        if actual_var in arg:
+                                            temp_var = f"__temp_{self._get_temp_counter()}"
+                                            self.emit(f"let {temp_var} = {arg};")
+                                            ref_args.append(f"&{temp_var}")
+                                        elif not arg.startswith("&"):
+                                            ref_args.append(f"&{arg}")
+                                        else:
+                                            ref_args.append(arg)
+                                    
                                     receiver = f"&mut {actual_var}"
-                                    ref_args = [f"&{arg}" if not arg.startswith("&") else arg for arg in args]
                                     all_args = [receiver] + ref_args
                                 elif actual_func_name in STDLIB_FUNCTIONS:
                                     # Stdlib functions take &AgoType references
@@ -1436,8 +1449,21 @@ class AgoCodeGenerator:
                                         if dv_stem == stem:
                                             actual_var = dv
                                             break
+                            
+                            # Check if any args reference the variable being mutated
+                            # If so, evaluate them into temp vars first to avoid borrow conflicts
+                            ref_args = []
+                            for arg in args:
+                                if actual_var in arg:
+                                    temp_var = f"__temp_{self._get_temp_counter()}"
+                                    self.emit(f"let {temp_var} = {arg};")
+                                    ref_args.append(f"&{temp_var}")
+                                elif not arg.startswith("&"):
+                                    ref_args.append(f"&{arg}")
+                                else:
+                                    ref_args.append(arg)
+                            
                             receiver = f"&mut {actual_var}"
-                            ref_args = [f"&{arg}" if not arg.startswith("&") else arg for arg in args]
                             all_args = [receiver] + ref_args
                         elif actual_func_name in STDLIB_FUNCTIONS:
                             # Stdlib functions take &AgoType references
@@ -1690,9 +1716,24 @@ class AgoCodeGenerator:
                                         if dv_stem == stem:
                                             actual_var = dv
                                             break
+                            
+                            # Check if any args reference the variable being mutated
+                            # If so, evaluate them into temp vars first to avoid borrow conflicts
+                            ref_args = []
+                            for arg in args:
+                                # Check if arg references the variable being mutated (by stem)
+                                _, base_stem = get_suffix_and_stem(actual_var)
+                                if base_stem and actual_var in arg:
+                                    # Need to evaluate this arg first
+                                    temp_var = f"__temp_{self._get_temp_counter()}"
+                                    self.emit(f"let {temp_var} = {arg};")
+                                    ref_args.append(f"&{temp_var}")
+                                elif not arg.startswith("&"):
+                                    ref_args.append(f"&{arg}")
+                                else:
+                                    ref_args.append(arg)
+                            
                             receiver = f"&mut {actual_var}"
-                            # Add & to other args for stdlib functions
-                            ref_args = [f"&{arg}" if not arg.startswith("&") else arg for arg in args]
                             all_args = [receiver] + ref_args
                         elif func_name_str in STDLIB_FUNCTIONS:
                             # Stdlib functions take &AgoType references
