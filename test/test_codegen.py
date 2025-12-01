@@ -610,9 +610,10 @@ dici(xes)
         """Test filter using lambda with implicit return - the main use case."""
         output = compile_and_run("""
 # Define liquum filter function (from prelude)
+# Using la shorthand for luum.a() to work around semantic checker limitation
 des liquum(luum, xo) {
     ia := 0
-    dum ia < luum.a() {
+    dum ia < la {
         si non xo(luum[ia]) {
             luum.removium(ia)
         } aluid {
@@ -728,6 +729,14 @@ dici(xes)
         output = compile_and_run("""
 personu := {"namees": "Bob", "agea": 25}
 dici(personu.namees)
+""")
+        assert output.strip() == "Bob"
+
+    def test_struct_field_access_with_method_chain(self):
+        """Test struct field access followed by method call."""
+        output = compile_and_run("""
+personu := {"namees": "Bob", "agea": 25}
+personu.namees.dici()
 """)
         assert output.strip() == "Bob"
 

@@ -163,8 +163,9 @@ class AgoParser(Parser):
                 'expecting one of: '
                 "'frio' 'omitto' 'pergo' 'redeo' <BREAK>"
                 '<CONTINUE> <FOR> <IF> <PASS> <RETURN>'
-                '<WHILE> <call_stmt> <declaration_stmt>'
-                '<for_stmt> <identifier> <if_stmt> <item>'
+                '<WHILE> <call_stmt> <chain_elem>'
+                '<declaration_stmt> <for_stmt>'
+                '<identifier> <if_stmt> <item>'
                 '<literal_item> <nodotcall_stmt>'
                 '<reassignment_stmt> <while_stmt>'
             )
@@ -386,6 +387,21 @@ class AgoParser(Parser):
         self._define(['body', 'iterable', 'iterator'], [])
 
     @tatsumasu()
+    def _chain_elem_(self):
+        with self._choice():
+            with self._option():
+                self._nodotcall_stmt_()
+                self.name_last_node('call')
+            with self._option():
+                self._identifier_()
+                self.name_last_node('field')
+            self._error(
+                'expecting one of: '
+                '<identifier> <nodotcall_stmt> [A-Za-'
+                'z_][A-Za-z_0-9]*'
+            )
+
+    @tatsumasu()
     @nomemo
     def _call_stmt_(self):
         with self._choice():
@@ -393,12 +409,12 @@ class AgoParser(Parser):
                 self._literal_item_()
                 self.name_last_node('recv')
                 self._PERIOD_()
-                self._nodotcall_stmt_()
+                self._chain_elem_()
                 self.name_last_node('first')
 
                 def block0():
                     self._PERIOD_()
-                    self._nodotcall_stmt_()
+                    self._chain_elem_()
                     self.name_last_node('more')
                     self._define(['more'], [])
                 self._closure(block0)
@@ -412,21 +428,12 @@ class AgoParser(Parser):
                     self.name_last_node('recv')
                     self._PERIOD_()
                     self._define(['receiver', 'recv'], [])
-                with self._group():
-                    with self._choice():
-                        with self._option():
-                            self._nodotcall_stmt_()
-                        with self._option():
-                            self._identifier_()
-                        self._error(
-                            'expecting one of: '
-                            '<identifier> <nodotcall_stmt>'
-                        )
+                self._chain_elem_()
                 self.name_last_node('first')
 
                 def block1():
                     self._PERIOD_()
-                    self._nodotcall_stmt_()
+                    self._chain_elem_()
                     self.name_last_node('more')
                     self._define(['more'], [])
                 self._closure(block1)
@@ -437,9 +444,10 @@ class AgoParser(Parser):
                 '<DEF> <FALSE> <FLOATLIT> <INTLIT> <IT>'
                 '<LBRACE> <LBRACKET> <LPAREN> <NULL>'
                 '<ROMAN_NUMERAL> <STR_LIT> <TRUE>'
-                '<identifier> <item> <lambda_decl> <list>'
-                '<literal_item> <mapstruct>'
-                '<nodotcall_stmt> [A-Za-z_][A-Za-z_0-9]*'
+                '<chain_elem> <identifier> <item>'
+                '<lambda_decl> <list> <literal_item>'
+                '<mapstruct> <nodotcall_stmt> [A-Za-'
+                'z_][A-Za-z_0-9]*'
             )
 
     @tatsumasu()
@@ -838,36 +846,13 @@ class AgoParser(Parser):
 
                     def block0():
                         self._PERIOD_()
-                        self._nodotcall_stmt_()
+                        self._chain_elem_()
                         self.name_last_node('method')
                         self._define(['method'], [])
                     self._positive_closure(block0)
                     self.name_last_node('chain')
                     self._define(['base', 'chain', 'method'], [])
                 self.name_last_node('mchain')
-            with self._option():
-                with self._group():
-                    self._item_()
-                    self.name_last_node('base')
-
-                    def block1():
-                        self._PERIOD_()
-                        with self._group():
-                            with self._choice():
-                                with self._option():
-                                    self._identifier_()
-                                with self._option():
-                                    self._STR_LIT_()
-                                self._error(
-                                    'expecting one of: '
-                                    '<STR_LIT> <identifier>'
-                                )
-                        self.name_last_node('sub_item')
-                        self._define(['sub_item'], [])
-                    self._positive_closure(block1)
-                    self.name_last_node('chain')
-                    self._define(['base', 'chain', 'sub_item'], [])
-                self.name_last_node('struct_indexed')
             with self._option():
                 with self._group():
                     self._LPAREN_()

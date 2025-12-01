@@ -1,11 +1,8 @@
-tes := audies()
+apertu("./LICENSE").contentes.dici()
 
-dici(tes)
+xerum := []
 
-xu := apertu("LICENSE")
+inseri(xerum, 0, "salvete mundum")
 
-textes := xu.contentes
+xes.dici()
 
-dici(textes)
-
-scribi("TEST", textes)

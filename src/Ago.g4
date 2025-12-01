@@ -139,10 +139,16 @@ for_stmt
 
 # --- CALLS ---
 
+chain_elem
+    =
+    | call:nodotcall_stmt
+    | field:identifier
+    ;
+
 call_stmt
     =
-    | recv:literal_item PERIOD first:nodotcall_stmt chain:{ PERIOD more:nodotcall_stmt }*
-    | [ recv:(receiver:item) PERIOD ] first:(nodotcall_stmt | identifier) chain:{ PERIOD more:nodotcall_stmt }*
+    | recv:literal_item PERIOD first:chain_elem chain:{ PERIOD more:chain_elem }*
+    | [ recv:(receiver:item) PERIOD ] first:chain_elem chain:{ PERIOD more:chain_elem }*
     ;
 
 literal_item
@@ -248,12 +254,8 @@ item
     =
     | mchain:(
         base:item
-        chain:{ PERIOD method:nodotcall_stmt }+
-      ) 
-    | struct_indexed:(
-        base:item
-        chain:{ PERIOD sub_item:(identifier | STR_LIT)}+
-    )
+        chain:{ PERIOD method:chain_elem }+
+      )
     | paren:(LPAREN expr:expression RPAREN)
     | call:nodotcall_stmt
     | list

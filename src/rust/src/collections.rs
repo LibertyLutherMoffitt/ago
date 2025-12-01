@@ -213,13 +213,13 @@ pub fn set(iter: &mut AgoType, n: &AgoType, value: AgoType) {
 
 /// Inserts a value into an indexable AgoType. Panics on error.
 /// Name ends in -i (returns null/inanis)
-pub fn inseri(coll: &mut AgoType, key: &AgoType, value: AgoType) {
+pub fn inseri(coll: &mut AgoType, key: &AgoType, value: &AgoType) {
     match (coll, key) {
         // --- List Insertion ---
         (AgoType::IntList(list), AgoType::Int(index)) => {
             let idx = *index as usize;
             if let AgoType::Int(new_val) = value {
-                list.insert(idx, new_val);
+                list.insert(idx, *new_val);
             } else {
                 panic!("Cannot insert value of type {:?} into an IntList", value);
             }
@@ -227,7 +227,7 @@ pub fn inseri(coll: &mut AgoType, key: &AgoType, value: AgoType) {
         (AgoType::FloatList(list), AgoType::Int(index)) => {
             let idx = *index as usize;
             if let AgoType::Float(new_val) = value {
-                list.insert(idx, new_val);
+                list.insert(idx, *new_val);
             } else {
                 panic!("Cannot insert value of type {:?} into a FloatList", value);
             }
@@ -235,7 +235,7 @@ pub fn inseri(coll: &mut AgoType, key: &AgoType, value: AgoType) {
         (AgoType::BoolList(list), AgoType::Int(index)) => {
             let idx = *index as usize;
             if let AgoType::Bool(new_val) = value {
-                list.insert(idx, new_val);
+                list.insert(idx, *new_val);
             } else {
                 panic!("Cannot insert value of type {:?} into a BoolList", value);
             }
@@ -243,19 +243,19 @@ pub fn inseri(coll: &mut AgoType, key: &AgoType, value: AgoType) {
         (AgoType::StringList(list), AgoType::Int(index)) => {
             let idx = *index as usize;
             if let AgoType::String(new_val) = value {
-                list.insert(idx, new_val);
+                list.insert(idx, new_val.clone());
             } else {
                 panic!("Cannot insert value of type {:?} into a StringList", value);
             }
         }
         (AgoType::ListAny(list), AgoType::Int(index)) => {
             let idx = *index as usize;
-            list.insert(idx, value);
+            list.insert(idx, value.clone());
         }
 
         // --- Struct Insertion (same as set) ---
         (AgoType::Struct(map), AgoType::String(key)) => {
-            map.insert(key.clone(), value);
+            map.insert(key.clone(), value.clone());
         }
 
         // --- Error Cases ---

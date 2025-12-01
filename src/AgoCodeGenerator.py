@@ -1049,6 +1049,9 @@ class AgoCodeGenerator:
                 return self._generate_call(d)
             # Simple function call
             first_d = to_dict(first) if not isinstance(first, str) else {}
+            # Handle new chain_elem structure: {call: {...}} or {field: ...}
+            if first_d.get("call"):
+                first_d = to_dict(first_d["call"])
             if first_d.get("func") is not None:
                 return self._generate_call(d)
 
@@ -1182,10 +1185,20 @@ class AgoCodeGenerator:
                 base_var_name = first
             
             # first is the receiver (identifier or call)
+            result = None  # Track whether result was set
             if isinstance(first, str):
                 result = self._generate_variable_ref(first)
             else:
                 first_d = to_dict(first)
+                # Handle new chain_elem structure: {call: {...}} or {field: ...}
+                if first_d.get("call"):
+                    first_d = to_dict(first_d["call"])
+                elif first_d.get("field"):
+                    # Field access as first element - treat as variable reference
+                    field_name = str(first_d["field"])
+                    result = self._generate_variable_ref(field_name)
+                    base_var_name = field_name
+                    first_d = {}  # Skip the func check below
                 if first_d.get("func"):
                     # first is a nodotcall_stmt (method call)
                     func_name = str(first_d.get("func"))
@@ -1228,13 +1241,31 @@ class AgoCodeGenerator:
                                         cast_suffix = suffix
                                         break
                         
-                        args_str = ", ".join(args)
+                        # Add references for stdlib functions
+                        if actual_func in STDLIB_FUNCTIONS:
+                            ref_args = []
+                            for i, arg in enumerate(args):
+                                if actual_func in MUTATING_STDLIB_FUNCTIONS and i == 0:
+                                    if arg.endswith(".clone()"):
+                                        arg = arg[:-8]
+                                    if not arg.startswith("&mut"):
+                                        ref_args.append(f"&mut {arg}")
+                                    else:
+                                        ref_args.append(arg)
+                                elif not arg.startswith("&"):
+                                    ref_args.append(f"&{arg}")
+                                else:
+                                    ref_args.append(arg)
+                            args_str = ", ".join(ref_args)
+                        else:
+                            args_str = ", ".join(args)
                         result = f"{actual_func}({args_str})"
                         
                         if cast_suffix and cast_suffix in ENDING_TO_TARGET_TYPE:
                             target_type = ENDING_TO_TARGET_TYPE[cast_suffix]
                             result = f"{result}.as_type(TargetType::{target_type})"
-                else:
+                elif result is None:
+                    # Only generate expr if result wasn't already set (e.g., by field branch)
                     result = self._generate_expr(first)
 
             # Process chain
@@ -1247,6 +1278,14 @@ class AgoCodeGenerator:
                             continue
                         if isinstance(sub, dict) or hasattr(sub, "parseinfo"):
                             sub_d = to_dict(sub)
+                            # Handle new chain_elem structure: {call: {...}} or {field: ...}
+                            if sub_d.get("call"):
+                                sub_d = to_dict(sub_d["call"])
+                            elif sub_d.get("field"):
+                                # Field access - generate struct field access
+                                field_name = str(sub_d["field"])
+                                result = f'get(&{result}, &AgoType::String("{field_name}".to_string()))'
+                                continue
                             func_name = sub_d.get("func")
                             if func_name:
                                 func_name_str = str(func_name)
@@ -1427,6 +1466,9 @@ class AgoCodeGenerator:
 
         if first:
             first_d = to_dict(first) if not isinstance(first, str) else {}
+            # Handle new chain_elem structure: {call: {...}} or {field: ...}
+            if first_d.get("call"):
+                first_d = to_dict(first_d["call"])
             func = first_d.get("func") if first_d else None
             if func:
                 func_name = str(func)
@@ -1492,8 +1534,17 @@ class AgoCodeGenerator:
             # User-defined functions take AgoType by value
             if actual_func_name in STDLIB_FUNCTIONS:
                 ref_args = []
-                for arg in args:
-                    if not arg.startswith("&"):
+                for i, arg in enumerate(args):
+                    # For mutating functions, first arg needs &mut
+                    if actual_func_name in MUTATING_STDLIB_FUNCTIONS and i == 0:
+                        # Remove .clone() and add &mut
+                        if arg.endswith(".clone()"):
+                            arg = arg[:-8]  # Remove .clone()
+                        if not arg.startswith("&mut"):
+                            ref_args.append(f"&mut {arg}")
+                        else:
+                            ref_args.append(arg)
+                    elif not arg.startswith("&"):
                         ref_args.append(f"&{arg}")
                     else:
                         ref_args.append(arg)
@@ -1571,6 +1622,14 @@ class AgoCodeGenerator:
 
                 if method:
                     method_d = to_dict(method)
+                    # Handle new chain_elem structure: {call: {...}} or {field: ...}
+                    if method_d.get("call"):
+                        method_d = to_dict(method_d["call"])
+                    elif method_d.get("field"):
+                        # Field access - generate struct field access
+                        field_name = str(method_d["field"])
+                        result = f'get(&{result}, &AgoType::String("{field_name}".to_string()))'
+                        continue
                     func_name = method_d.get("func")
                     if func_name:
                         func_name_str = str(func_name)
