@@ -132,6 +132,35 @@ class AgoCodeGenerator:
         # Counter for temp variables
         self.temp_counter = 0
 
+    def _optimize_cast_chain(self, result: str, new_target: str) -> str:
+        """
+        Optimize chained casts by detecting patterns and short-circuiting.
+        
+        Currently optimizes:
+        - String -> StringList -> Int: Returns char count without allocating StringList
+        
+        Args:
+            result: The current expression (may already have casts applied)
+            new_target: The new TargetType we're about to cast to
+        
+        Returns:
+            Optimized expression string
+        """
+        # Pattern: .as_type(TargetType::StringList).as_type(TargetType::Int)
+        # This gets length of a string - optimize to avoid StringList allocation
+        if new_target == "Int" and ".as_type(TargetType::StringList)" in result:
+            # Extract the base expression before the StringList cast
+            base_expr = result.replace(".as_type(TargetType::StringList)", "")
+            # Emit optimized code that checks if it's a String and short-circuits
+            return (
+                f"(match &{base_expr} {{ "
+                f"AgoType::String(s) => AgoType::Int(s.chars().count() as i128), "
+                f"v => v.clone().as_type(TargetType::StringList).as_type(TargetType::Int) }})"
+            )
+        
+        # No optimization applicable - do normal cast
+        return f"{result}.as_type(TargetType::{new_target})"
+
     def _get_temp_counter(self) -> int:
         """Get a unique temp variable counter."""
         count = self.temp_counter
@@ -1305,7 +1334,8 @@ class AgoCodeGenerator:
                                         target_type = ENDING_TO_TARGET_TYPE[
                                             func_name_str
                                         ]
-                                        result = f"{result}.as_type(TargetType::{target_type})"
+                                        # Use optimization for chained casts
+                                        result = self._optimize_cast_chain(result, target_type)
                                         continue
                                     # For stem+suffix names (like .mines()), check if there's a matching
                                     # function first. If not, it's a type cast on a variable.
@@ -1321,7 +1351,8 @@ class AgoCodeGenerator:
                                         if found_func is None:
                                             # No function with this stem - just a type cast
                                             target_type = ENDING_TO_TARGET_TYPE[suffix]
-                                            result = f"{result}.as_type(TargetType::{target_type})"
+                                            # Use optimization for chained casts
+                                            result = self._optimize_cast_chain(result, target_type)
                                             continue
                                         # Otherwise fall through to stem-based function call
                                 # Try stem-based function resolution
@@ -1403,7 +1434,8 @@ class AgoCodeGenerator:
                             # ONLY bare suffixes like .es(), .a() are pure type casts
                             if func_name_str in ENDING_TO_TARGET_TYPE:
                                 target_type = ENDING_TO_TARGET_TYPE[func_name_str]
-                                result = f"{result}.as_type(TargetType::{target_type})"
+                                # Use optimization for chained casts
+                                result = self._optimize_cast_chain(result, target_type)
                                 continue
                             # For stem+suffix names (like .mines()), check if there's a matching
                             # function first. If not, it's a type cast on a variable.
@@ -1419,7 +1451,8 @@ class AgoCodeGenerator:
                                 if found_func is None:
                                     # No function with this stem - just a type cast
                                     target_type = ENDING_TO_TARGET_TYPE[suffix]
-                                    result = f"{result}.as_type(TargetType::{target_type})"
+                                    # Use optimization for chained casts
+                                    result = self._optimize_cast_chain(result, target_type)
                                     continue
                                 # Otherwise fall through to stem-based function call
                         # Try stem-based function resolution
@@ -1479,7 +1512,7 @@ class AgoCodeGenerator:
                         
                         # Apply cast if needed
                         if cast_target:
-                            result = f"{result}.as_type(TargetType::{cast_target})"
+                            result = self._optimize_cast_chain(result, cast_target)
 
             return result
 
@@ -1674,7 +1707,8 @@ class AgoCodeGenerator:
                             # ONLY bare suffixes are allowed for casting
                             if func_name_str in ENDING_TO_TARGET_TYPE:
                                 target_type = ENDING_TO_TARGET_TYPE[func_name_str]
-                                result = f"{result}.as_type(TargetType::{target_type})"
+                                # Use optimization for chained casts
+                                result = self._optimize_cast_chain(result, target_type)
                                 continue
                             # Check if it's a stem-based function call (e.g., .mines() calls minium())
                             suffix, stem = get_suffix_and_stem(func_name_str)
@@ -1694,7 +1728,8 @@ class AgoCodeGenerator:
                                     call_result = f"{found_func}({receiver}.clone())"
                                     if suffix in ENDING_TO_TARGET_TYPE:
                                         target_type = ENDING_TO_TARGET_TYPE[suffix]
-                                        result = f"{call_result}.as_type(TargetType::{target_type})"
+                                        # Use optimization for chained casts
+                                        result = self._optimize_cast_chain(call_result, target_type)
                                     else:
                                         result = call_result
                                     continue
