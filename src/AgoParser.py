@@ -163,9 +163,9 @@ class AgoParser(Parser):
                 'expecting one of: '
                 "'frio' 'omitto' 'pergo' 'redeo' <BREAK>"
                 '<CONTINUE> <FOR> <IF> <PASS> <RETURN>'
-                '<WHILE> <call_stmt> <chain_elem>'
-                '<declaration_stmt> <for_stmt>'
-                '<identifier> <if_stmt> <item>'
+                '<STR_LIT> <WHILE> <call_stmt>'
+                '<chain_elem> <declaration_stmt>'
+                '<for_stmt> <identifier> <if_stmt> <item>'
                 '<literal_item> <nodotcall_stmt>'
                 '<reassignment_stmt> <while_stmt>'
             )
@@ -395,10 +395,14 @@ class AgoParser(Parser):
             with self._option():
                 self._identifier_()
                 self.name_last_node('field')
+            with self._option():
+                self._STR_LIT_()
+                self.name_last_node('field')
             self._error(
                 'expecting one of: '
-                '<identifier> <nodotcall_stmt> [A-Za-'
-                'z_][A-Za-z_0-9]*'
+                '"(?:\\[tnrf"\\]|\\[0-7]{3}|[^"\\\\r\\n])*"'
+                '<STR_LIT> <identifier> <nodotcall_stmt>'
+                '[A-Za-z_][A-Za-z_0-9]*'
             )
 
     @tatsumasu()
@@ -441,6 +445,7 @@ class AgoParser(Parser):
                 self._define(['chain', 'first', 'more', 'receiver', 'recv'], [])
             self._error(
                 'expecting one of: '
+                '"(?:\\[tnrf"\\]|\\[0-7]{3}|[^"\\\\r\\n])*"'
                 '<DEF> <FALSE> <FLOATLIT> <INTLIT> <IT>'
                 '<LBRACE> <LBRACKET> <LPAREN> <NULL>'
                 '<ROMAN_NUMERAL> <STR_LIT> <TRUE>'

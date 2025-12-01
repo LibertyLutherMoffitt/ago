@@ -308,17 +308,17 @@ fn test_set_list_wrong_value_type() {
 fn test_inseri() {
     // List start
     let mut list_start = AgoType::IntList(vec![10, 30]);
-    inseri(&mut list_start, &AgoType::Int(0), AgoType::Int(5));
+    inseri(&mut list_start, &AgoType::Int(0), &AgoType::Int(5));
     assert_eq!(list_start, AgoType::IntList(vec![5, 10, 30]));
 
     // List middle
     let mut list_mid = AgoType::IntList(vec![10, 30]);
-    inseri(&mut list_mid, &AgoType::Int(1), AgoType::Int(20));
+    inseri(&mut list_mid, &AgoType::Int(1), &AgoType::Int(20));
     assert_eq!(list_mid, AgoType::IntList(vec![10, 20, 30]));
 
     // List end
     let mut list_end = AgoType::IntList(vec![10, 30]);
-    inseri(&mut list_end, &AgoType::Int(2), AgoType::Int(40));
+    inseri(&mut list_end, &AgoType::Int(2), &AgoType::Int(40));
     assert_eq!(list_end, AgoType::IntList(vec![10, 30, 40]));
 
     // Struct (same as set)
@@ -326,7 +326,7 @@ fn test_inseri() {
     inseri(
         &mut s,
         &AgoType::String("c".to_string()),
-        AgoType::Bool(true),
+        &AgoType::Bool(true),
     );
     assert_eq!(
         get(&s, &AgoType::String("c".to_string())),
@@ -338,7 +338,7 @@ fn test_inseri() {
 #[should_panic]
 fn test_inseri_list_wrong_value_type() {
     let mut list = AgoType::StringList(vec!["a".to_string()]);
-    inseri(&mut list, &AgoType::Int(0), AgoType::Int(123));
+    inseri(&mut list, &AgoType::Int(0), &AgoType::Int(123));
 }
 
 #[test]

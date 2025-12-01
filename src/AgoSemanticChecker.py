@@ -695,6 +695,9 @@ class AgoSemanticChecker:
         first = d.get("first")
         if first:
             first_d = to_dict(first)
+            # chain_elem wraps nodotcall_stmt with 'call:' key, so unwrap it
+            if "call" in first_d and first_d.get("call") is not None:
+                first_d = to_dict(first_d["call"])
             func_name = first_d.get("func")
             if func_name:
                 func_name = str(func_name)
@@ -754,7 +757,28 @@ class AgoSemanticChecker:
 
                 if method:
                     method_d = to_dict(method)
+                    
+                    # chain_elem wraps nodotcall_stmt with 'call:' key, so unwrap it
+                    if "call" in method_d and method_d.get("call") is not None:
+                        method_d = to_dict(method_d["call"])
+                    
                     func_name = method_d.get("func")
+                    field_name = method_d.get("field")
+                    
+                    # Handle field access (e.g., structu.fielda)
+                    if field_name and not func_name:
+                        field_str = str(field_name)
+                        # String literal field - type is Any
+                        if field_str.startswith('"'):
+                            current_type = "Any"
+                        else:
+                            # Infer type from field name suffix
+                            inferred = infer_type_from_name(field_str)
+                            if inferred:
+                                current_type = inferred
+                            else:
+                                current_type = "Any"
+                        continue
 
                     if func_name:
                         func_name_str = str(func_name)
@@ -852,6 +876,11 @@ class AgoSemanticChecker:
         If function has 0 params, we're lenient (legacy functions without receiver).
         """
         d = to_dict(call_node)
+        
+        # chain_elem wraps nodotcall_stmt with 'call:' key, so unwrap it
+        if "call" in d and d.get("call") is not None:
+            d = to_dict(d["call"])
+        
         args = []
         args_node = d.get("args")
 
@@ -1863,6 +1892,11 @@ class AgoSemanticChecker:
 
         if first:
             first_d = to_dict(first)
+            
+            # chain_elem wraps nodotcall_stmt with 'call:' key, so unwrap it
+            if "call" in first_d and first_d.get("call") is not None:
+                first_d = to_dict(first_d["call"])
+            
             func_name = first_d.get("func")
             args_node = first_d.get("args")
             if func_name:
@@ -2010,6 +2044,11 @@ class AgoSemanticChecker:
     def _validate_call_args(self, call_node, func_sym: Symbol, receiver=None):
         """Validate function call arguments (count and types)."""
         d = to_dict(call_node)
+        
+        # chain_elem wraps nodotcall_stmt with 'call:' key, so unwrap it
+        if "call" in d and d.get("call") is not None:
+            d = to_dict(d["call"])
+        
         args = []
 
         # If there's a receiver (method chain), it becomes the first argument

@@ -143,6 +143,7 @@ chain_elem
     =
     | call:nodotcall_stmt
     | field:identifier
+    | field:STR_LIT
     ;
 
 call_stmt
