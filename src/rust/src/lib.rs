@@ -7,7 +7,7 @@ pub mod types;
 
 // Re-export everything for easy importing
 pub use collections::{get, inseri, removium, set, validate_list_type};
-pub use functions::{aequalam, apertu, claverum, dici, exei, species};
+pub use functions::{aequalam, apertu, audies, claverum, dici, exei, species, scribi};
 pub use iterators::into_iter;
 pub use operators::{
     add, and, bitwise_and, bitwise_or, bitwise_xor, contains, divide, elvis, greater_equal,

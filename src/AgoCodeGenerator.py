@@ -43,6 +43,8 @@ STDLIB_FUNCTIONS = {
     "dici",
     "apertu",
     "species",
+    "scribi",
+    "audies",
     "exei",
     "aequalam",
     "claverum",
@@ -475,7 +477,7 @@ class AgoCodeGenerator:
         self.emit_raw("    slice, sliceto, contains, elvis,")
         self.emit_raw("    unary_minus, unary_plus,")
         self.emit_raw("    get, set, inseri, removium, validate_list_type, into_iter,")
-        self.emit_raw("    dici, apertu, species, exei, aequalam, claverum,")
+        self.emit_raw("    dici, apertu, species, exei, aequalam, claverum, scribi, audies")
         self.emit_raw("};")
         self.emit_raw("use std::collections::HashMap;")
 

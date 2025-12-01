@@ -234,10 +234,14 @@ class AgoSemanticChecker:
         stdlib_functions = [
             # Output functions
             ("dici", "null", ["string"]),  # prints string
+            ("audies", "string", []),  # reads string from stdin
+
             # Type inspection
             ("species", "string", ["Any"]),  # returns type name as string
             # File operations
             ("apertu", "struct", ["string"]),  # opens file, returns struct
+            ("scribi", "null", ["string", "string"]),  # writes 2nd argument to file named 1st argument
+
             # Program control
             ("exei", "null", ["int"]),  # exits program
             # Comparison

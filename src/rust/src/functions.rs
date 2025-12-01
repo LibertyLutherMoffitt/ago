@@ -10,26 +10,28 @@ pub fn dici(val: &AgoType) -> AgoType {
     AgoType::Null
 }
 
-pub fn apertes(filename: AgoString) -> AgoString {
-    match std::fs::read_to_string(&filename) {
-        Ok(content) => AgoType::String(content),
-        Err(e) => panic!("Failed to open file '{}': {}", filename, e),
+// writes a string to a file named filename, fails otherwise.
+// names end in -i (returns null/inanis)
+pub fn scribi(filename: &AgoType, content: &AgoType) -> AgoType {
+    if let (AgoType::String(path), AgoType::String(data)) = (filename, content) {
+        match std::fs::write(path, data) {
+            Ok(_) => AgoType::Null,
+            Err(e) => panic!("Failed to write to file '{}': {}", path, e),
+        }
+    } else {
+        panic!("scribi expects a String for the filename and a String for the content");
     }
 }
 
-pub fn scribo(filename: AgoString, content: AgoString) -> AgoType {
-    match std::fs::write(&filename, content) {
-        Ok(_) => AgoType::Null,
-        Err(e) => panic!("Failed to write to file '{}': {}", filename, e),
-    }
-
-}
-
-pub fn audies() -> AgoString {
+// reads in a line from stdin, "input()" style
+// name ends in -es (returns string)
+pub fn audies() -> AgoType {
     let mut input = String::new();
     match std::io::stdin().read_line(&mut input) {
-        Ok(_) => AgoType::String(input.trim_end_matches(&['\r', '\n'][..]).to_string()),
-        Err(e) => panic!("Failed to read from stdin: {}", e),
+        Ok(_) => {
+            AgoType::String(input.trim_end_matches(&['\r', '\n'][..]).to_string())
+        }
+        Err(_e) => panic!("Failed to read from stdin:"),
     }
 }
 

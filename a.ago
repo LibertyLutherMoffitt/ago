@@ -1,0 +1,11 @@
+tes := audies()
+
+dici(tes)
+
+xu := apertu("LICENSE")
+
+textes := xu.contentes
+
+dici(textes)
+
+scribi("TEST", textes)
