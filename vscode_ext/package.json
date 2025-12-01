@@ -1,0 +1,35 @@
+{
+  "name": "ago-lang",
+  "displayName": "Ago Language Support",
+  "description": "Syntax highlighting for the Ago programming language.",
+  "version": "0.1.0",
+  "publisher": "ago-dev",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "ago",
+        "aliases": [
+          "Ago",
+          "ago"
+        ],
+        "extensions": [
+          ".ago"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "ago",
+        "scopeName": "source.ago",
+        "path": "./syntaxes/ago.tmLanguage.json"
+      }
+    ]
+  }
+}

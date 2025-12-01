@@ -1,6 +1,8 @@
 # Ago
+# Ago Language Support
 
 <div align="center">
+This extension provides syntax highlighting for the Ago programming language (`.ago` files).
 
 ```
    ___    ____  ____
@@ -8,8 +10,11 @@
  / __ | / (_ // /_/ /
 /_/ |_| \___/ \____/
 ```
+## Features
 
 **A Latin-inspired programming language that transpiles to Rust**
+*   Syntax highlighting for keywords, operators, strings, numbers, and comments.
+*   Bracket matching and autoclosing.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
@@ -321,3 +326,4 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 - [GitHub Repository](https://github.com/libertyluthermoffitt/ago)
 - [Standard Library Documentation](docs/stdlib.md)
+You can install this extension by packaging it into a `.vsix` file and installing it manually in VS Code.

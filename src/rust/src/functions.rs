@@ -1,4 +1,4 @@
-use crate::types::{AgoInt, AgoType};
+use crate::types::{AgoInt, AgoString, AgoType};
 
 /// Prints a string to stdout. Returns Null.
 /// Name ends in -i (returns null/inanis)
@@ -8,6 +8,29 @@ pub fn dici(val: &AgoType) -> AgoType {
         _ => panic!("dici expects a String, got {:?}", val),
     }
     AgoType::Null
+}
+
+pub fn apertes(filename: AgoString) -> AgoString {
+    match std::fs::read_to_string(&filename) {
+        Ok(content) => AgoType::String(content),
+        Err(e) => panic!("Failed to open file '{}': {}", filename, e),
+    }
+}
+
+pub fn scribo(filename: AgoString, content: AgoString) -> AgoType {
+    match std::fs::write(&filename, content) {
+        Ok(_) => AgoType::Null,
+        Err(e) => panic!("Failed to write to file '{}': {}", filename, e),
+    }
+
+}
+
+pub fn audies() -> AgoString {
+    let mut input = String::new();
+    match std::io::stdin().read_line(&mut input) {
+        Ok(_) => AgoType::String(input.trim_end_matches(&['\r', '\n'][..]).to_string()),
+        Err(e) => panic!("Failed to read from stdin: {}", e),
+    }
 }
 
 /// Opens a file and returns its contents as a struct.
