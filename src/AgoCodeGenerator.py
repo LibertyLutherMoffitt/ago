@@ -167,27 +167,83 @@ class AgoCodeGenerator:
         self.temp_counter += 1
         return count
 
+    def _ensure_owned(self, expr: str) -> str:
+        """
+        Ensure the expression results in an owned value, adding .clone() if needed.
+        
+        Ownership is already present for:
+        - Literals (AgoType::Int(...), etc.)
+        - Function/method call results (anything ending in ')')
+        - Already cloned expressions
+        - Expressions with .as_type() (returns owned)
+        - Lambda expressions (Box<dyn Fn> - can't be cloned)
+        
+        Needs cloning:
+        - Bare variable references
+        """
+        # Skip if already looks owned
+        if (
+            expr.startswith("AgoType::") or  # Literal
+            expr.startswith("(match ") or     # Our optimization match
+            expr.startswith("(if ") or        # Conditional expression
+            expr.startswith("Box::new(") or   # Lambda expression (can't clone)
+            expr.endswith(")") or             # Function call or grouping
+            ".clone()" in expr or             # Already cloned
+            " as AgoLambda" in expr           # Lambda cast (can't clone)
+        ):
+            return expr
+        
+        # For bare variable names, add clone
+        # These are simple identifiers without special syntax
+        return f"{expr}.clone()"
+
+    def _make_ref(self, expr: str) -> str:
+        """
+        Convert an expression to a reference for passing to stdlib functions.
+        
+        Removes unnecessary .clone() calls since we're just borrowing.
+        """
+        # If expression ends with .clone(), remove it and add &
+        if expr.endswith(".clone()"):
+            return f"&{expr[:-8]}"
+        
+        # If already a reference, return as-is
+        if expr.startswith("&"):
+            return expr
+        
+        # Otherwise just add &
+        return f"&{expr}"
+
     def indent(self) -> str:
         """Return current indentation string."""
         return "    " * self.indent_level
 
-    def _generate_variable_ref(self, name: str) -> str:
+    def _generate_variable_ref(self, name: str, need_owned: bool = False) -> str:
         """
         Generate a variable reference, with casting if needed.
 
-        If `name` is directly declared, return `name.clone()`.
+        Args:
+            name: The variable name (possibly with type suffix for casting)
+            need_owned: If True, return an owned value (with .clone() if needed).
+                       If False, return the variable name directly (caller adds & if needed).
+
+        If `name` is directly declared, return `name` or `name.clone()`.
         If `name` has a suffix that differs from a declared variable with same stem,
-        generate a cast: `base_var.clone().as_type(TargetType::X)`.
+        generate a cast: `base_var.as_type(TargetType::X)`.
         Special case: `id` variants (ides, ida, etc.) in lambdas.
         Special case: bare `id` without suffix works like `idium` (Any type).
+        
+        Note: as_type() takes &self, so we don't need to clone before casting.
         """
+        clone_suffix = ".clone()" if need_owned else ""
+        
         # Direct reference to declared variable
         if name in self.declared_vars:
-            return f"{name}.clone()"
+            return f"{name}{clone_suffix}"
 
         # Special case: bare `id` without suffix (works like idium - Any type)
         if name == "id" and "id" in self.declared_vars:
-            return "id.clone()"
+            return f"id{clone_suffix}"
 
         # Check for variable casting via suffix
         suffix, stem = get_suffix_and_stem(name)
@@ -196,7 +252,9 @@ class AgoCodeGenerator:
             if stem == "id" and "id" in self.declared_vars:
                 target_type = ENDING_TO_TARGET_TYPE.get(suffix)
                 if target_type:
-                    return f"id.clone().as_type(TargetType::{target_type})"
+                    # as_type takes &self and returns owned, so no clone needed before
+                    # but if caller needs owned, we already have it from as_type result
+                    return f"id.as_type(TargetType::{target_type})"
 
             # Look for a variable with the same stem but different suffix
             for declared_var in self.declared_vars:
@@ -205,12 +263,11 @@ class AgoCodeGenerator:
                     # Found a base variable - generate cast
                     target_type = ENDING_TO_TARGET_TYPE.get(suffix)
                     if target_type:
-                        return (
-                            f"{declared_var}.clone().as_type(TargetType::{target_type})"
-                        )
+                        # as_type takes &self and returns owned AgoType
+                        return f"{declared_var}.as_type(TargetType::{target_type})"
 
         # Fall back to direct reference (may be undefined, will error at Rust compile)
-        return f"{name}.clone()"
+        return f"{name}{clone_suffix}"
 
     def emit(self, line: str) -> None:
         """Emit a line of code."""
@@ -803,6 +860,8 @@ class AgoCodeGenerator:
         # First, generate the RHS expression (before removing old variables with same stem)
         # This allows `xarum := xarum` to work - RHS refers to existing `xas` variable
         expr = self._generate_expr(value)
+        # Declaration needs an owned value
+        expr = self._ensure_owned(expr)
 
         # In Ago, only one variable per stem can exist at a time.
         # Remove any existing variable with the same stem AFTER evaluating RHS.
@@ -826,7 +885,7 @@ class AgoCodeGenerator:
         }
         if new_suffix in list_elem_types:
             elem_type = list_elem_types[new_suffix]
-            expr = f'validate_list_type(&{expr}, "{elem_type}")'
+            expr = f'validate_list_type({self._make_ref(expr)}, "{elem_type}")'
 
         self.emit(f"let mut {var_name} = {expr};")
         self.declared_vars.add(var_name)
@@ -839,6 +898,8 @@ class AgoCodeGenerator:
         index = d.get("index")
 
         expr = self._generate_expr(value)
+        # Reassignment needs an owned value
+        expr = self._ensure_owned(expr)
 
         if index:
             # Indexed assignment: var[idx] = value
@@ -846,7 +907,7 @@ class AgoCodeGenerator:
             idx_expr = self._generate_indexing(index)
             temp_var = f"__temp_{self._get_temp_counter()}"
             self.emit(f"let {temp_var} = {expr};")
-            self.emit(f"set(&mut {var_name}, &{idx_expr}, {temp_var});")
+            self.emit(f"set(&mut {var_name}, {self._make_ref(idx_expr)}, {temp_var});")
         else:
             self.emit(f"{var_name} = {expr};")
 
@@ -878,9 +939,13 @@ class AgoCodeGenerator:
         if return_stmt and isinstance(return_stmt, list) and len(return_stmt) >= 2:
             value = return_stmt[1]
             expr = self._generate_expr(value)
+            # Return needs an owned value
+            expr = self._ensure_owned(expr)
             self.emit(f"return {expr};")
         elif d.get("value"):
             expr = self._generate_expr(d["value"])
+            # Return needs an owned value
+            expr = self._ensure_owned(expr)
             self.emit(f"return {expr};")
         else:
             self.emit("return AgoType::Null;")
@@ -1165,20 +1230,24 @@ class AgoCodeGenerator:
             "in": "contains",
         }
 
+        # Use _make_ref to avoid unnecessary clones when passing to stdlib functions
+        left_ref = self._make_ref(left)
+        right_ref = self._make_ref(right)
+
         if op == "==":
-            return f"aequalam(&{left}, &{right})"
+            return f"aequalam({left_ref}, {right_ref})"
         if op == "!=":
-            return f"not(&aequalam(&{left}, &{right}))"
+            return f"not(&aequalam({left_ref}, {right_ref}))"
         if op == "est":
             # Type equality - check if same variant
-            return f"AgoType::Bool(std::mem::discriminant(&{left}) == std::mem::discriminant(&{right}))"
+            return f"AgoType::Bool(std::mem::discriminant({left_ref}) == std::mem::discriminant({right_ref}))"
 
         if op in op_map:
             func = op_map[op]
             if op == "in":
                 # 'in' operator: needle in haystack -> contains(haystack, needle)
-                return f"{func}(&{right}, &{left})"
-            return f"{func}(&{left}, &{right})"
+                return f"{func}({right_ref}, {left_ref})"
+            return f"{func}({left_ref}, {right_ref})"
 
         return f"/* unknown op {op} */ AgoType::Null"
 
@@ -1186,13 +1255,14 @@ class AgoCodeGenerator:
         """Generate unary operation."""
         op = d.get("op")
         right = self._generate_expr(d.get("right"))
+        right_ref = self._make_ref(right)
 
         if op == "-":
-            return f"unary_minus(&{right})"
+            return f"unary_minus({right_ref})"
         if op == "+":
-            return f"unary_plus(&{right})"
+            return f"unary_plus({right_ref})"
         if op == "non":
-            return f"not(&{right})"
+            return f"not({right_ref})"
 
         return f"/* unknown unary op {op} */ {right}"
 
