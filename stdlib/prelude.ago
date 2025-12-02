@@ -2,6 +2,56 @@
 # These functions are automatically available in all Ago programs.
 
 
+des spoliares(ses) {
+    xes := ""
+    vexillam := falsus
+
+    pro yes in serum {
+        si vexillam {
+            xes = xes + yes
+        } aluid {
+            vexillam = yes != " "
+            si vexillam {
+                xes = xes + yes
+            }
+        }
+    }
+
+    cerum := xerum
+    lengtha := ca
+    
+    vexillam = falsus
+    zes := ""
+    pro ia in 1..lengtha {
+        pia := lengtha - ia
+        si vexillam {
+            zes = xes[pia] + zes
+        } aluid {
+            vexillam = xes[pia] != " "
+            si vexillam {
+                zes = xes[pia] + zes
+            }
+        }
+    }
+    redeo zes
+}
+
+des digitam(ses) {
+    digitserum := ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
+    pro xes in serum {
+        vexillam := falsus
+        pro zes in digitserum {
+            si xes == zes {
+                vexillam = verum
+            }
+        }
+        si non vexillam {
+            redeo falsus
+        }
+    }
+    redeo verum
+}
+
 # iunges - join a list of strings with "
 # name ends in -es (returns string)
 des iunges(lerum, ses) {
