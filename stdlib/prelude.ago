@@ -1,6 +1,25 @@
 # Ago Standard Library Prelude
 # These functions are automatically available in all Ago programs.
 
+
+# abba - returns int absolute value
+# Name ends in -a (returns int)
+des abba ( xa ) {
+    si xa < 0 {
+        redeo -xa
+    } aluid {
+        redeo xa
+    }
+}
+
+# appendum - appends yium to xium
+# Name ends in -uum (returns list_any)
+des appenduum (xuum, yium) {
+    lengtha := xuum.a()
+    inseri(xuum, lengtha, yium)
+    redeo xuum
+}
+
 # vicissuum - reverse list_any
 # Name ends in -uum (returns list_any)
 des vicissuum( ruum ) {
@@ -133,4 +152,3 @@ des minium(luum) {
 des maxium(luum) {
     redeo luum.plicium(des (aium, bium) {aium > bium ? aium : bium})
 }
-
