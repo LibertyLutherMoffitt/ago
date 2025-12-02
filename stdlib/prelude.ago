@@ -10,9 +10,8 @@ des abbium(xium) {
 
 # appendum - appends yium to xium
 # Name ends in -uum (returns list_any)
-des appenduum (xuum, yium) {
-    lengtha := xuum.a()
-    inseri(xuum, lengtha, yium)
+des appenduum(xuum, yium) {
+    xuum.inseri(xa, yium)
     redeo xuum
 }
 
@@ -20,15 +19,11 @@ des appenduum (xuum, yium) {
 # Name ends in -uum (returns list_any)
 des vicissuum(ruum) {
     tuum := []
-    ia := ra - I
-    dum ia >= 0 { 
-        tuum.inseri(ta, ruum[ia]) 
-        ia = ia - I
-    }
+    pro ia in re { tuum.inseri(0, ruum[ia]) }
     redeo tuum
 }
 
-# spoliares - functions like python "strip" function, 
+# spoliares - functions like python "strip" function,
 # removes white space from string and returns a new string
 # Name ends in -es (returns string)
 des spoliares(ses) {
@@ -48,7 +43,7 @@ des spoliares(ses) {
 
     cerum := xerum
     lengtha := ca
-    
+
     vexillam = falsus
     zes := ""
     pro ia in 1..lengtha {
@@ -65,7 +60,7 @@ des spoliares(ses) {
     redeo zes
 }
 
-# digitam - takes a string, returns Verum if all of the contents 
+# digitam - takes a string, returns Verum if all of the contents
 # are digits and Falsus otherwise.
 # Name ends in -am (returns bool)
 des digitam(ses) {
