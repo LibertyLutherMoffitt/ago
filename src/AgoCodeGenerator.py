@@ -180,18 +180,29 @@ class AgoCodeGenerator:
         
         Needs cloning:
         - Bare variable references
+        - Reference parameters (they're &AgoType, need to clone to get AgoType)
         """
         # Skip if already looks owned
         if (
             expr.startswith("AgoType::") or  # Literal
             expr.startswith("(match ") or     # Our optimization match
             expr.startswith("(if ") or        # Conditional expression
-            expr.startswith("Box::new(") or   # Lambda expression (can't clone)
             expr.endswith(")") or             # Function call or grouping
-            ".clone()" in expr or             # Already cloned
-            " as AgoLambda" in expr           # Lambda cast (can't clone)
+            ".clone()" in expr                # Already cloned
         ):
             return expr
+        
+        # Lambda expressions can't be cloned - they're Box<dyn Fn>
+        # A bare lambda looks like: Box::new(__lambda_N) as AgoLambda
+        if (
+            expr.startswith("Box::new(") and " as AgoLambda" in expr
+        ):
+            return expr
+        
+        # Check if this is a reference parameter - needs cloning
+        ref_params = getattr(self, "_ref_params", set())
+        if expr in ref_params:
+            return f"{expr}.clone()"
         
         # For bare variable names, add clone
         # These are simple identifiers without special syntax
@@ -202,7 +213,15 @@ class AgoCodeGenerator:
         Convert an expression to a reference for passing to stdlib functions.
         
         Removes unnecessary .clone() calls since we're just borrowing.
+        Does NOT add & to lambdas (they're passed by value).
         """
+        # Don't add & to lambda expressions - they're passed by value
+        # But DO add & to function calls that have lambda arguments
+        # A bare lambda looks like: Box::new(__lambda_N) as AgoLambda
+        # NOT like: some_func(..., Box::new(...) as AgoLambda)
+        if expr.startswith("Box::new(") and " as AgoLambda" in expr:
+            return expr
+        
         # If expression ends with .clone(), remove it and add &
         if expr.endswith(".clone()"):
             return f"&{expr[:-8]}"
@@ -211,7 +230,13 @@ class AgoCodeGenerator:
         if expr.startswith("&"):
             return expr
         
-        # Otherwise just add &
+        # Check if this is a reference parameter (already &AgoType)
+        ref_params = getattr(self, "_ref_params", set())
+        if expr in ref_params:
+            # It's already a reference, just return it
+            return expr
+        
+        # Otherwise add &
         return f"&{expr}"
 
     def indent(self) -> str:
@@ -617,6 +642,112 @@ class AgoCodeGenerator:
         # Process as statement
         self._generate_statement(item)
 
+    def _find_mutated_vars(self, body: Any, params: set[str]) -> set[str]:
+        """
+        Analyze a function body to find which parameters are mutated.
+        
+        A parameter is mutated if:
+        - It's directly assigned to (param = value)
+        - It has an indexed assignment (param[i] = value)
+        - A mutating method is called on it (param.inseri, param.removium)
+        
+        Returns the set of parameter names that are mutated.
+        """
+        mutated = set()
+        
+        def get_first_identifier(node: Any) -> Optional[str]:
+            """Extract the first identifier from a node."""
+            if isinstance(node, str):
+                return node
+            if node is None:
+                return None
+            d = to_dict(node)
+            if d.get("id"):
+                return str(d["id"])
+            # Handle 'field' which is used for method chain receivers
+            if d.get("field"):
+                return str(d["field"])
+            if d.get("first"):
+                return get_first_identifier(d["first"])
+            # Also check for 'call' wrapper and look inside
+            if d.get("call"):
+                return get_first_identifier(d["call"])
+            return None
+        
+        def check_for_mutating_calls(node: Any, base_id: str) -> bool:
+            """Check if a chain/call contains mutating functions."""
+            if node is None:
+                return False
+            if isinstance(node, str):
+                return node in MUTATING_STDLIB_FUNCTIONS
+            if isinstance(node, (list, tuple)):
+                return any(check_for_mutating_calls(item, base_id) for item in node)
+            
+            d = to_dict(node)
+            
+            # Check func directly
+            func = d.get("func")
+            if func and str(func) in MUTATING_STDLIB_FUNCTIONS:
+                return True
+            
+            # Check inside call wrapper
+            if d.get("call"):
+                if check_for_mutating_calls(d["call"], base_id):
+                    return True
+            
+            # Check chain
+            chain = d.get("chain")
+            if chain and check_for_mutating_calls(chain, base_id):
+                return True
+            
+            return False
+        
+        def visit(node: Any) -> None:
+            if node is None:
+                return
+            if isinstance(node, str):
+                return
+            if isinstance(node, (list, tuple)):
+                for item in node:
+                    visit(item)
+                return
+            
+            d = to_dict(node)
+            
+            # Check for reassignment: target = value
+            target = d.get("target")
+            if target and isinstance(target, str) and target in params:
+                mutated.add(target)
+            
+            # Check for indexed assignment: would have target and index
+            if target and d.get("index") and isinstance(target, str) and target in params:
+                mutated.add(target)
+            
+            # Check for call statements that might mutate
+            # Pattern 1: {call: {first: {id: "param"}, chain: [...]}}
+            # Pattern 2: {first: {id: "param"}, chain: [...]}
+            # Pattern 3: {first: "param", chain: [...]}
+            
+            call_node = d.get("call") or d
+            if isinstance(call_node, dict) or hasattr(call_node, "parseinfo"):
+                call_d = to_dict(call_node)
+                first = call_d.get("first")
+                chain = call_d.get("chain")
+                first_id = get_first_identifier(first)
+                
+                if first_id and first_id in params:
+                    # Check if this is a mutating call
+                    if chain and check_for_mutating_calls(chain, first_id):
+                        mutated.add(first_id)
+            
+            # Recurse into all dict values
+            for key, val in d.items():
+                if key != "parseinfo" and val is not None:
+                    visit(val)
+        
+        visit(body)
+        return mutated
+
     def _function_returns_lambda(self, body: Any) -> bool:
         """Check if function body returns a lambda directly (not as an argument)."""
         if body is None:
@@ -671,24 +802,36 @@ class AgoCodeGenerator:
         # Track this function for stem-based resolution
         self.user_functions.add(func_name)
 
-        # Parse parameters (all mut since they can be reassigned in Ago)
+        # Parse parameters
         params = self._parse_params(d.get("params"))
+        body = d.get("body")
         
-        # Generate parameter string with correct types
-        # Parameters ending in -o are lambda types
-        param_parts = []
-        lambda_params = set()  # Track which params are lambdas
+        # Identify lambda parameters (end in 'o')
+        lambda_params = set()
+        non_lambda_params = set()
         for name in params:
-            # Check if this is a lambda parameter (ends in 'o' with at least one char before)
             if len(name) > 1 and name.endswith("o"):
-                param_parts.append(f"{name}: AgoLambda")
                 lambda_params.add(name)
             else:
-                param_parts.append(f"mut {name}: AgoType")
+                non_lambda_params.add(name)
+        
+        # Find which non-lambda params are mutated in the body
+        mutated_params = self._find_mutated_vars(body, non_lambda_params)
+        
+        # Generate parameter string:
+        # - Lambda params: AgoLambda (by value, can't be referenced)
+        # - All other params: &AgoType (passed by reference)
+        param_parts = []
+        for name in params:
+            if name in lambda_params:
+                param_parts.append(f"{name}: AgoLambda")
+            else:
+                # All non-lambda params are passed by reference
+                param_parts.append(f"{name}: &AgoType")
         param_str = ", ".join(param_parts)
 
         # Check if this function returns a lambda
-        returns_lambda = self._function_returns_lambda(d.get("body"))
+        returns_lambda = self._function_returns_lambda(body)
         return_type = "AgoLambda" if returns_lambda else "AgoType"
 
         # Emit function signature
@@ -696,10 +839,23 @@ class AgoCodeGenerator:
         self.emit_raw(f"fn {func_name}({param_str}) -> {return_type} {{")
         self.indent_level += 1
 
+        # Clone parameters at function start if they're mutated
+        # For safety, also track which params we've cloned so we use the right variable
+        cloned_params = set()
+        for name in params:
+            if name in mutated_params:
+                self.emit(f"let mut {name} = {name}.clone();")
+                cloned_params.add(name)
+
         # Track parameters as declared
         old_declared = self.declared_vars.copy()
         old_lambda_params = getattr(self, "_lambda_params", set()).copy()
+        old_ref_params = getattr(self, "_ref_params", set()).copy()
+        
         self._lambda_params = lambda_params
+        # Track which params are still references (not cloned)
+        self._ref_params = non_lambda_params - mutated_params
+        
         for p in params:
             self.declared_vars.add(p)
 
@@ -708,7 +864,6 @@ class AgoCodeGenerator:
         self._current_func_returns_lambda = returns_lambda
 
         # Process body
-        body = d.get("body")
         if body:
             self._process_block(body)
 
@@ -722,6 +877,7 @@ class AgoCodeGenerator:
         # Restore state
         self.declared_vars = old_declared
         self._lambda_params = old_lambda_params
+        self._ref_params = old_ref_params
         self._current_func_returns_lambda = old_returns_lambda
 
     def _parse_params(self, params_node: Any) -> list[str]:
@@ -1188,6 +1344,9 @@ class AgoCodeGenerator:
         condition = self._generate_expr(d.get("condition"))
         true_val = self._generate_expr(d.get("true_val"))
         false_val = self._generate_expr(d.get("false_val"))
+        # Ensure both branches return owned values (important for reference params)
+        true_val = self._ensure_owned(true_val)
+        false_val = self._ensure_owned(false_val)
         return f"(if matches!(({condition}).as_type(TargetType::Bool), AgoType::Bool(true)) {{ {true_val} }} else {{ {false_val} }})"
 
     def _generate_binary_op(self, d: dict) -> str:
@@ -1357,7 +1516,9 @@ class AgoCodeGenerator:
                                     ref_args.append(arg)
                             args_str = ", ".join(ref_args)
                         else:
-                            args_str = ", ".join(args)
+                            # User-defined functions take &AgoType by reference
+                            ref_args = [self._make_ref(arg) for arg in args]
+                            args_str = ", ".join(ref_args)
                         result = f"{actual_func}({args_str})"
                         
                         if cast_suffix and cast_suffix in ENDING_TO_TARGET_TYPE:
@@ -1478,8 +1639,9 @@ class AgoCodeGenerator:
                                     ref_args = [f"&{arg}" if not arg.startswith("&") else arg for arg in args]
                                     all_args = [receiver] + ref_args
                                 else:
-                                    # User-defined functions take AgoType by value
-                                    all_args = [result] + args
+                                    # User-defined functions take &AgoType by reference
+                                    ref_args = [self._make_ref(arg) for arg in args]
+                                    all_args = [self._make_ref(result)] + ref_args
                                 result = f"{actual_func_name}({', '.join(all_args)})"
                                 
                                 # Apply cast if needed
@@ -1576,8 +1738,9 @@ class AgoCodeGenerator:
                             ref_args = [f"&{arg}" if not arg.startswith("&") else arg for arg in args]
                             all_args = [receiver] + ref_args
                         else:
-                            # User-defined functions take AgoType by value
-                            all_args = [result] + args
+                            # User-defined functions take &AgoType by reference
+                            ref_args = [self._make_ref(arg) for arg in args]
+                            all_args = [self._make_ref(result)] + ref_args
                         result = f"{actual_func_name}({', '.join(all_args)})"
                         
                         # Apply cast if needed
@@ -1679,8 +1842,9 @@ class AgoCodeGenerator:
                         ref_args.append(arg)
                 args_str = ", ".join(ref_args)
             else:
-                # User-defined function - pass by value
-                args_str = ", ".join(args)
+                # User-defined function - pass by reference
+                ref_args = [self._make_ref(arg) for arg in args]
+                args_str = ", ".join(ref_args)
 
             call_expr = f"{actual_func_name}({args_str})"
 
@@ -1848,8 +2012,9 @@ class AgoCodeGenerator:
                             ref_args = [f"&{arg}" if not arg.startswith("&") else arg for arg in args]
                             all_args = [receiver] + ref_args
                         else:
-                            # User-defined functions take AgoType by value
-                            all_args = [result] + args
+                            # User-defined functions take &AgoType by reference
+                            ref_args = [self._make_ref(arg) for arg in args]
+                            all_args = [self._make_ref(result)] + ref_args
                         result = f"{func_name_str}({', '.join(all_args)})"
 
         return result

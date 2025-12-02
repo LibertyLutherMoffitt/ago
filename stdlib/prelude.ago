@@ -19,7 +19,11 @@ des appenduum(xuum, yium) {
 # Name ends in -uum (returns list_any)
 des vicissuum(ruum) {
     tuum := []
-    pro ia in re { tuum.inseri(0, ruum[ia]) }
+    ia := ra
+    dum ia > 0 {
+        ia = ia - I
+        tuum.inseri(ta, ruum[ia]) 
+    }
     redeo tuum
 }
 
