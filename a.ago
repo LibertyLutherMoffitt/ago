@@ -1,8 +1,1 @@
-apertu("./LICENSE").contentes.dici()
-
-xerum := []
-
-inseri(xerum, 0, "salvete mundum")
-
-xes.dici()
-
+dici(iunges(["test", "Testus", "testy"], " - "))

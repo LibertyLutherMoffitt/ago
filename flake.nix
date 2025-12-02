@@ -31,7 +31,7 @@
           
           buildPhase = ''
             # Build the Rust standard library
-            (cd src/rust && cargo build --release)
+            (cd src/rust && cargo build --release -vv)
           '';
           
           installPhase = ''

@@ -1,6 +1,22 @@
 # Ago Standard Library Prelude
 # These functions are automatically available in all Ago programs.
 
+
+# iunges - join a list of strings with "
+# name ends in -es (returns string)
+des iunges(lerum, ses) {
+    res := lerum[0]
+    vexillam := falsus
+    pro xes in lerum {
+        si vexillam {
+            res = res + ses + xes
+        } aluid {
+            vexillam = non vexillam
+        }
+    }
+    redeo res
+}
+
 # liquum - Filter a list, returning elements where predicate returns true
 # Takes a list and a predicate lambda, returns a new list with matching elements
 # Name ends in -uum (returns list_any)
