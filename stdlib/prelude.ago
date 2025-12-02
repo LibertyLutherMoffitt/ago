@@ -4,12 +4,8 @@
 
 # abba - returns int absolute value
 # Name ends in -a (returns int)
-des abba ( xa ) {
-    si xa < 0 {
-        redeo -xa
-    } aluid {
-        redeo xa
-    }
+des abbium(xium) {
+    redeo xium < 0  ? -xium : xium
 }
 
 # appendum - appends yium to xium
@@ -22,10 +18,12 @@ des appenduum (xuum, yium) {
 
 # vicissuum - reverse list_any
 # Name ends in -uum (returns list_any)
-des vicissuum( ruum ) {
+des vicissuum(ruum) {
     tuum := []
-    pro dium in ruum {
-        inseri(tuum, 0, dium)
+    ia := ra - I
+    dum ia >= 0 { 
+        tuum.inseri(ta, ruum[ia]) 
+        ia = ia - I
     }
     redeo tuum
 }
@@ -152,3 +150,24 @@ des minium(luum) {
 des maxium(luum) {
     redeo luum.plicium(des (aium, bium) {aium > bium ? aium : bium})
 }
+
+# finderum - Returns the string split on the 1 character seperator
+des finderum(les, ses) {
+    rerum := []
+    ba := 0
+    ea := 0
+    dum ea < lerum.a() {
+        si ses == les[ea] {
+            si ba < ea {
+                rerum.inseri(rerum.a(), les[ba.<ea])
+            }
+            ba = ea + 1
+        }
+        ea = ea + 1
+    }
+    si ba < ea {
+        rerum.inseri(rerum.a(), les[ba.<ea])
+    }
+    redeo rerum
+}
+
