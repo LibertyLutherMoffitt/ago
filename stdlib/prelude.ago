@@ -1,7 +1,19 @@
 # Ago Standard Library Prelude
 # These functions are automatically available in all Ago programs.
 
+# vicissuum - reverse list_any
+# Name ends in -uum (returns list_any)
+des vicissuum( ruum ) {
+    tuum := []
+    pro dium in ruum {
+        inseri(tuum, 0, dium)
+    }
+    redeo tuum
+}
 
+# spoliares - functions like python "strip" function, 
+# removes white space from string and returns a new string
+# Name ends in -es (returns string)
 des spoliares(ses) {
     xes := ""
     vexillam := falsus
@@ -10,7 +22,7 @@ des spoliares(ses) {
         si vexillam {
             xes = xes + yes
         } aluid {
-            vexillam = yes != " "
+            vexillam = (yes != " " et yes != "\n" et yes != "\t")
             si vexillam {
                 xes = xes + yes
             }
@@ -27,7 +39,7 @@ des spoliares(ses) {
         si vexillam {
             zes = xes[pia] + zes
         } aluid {
-            vexillam = xes[pia] != " "
+            vexillam = (xes[pia] != " " et xes[pia] != "\n" et xes[pia] != "\t")
             si vexillam {
                 zes = xes[pia] + zes
             }
@@ -36,6 +48,9 @@ des spoliares(ses) {
     redeo zes
 }
 
+# digitam - takes a string, returns Verum if all of the contents 
+# are digits and Falsus otherwise.
+# Name ends in -am (returns bool)
 des digitam(ses) {
     digitserum := ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
     pro xes in serum {
