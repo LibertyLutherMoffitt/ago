@@ -148,9 +148,11 @@ class AgoCodeGenerator:
         """
         # Pattern: .as_type(TargetType::StringList).as_type(TargetType::Int)
         # This gets length of a string - optimize to avoid StringList allocation
-        if new_target == "Int" and ".as_type(TargetType::StringList)" in result:
+        # ONLY optimize when StringList cast is at the END (not in the middle of the expr)
+        stringlist_cast = ".as_type(TargetType::StringList)"
+        if new_target == "Int" and result.endswith(stringlist_cast):
             # Extract the base expression before the StringList cast
-            base_expr = result.replace(".as_type(TargetType::StringList)", "")
+            base_expr = result[:-len(stringlist_cast)]
             # Emit optimized code that checks if it's a String and short-circuits
             return (
                 f"(match &{base_expr} {{ "
@@ -307,7 +309,10 @@ class AgoCodeGenerator:
         # Emit prelude
         self._emit_prelude()
 
-        # First pass: collect lambdas (they need to be defined before user functions)
+        # First pass: collect user function NAMES (needed for stem resolution in lambdas)
+        self._collect_function_names(ast)
+
+        # Second pass: collect lambdas (they need to be defined before user functions)
         self._collect_lambdas(ast)
 
         # Emit lambda functions (before user functions)
@@ -316,7 +321,7 @@ class AgoCodeGenerator:
                 self.emit_raw("")
                 self.emit_raw(lambda_code)
 
-        # Second pass: collect and emit user function declarations
+        # Third pass: generate user function declarations
         self._collect_functions(ast)
 
         # Generate main function wrapper
@@ -592,8 +597,30 @@ class AgoCodeGenerator:
         self.emit_raw("};")
         self.emit_raw("use std::collections::HashMap;")
 
+    def _collect_function_names(self, ast: Any) -> None:
+        """Pre-pass: collect all user function names for stem resolution."""
+        if ast is None:
+            return
+        if isinstance(ast, str):
+            return
+        if isinstance(ast, (list, tuple)):
+            for item in ast:
+                self._collect_function_names(item)
+            return
+
+        d = to_dict(ast)
+        # Method declaration: has name, params, body
+        if "name" in d and "body" in d and "params" in d:
+            func_name = str(d["name"])
+            self.user_functions.add(func_name)
+        
+        # Recurse into nested structures
+        for key, val in d.items():
+            if val is not None and key != "parseinfo":
+                self._collect_function_names(val)
+
     def _collect_functions(self, ast: Any) -> None:
-        """First pass: collect all function declarations."""
+        """Generate all function declarations."""
         if ast is None:
             return
         if isinstance(ast, str):
@@ -1956,10 +1983,9 @@ class AgoCodeGenerator:
                                         break
                                 if found_func:
                                     # Call the function with receiver as first arg, then cast result
-                                    receiver = (
-                                        result if result.startswith("&") else result
-                                    )
-                                    call_result = f"{found_func}({receiver}.clone())"
+                                    # User functions now take &AgoType
+                                    receiver = self._make_ref(result)
+                                    call_result = f"{found_func}({receiver})"
                                     if suffix in ENDING_TO_TARGET_TYPE:
                                         target_type = ENDING_TO_TARGET_TYPE[suffix]
                                         # Use optimization for chained casts
@@ -1972,9 +1998,26 @@ class AgoCodeGenerator:
                                     # Don't silently cast, let it fail at Rust compile time
                                     # with a clear "unknown function" error
                                     pass  # Fall through to regular method call which will error
+                        
+                        # Stem-based function resolution (e.g., appendaem -> appenduum)
+                        actual_func_name = func_name_str
+                        cast_target = None
+                        if (
+                            func_name_str not in self.user_functions
+                            and func_name_str not in STDLIB_FUNCTIONS
+                        ):
+                            call_suffix, call_stem = get_suffix_and_stem(func_name_str)
+                            if call_stem and call_suffix:
+                                for uf in self.user_functions:
+                                    uf_suffix, uf_stem = get_suffix_and_stem(uf)
+                                    if uf_stem == call_stem and uf != func_name_str:
+                                        actual_func_name = uf
+                                        cast_target = ENDING_TO_RUST_TARGET.get(call_suffix)
+                                        break
+                        
                         # Method chaining: receiver becomes first arg
                         # For mutating stdlib functions, use &mut on the base variable
-                        if func_name_str in MUTATING_STDLIB_FUNCTIONS and base_var_name:
+                        if actual_func_name in MUTATING_STDLIB_FUNCTIONS and base_var_name:
                             # Resolve the actual variable name (handle stem-based references)
                             actual_var = base_var_name
                             if base_var_name not in self.declared_vars:
@@ -2004,7 +2047,7 @@ class AgoCodeGenerator:
                             
                             receiver = f"&mut {actual_var}"
                             all_args = [receiver] + ref_args
-                        elif func_name_str in STDLIB_FUNCTIONS:
+                        elif actual_func_name in STDLIB_FUNCTIONS:
                             # Stdlib functions take &AgoType references
                             receiver = (
                                 f"&{result}" if not result.startswith("&") else result
@@ -2015,7 +2058,11 @@ class AgoCodeGenerator:
                             # User-defined functions take &AgoType by reference
                             ref_args = [self._make_ref(arg) for arg in args]
                             all_args = [self._make_ref(result)] + ref_args
-                        result = f"{func_name_str}({', '.join(all_args)})"
+                        result = f"{actual_func_name}({', '.join(all_args)})"
+                        
+                        # Apply cast if stem resolution found a different suffix
+                        if cast_target:
+                            result = f"{result}.as_type(TargetType::{cast_target})"
 
         return result
 

@@ -2,13 +2,13 @@
 # These functions are automatically available in all Ago programs.
 
 
-# abba - returns int absolute value
-# Name ends in -a (returns int)
+# abbium - returns int absolute value
+# Name ends in -ium (returns int/float)
 des abbium(xium) {
     redeo xium < 0  ? -xium : xium
 }
 
-# appendum - appends yium to xium
+# appenduum - appends yium to xium
 # Name ends in -uum (returns list_any)
 des appenduum(xuum, yium) {
     xuum.inseri(xa, yium)
@@ -170,3 +170,18 @@ des finderum(les, ses) {
     redeo rerum
 }
 
+des sumium(luum) {
+    redeo luum.plicium(des (aium, bium) {aium + bium})
+}
+
+des prodium(luum) {
+    redeo luum.plicium(des (aium, bium) {aium * bium})
+}
+
+des invena(luum, xium) {
+    pro ia in le {
+        si luum[ia] == xium {
+            redeo ia
+        }
+    }
+}
