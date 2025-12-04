@@ -391,9 +391,11 @@ class AgoSemanticChecker:
             return "int"
 
         # Handle 'id' keyword (IT token) - only valid inside single-param lambdas
-        # Can appear as IT token, id key with value "id", or just string "id" in value wrapper
+        # Can appear as IT token, id key with value "id", just string "id" in base, or plain string "id"
         if d.get("IT") is not None or (
             isinstance(d.get("id"), str) and d.get("id") == "id"
+        ) or (
+            isinstance(d.get("base"), str) and d.get("base") == "id"
         ):
             return self._handle_id_keyword(node)
 
@@ -481,11 +483,15 @@ class AgoSemanticChecker:
         if d.get("call") is not None:
             return self._infer_call_type(d["call"])
 
-        # Method chain (a.b().c(d) = c(b(a), d))
+        # New postfix structure (base + ops for indexing and method chains)
+        if d.get("base") is not None:
+            return self._infer_postfix_type(d, node)
+
+        # Method chain (a.b().c(d) = c(b(a), d)) - legacy support
         if d.get("mchain") is not None:
             return self._infer_method_chain_type(d["mchain"], node)
 
-        # Indexed access
+        # Indexed access - legacy support
         if d.get("indexed") is not None:
             return self._infer_indexed_type(d["indexed"])
 
@@ -712,6 +718,122 @@ class AgoSemanticChecker:
                         # Lambda stored in variable
                         return sym.return_type
         return "Any"
+
+    def _infer_postfix_type(self, node: Any, parent_node: Any) -> str:
+        """
+        Infer type from new postfix structure (base + ops for indexing and method chains).
+        
+        Handles:
+        - x[0] -> indexing
+        - x[0].foo() -> indexing then method
+        - x.foo()[0] -> method then indexing
+        - x[0][1] -> chained indexing
+        """
+        d = to_dict(node)
+        base = d.get("base")
+        ops = d.get("ops", [])
+        
+        # Get base type
+        current_type = self.infer_expr_type(base)
+        
+        # Process each postfix operation
+        if not isinstance(ops, (list, tuple)):
+            ops = [ops] if ops else []
+        
+        for op in ops:
+            if op is None:
+                continue
+            
+            op_d = to_dict(op) if not isinstance(op, str) else {}
+            
+            # Handle indexing operation
+            if op_d.get("idx") is not None:
+                idx_d = to_dict(op_d["idx"])
+                idx_expr = idx_d.get("expr")
+                if idx_expr:
+                    idx_type = self.infer_expr_type(idx_expr)
+                    # If index is a range, this is a slice operation - returns same type
+                    if idx_type == "range":
+                        # Slicing returns the same list type
+                        pass  # current_type stays the same
+                    elif not is_type_compatible(idx_type, "int") and current_type not in ("struct", "Any"):
+                        # Validate index type (should be int for element access)
+                        self.report_error(
+                            f"Index must be an integer, got '{idx_type}'", parent_node
+                        )
+                        current_type = get_element_type(current_type)
+                    else:
+                        # Get element type for single element access
+                        current_type = get_element_type(current_type)
+            
+            # Handle method call: meth:(PERIOD call:nodotcall_stmt)
+            elif op_d.get("meth") is not None:
+                meth_info = op_d["meth"]
+                
+                # meth can be a list [".", {func, args}] or a dict
+                call_d = None
+                if isinstance(meth_info, (list, tuple)):
+                    # Find the call dict in the list
+                    for item in meth_info:
+                        if item != "." and item is not None:
+                            if isinstance(item, dict) or hasattr(item, "parseinfo"):
+                                call_d = to_dict(item)
+                                break
+                else:
+                    meth_d = to_dict(meth_info) if not isinstance(meth_info, str) else {}
+                    call_node = meth_d.get("call")
+                    call_d = to_dict(call_node) if call_node else meth_d
+                
+                if call_d:
+                    func_name = call_d.get("func")
+                if func_name:
+                    func_name_str = str(func_name)
+                    # Check for type cast (no args, name is a type suffix)
+                    args_node = call_d.get("args") if call_d else None
+                    if not args_node or self._is_empty_args(args_node):
+                        if func_name_str in ENDING_TO_TYPE:
+                            current_type = ENDING_TO_TYPE[func_name_str]
+                            continue
+                    # Look up function
+                    sym = self.sym_table.get_symbol(func_name_str)
+                    if sym and sym.category == "func" and sym.return_type:
+                        current_type = sym.return_type
+                    else:
+                        # Check for stem-based function resolution
+                        for ending in ENDINGS_BY_LENGTH:
+                            if func_name_str.endswith(ending):
+                                stem = func_name_str[:-len(ending)]
+                                for visible_name, visible_sym in self.sym_table.get_all_visible_symbols().items():
+                                    if visible_sym.category == "func":
+                                        for e in ENDINGS_BY_LENGTH:
+                                            if visible_name.endswith(e) and visible_name[:-len(e)] == stem:
+                                                current_type = ENDING_TO_TYPE.get(ending, "Any")
+                                                break
+                                break
+                        else:
+                            current_type = "Any"
+            
+            # Handle field access: field:(PERIOD name:identifier)
+            elif op_d.get("field") is not None:
+                field_d = to_dict(op_d["field"])
+                field_name = field_d.get("name")
+                if field_name and current_type == "struct":
+                    current_type = "Any"  # Struct field access returns Any
+        
+        return current_type
+
+    def _is_empty_args(self, args_node: Any) -> bool:
+        """Check if args node represents empty arguments."""
+        if args_node is None:
+            return True
+        args_d = to_dict(args_node) if not isinstance(args_node, str) else {}
+        first = args_d.get("first")
+        if first is None:
+            return True
+        # Check if first is None or "None" string
+        if isinstance(first, str) and first.lower() == "none":
+            return True
+        return False
 
     def _infer_method_chain_type(self, mchain_node: Any, parent_node: Any) -> str:
         """
@@ -1643,6 +1765,11 @@ class AgoSemanticChecker:
             inner = d["value"]
             if isinstance(inner, dict) or hasattr(inner, "parseinfo"):
                 return self._extract_identifier(inner)
+        # Check base wrapper (new postfix structure)
+        if "base" in d:
+            base = d["base"]
+            if isinstance(base, dict) or hasattr(base, "parseinfo"):
+                return self._extract_identifier(base)
         return None
 
     def _process_block(self, block):
@@ -1746,8 +1873,9 @@ class AgoSemanticChecker:
 
         target_type = sym.type_t
 
-        # Handle indexed assignment
-        if d.get("index") is not None:
+        # Handle indexed assignment (index is now a list, empty means no indexing)
+        index = d.get("index")
+        if index is not None and (isinstance(index, (list, tuple)) and len(index) > 0 or not isinstance(index, (list, tuple))):
             if target_type in LIST_TYPES:
                 target_type = get_element_type(target_type)
             elif target_type == "string":

@@ -1,4 +1,4 @@
-use crate::types::{AgoInt, AgoString, AgoType};
+use crate::types::{AgoInt, AgoType};
 
 /// Prints a string to stdout. Returns Null.
 /// Name ends in -i (returns null/inanis)
@@ -89,16 +89,4 @@ pub fn exei(code: &AgoType) -> AgoType {
 /// Name ends in -am (returns bool)
 pub fn aequalam(left: &AgoType, right: &AgoType) -> AgoType {
     AgoType::Bool(left == right)
-}
-
-/// Returns the keys of a struct as a string list.
-/// Name ends in -erum (returns string_list)
-pub fn claverum(val: &AgoType) -> AgoType {
-    match val {
-        AgoType::Struct(map) => {
-            let keys = map.keys().cloned().collect();
-            AgoType::StringList(keys)
-        }
-        _ => panic!("claverum function expects a Struct type"),
-    }
 }

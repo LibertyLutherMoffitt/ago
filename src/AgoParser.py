@@ -86,7 +86,6 @@ class AgoParser(Parser):
         super().__init__(config=config)
 
     @tatsumasu()
-    @nomemo
     def _principio_(self):
         with self._optional():
             self._nl_()
@@ -108,7 +107,6 @@ class AgoParser(Parser):
         self._check_eof()
 
     @tatsumasu()
-    @nomemo
     def _sub_principio_(self):
         with self._choice():
             with self._option():
@@ -127,7 +125,6 @@ class AgoParser(Parser):
             )
 
     @tatsumasu()
-    @nomemo
     def _statement_(self):
         with self._choice():
             with self._option():
@@ -163,10 +160,8 @@ class AgoParser(Parser):
                 'expecting one of: '
                 "'frio' 'omitto' 'pergo' 'redeo' <BREAK>"
                 '<CONTINUE> <FOR> <IF> <PASS> <RETURN>'
-                '<STR_LIT> <WHILE> <call_stmt>'
-                '<chain_elem> <declaration_stmt>'
+                '<WHILE> <call_stmt> <declaration_stmt>'
                 '<for_stmt> <identifier> <if_stmt> <item>'
-                '<literal_item> <nodotcall_stmt>'
                 '<reassignment_stmt> <while_stmt>'
             )
 
@@ -283,9 +278,11 @@ class AgoParser(Parser):
     def _reassignment_stmt_(self):
         self._identifier_()
         self.name_last_node('target')
-        with self._optional():
+
+        def block0():
             self._indexing_()
-            self.name_last_node('index')
+        self._closure(block0)
+        self.name_last_node('index')
         self._REASSIGNMENT_OP_()
         self._expression_()
         self.name_last_node('value')
@@ -293,15 +290,11 @@ class AgoParser(Parser):
 
     @tatsumasu()
     def _indexing_(self):
-
-        def block0():
-            self._LBRACKET_()
-            self._expression_()
-            self.name_last_node('expr')
-            self._RBRACKET_()
-            self._define(['expr'], [])
-        self._positive_closure(block0)
-        self.name_last_node('indexes')
+        self._LBRACKET_()
+        self._expression_()
+        self.name_last_node('expr')
+        self._RBRACKET_()
+        self._define(['expr'], [])
 
     @tatsumasu()
     def _else_fragment_(self):
@@ -387,118 +380,9 @@ class AgoParser(Parser):
         self._define(['body', 'iterable', 'iterator'], [])
 
     @tatsumasu()
-    def _chain_elem_(self):
-        with self._choice():
-            with self._option():
-                self._nodotcall_stmt_()
-                self.name_last_node('call')
-            with self._option():
-                self._identifier_()
-                self.name_last_node('field')
-            with self._option():
-                self._STR_LIT_()
-                self.name_last_node('field')
-            self._error(
-                'expecting one of: '
-                '"(?:\\[tnrf"\\]|\\[0-7]{3}|[^"\\\\r\\n])*"'
-                '<STR_LIT> <identifier> <nodotcall_stmt>'
-                '[A-Za-z_][A-Za-z_0-9]*'
-            )
-
-    @tatsumasu()
-    @nomemo
     def _call_stmt_(self):
-        with self._choice():
-            with self._option():
-                self._literal_item_()
-                self.name_last_node('recv')
-                self._PERIOD_()
-                self._chain_elem_()
-                self.name_last_node('first')
-
-                def block0():
-                    self._PERIOD_()
-                    self._chain_elem_()
-                    self.name_last_node('more')
-                    self._define(['more'], [])
-                self._closure(block0)
-                self.name_last_node('chain')
-                self._define(['chain', 'first', 'more', 'recv'], [])
-            with self._option():
-                with self._optional():
-                    with self._group():
-                        self._item_()
-                        self.name_last_node('receiver')
-                    self.name_last_node('recv')
-                    self._PERIOD_()
-                    self._define(['receiver', 'recv'], [])
-                self._chain_elem_()
-                self.name_last_node('first')
-
-                def block1():
-                    self._PERIOD_()
-                    self._chain_elem_()
-                    self.name_last_node('more')
-                    self._define(['more'], [])
-                self._closure(block1)
-                self.name_last_node('chain')
-                self._define(['chain', 'first', 'more', 'receiver', 'recv'], [])
-            self._error(
-                'expecting one of: '
-                '"(?:\\[tnrf"\\]|\\[0-7]{3}|[^"\\\\r\\n])*"'
-                '<DEF> <FALSE> <FLOATLIT> <INTLIT> <IT>'
-                '<LBRACE> <LBRACKET> <LPAREN> <NULL>'
-                '<ROMAN_NUMERAL> <STR_LIT> <TRUE>'
-                '<chain_elem> <identifier> <item>'
-                '<lambda_decl> <list> <literal_item>'
-                '<mapstruct> <nodotcall_stmt> [A-Za-'
-                'z_][A-Za-z_0-9]*'
-            )
-
-    @tatsumasu()
-    def _literal_item_(self):
-        with self._choice():
-            with self._option():
-                self._list_()
-                self.name_last_node('list')
-            with self._option():
-                self._mapstruct_()
-                self.name_last_node('mapstruct')
-            with self._option():
-                self._STR_LIT_()
-                self.name_last_node('str')
-            with self._option():
-                self._FLOATLIT_()
-                self.name_last_node('float')
-            with self._option():
-                self._INTLIT_()
-                self.name_last_node('int')
-            with self._option():
-                self._ROMAN_NUMERAL_()
-                self.name_last_node('roman')
-            with self._option():
-                self._TRUE_()
-            with self._option():
-                self._FALSE_()
-            with self._option():
-                self._NULL_()
-            with self._option():
-                with self._group():
-                    self._LPAREN_()
-                    self._expression_()
-                    self.name_last_node('expr')
-                    self._RPAREN_()
-                    self._define(['expr'], [])
-                self.name_last_node('paren')
-            self._error(
-                'expecting one of: '
-                '"(?:\\[tnrf"\\]|\\[0-7]{3}|[^"\\\\r\\n])*" \'(\''
-                "'falsus' 'inanis' 'verum' <FALSE>"
-                '<FLOATLIT> <INTLIT> <LBRACE> <LBRACKET>'
-                '<LPAREN> <NULL> <ROMAN_NUMERAL>'
-                '<STR_LIT> <TRUE> <list> <mapstruct>'
-                '[0-9]*\\.[0-9]+ [0-9]+ [MCDLXIV]+'
-            )
+        self._item_()
+        self.name_last_node('expr')
 
     @tatsumasu()
     def _nodotcall_stmt_(self):
@@ -841,23 +725,53 @@ class AgoParser(Parser):
             )
 
     @tatsumasu()
-    @leftrec
     def _item_(self):
+        with self._group():
+            self._primary_item_()
+            self.name_last_node('base')
+
+            def block0():
+                self._item_postfix_()
+            self._closure(block0)
+            self.name_last_node('ops')
+            self._define(['base', 'ops'], [])
+        self.name_last_node('postfix')
+
+    @tatsumasu()
+    def _item_postfix_(self):
         with self._choice():
             with self._option():
+                self._indexing_()
+                self.name_last_node('idx')
+            with self._option():
                 with self._group():
-                    self._item_()
-                    self.name_last_node('base')
+                    self._PERIOD_()
+                    self._nodotcall_stmt_()
+                    self.name_last_node('call')
+                    self._define(['call'], [])
+                self.name_last_node('meth')
+            with self._option():
+                with self._group():
+                    self._PERIOD_()
+                    self._identifier_()
+                    self.name_last_node('name')
+                    self._define(['name'], [])
+                self.name_last_node('field')
+            with self._option():
+                with self._group():
+                    self._PERIOD_()
+                    self._STR_LIT_()
+                    self.name_last_node('name')
+                    self._define(['name'], [])
+                self.name_last_node('strfield')
+            self._error(
+                'expecting one of: '
+                "'.' '[' <LBRACKET> <PERIOD> <indexing>"
+            )
 
-                    def block0():
-                        self._PERIOD_()
-                        self._chain_elem_()
-                        self.name_last_node('method')
-                        self._define(['method'], [])
-                    self._positive_closure(block0)
-                    self.name_last_node('chain')
-                    self._define(['base', 'chain', 'method'], [])
-                self.name_last_node('mchain')
+    @tatsumasu()
+    def _primary_item_(self):
+        with self._choice():
             with self._option():
                 with self._group():
                     self._LPAREN_()
@@ -874,17 +788,12 @@ class AgoParser(Parser):
             with self._option():
                 self._mapstruct_()
             with self._option():
-                with self._group():
-                    self._identifier_()
-                    self._indexing_()
-                    self.name_last_node('idx')
-                    self._define(['idx'], [])
-                self.name_last_node('indexed')
-            with self._option():
                 self._lambda_decl_()
             with self._option():
                 self._ROMAN_NUMERAL_()
                 self.name_last_node('roman')
+            with self._option():
+                self._IT_()
             with self._option():
                 self._identifier_()
                 self.name_last_node('id')
@@ -903,8 +812,6 @@ class AgoParser(Parser):
                 self._FALSE_()
             with self._option():
                 self._NULL_()
-            with self._option():
-                self._IT_()
             self._error(
                 'expecting one of: '
                 '"(?:\\[tnrf"\\]|\\[0-7]{3}|[^"\\\\r\\n])*" \'(\''
@@ -912,7 +819,7 @@ class AgoParser(Parser):
                 "'{' <DEF> <FALSE> <FLOATLIT> <INTLIT>"
                 '<IT> <LBRACE> <LBRACKET> <LPAREN> <NULL>'
                 '<ROMAN_NUMERAL> <STR_LIT> <TRUE>'
-                '<identifier> <item> <lambda_decl> <list>'
+                '<identifier> <lambda_decl> <list>'
                 '<mapstruct> <nodotcall_stmt>'
                 '[0-9]*\\.[0-9]+ [0-9]+ [A-Za-z_][A-Za-'
                 'z_0-9]* [MCDLXIV]+'

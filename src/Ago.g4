@@ -91,12 +91,12 @@ declaration_stmt
 
 reassignment_stmt
     =
-    target:identifier [ index:indexing ] REASSIGNMENT_OP value:expression
+    target:identifier index:{ indexing }* REASSIGNMENT_OP value:expression
     ;
 
 indexing
     =
-    indexes:{ LBRACKET expr:expression RBRACKET }+
+    LBRACKET expr:expression RBRACKET
     ;
 
 else_fragment
@@ -139,31 +139,9 @@ for_stmt
 
 # --- CALLS ---
 
-chain_elem
-    =
-    | call:nodotcall_stmt
-    | field:identifier
-    | field:STR_LIT
-    ;
-
 call_stmt
     =
-    | recv:literal_item PERIOD first:chain_elem chain:{ PERIOD more:chain_elem }*
-    | [ recv:(receiver:item) PERIOD ] first:chain_elem chain:{ PERIOD more:chain_elem }*
-    ;
-
-literal_item
-    =
-    | list:list
-    | mapstruct:mapstruct
-    | str:STR_LIT
-    | float:FLOATLIT
-    | int:INTLIT
-    | roman:ROMAN_NUMERAL
-    | TRUE
-    | FALSE
-    | NULL
-    | paren:(LPAREN expr:expression RPAREN)
+    expr:item
     ;
 
 nodotcall_stmt
@@ -253,17 +231,26 @@ mapcontent
 
 item
     =
-    | mchain:(
-        base:item
-        chain:{ PERIOD method:chain_elem }+
-      )
+    postfix:(base:primary_item ops:{ item_postfix }*)
+    ;
+
+item_postfix
+    =
+    | idx:indexing
+    | meth:(PERIOD call:nodotcall_stmt)
+    | field:(PERIOD name:identifier)
+    | strfield:(PERIOD name:STR_LIT)
+    ;
+
+primary_item
+    =
     | paren:(LPAREN expr:expression RPAREN)
     | call:nodotcall_stmt
     | list
     | mapstruct
-    | indexed:(identifier idx:indexing)
     | lambda_decl
     | roman:ROMAN_NUMERAL
+    | IT
     | id:identifier
     | str:STR_LIT
     | float:FLOATLIT
@@ -271,7 +258,6 @@ item
     | TRUE
     | FALSE
     | NULL
-    | IT
     ;
 
 nl = { CR }+ ;

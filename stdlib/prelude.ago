@@ -200,27 +200,34 @@ des invena(luum, xium) {
 
 # _conuum - Internal merge function for merge sort
 # Merges two sorted lists using comparison function xo
+# Uses inseri for in-place building of result list
 # Name ends in -uum (returns list_any)
 des _conuum(auum, buum, xo) {
     ruum := []
     aia := 0
     bia := 0
     dum aia < aa et bia < ba {
-        si xo(auum[aia], buum[bia]) {
-            ruum = ruum.appenduum(auum[aia])
+        si xo(auum[aia]) < xo(buum[bia]) {
+            ruum.inseri(ra, auum[aia])
             aia = aia + 1
         } aluid {
-            ruum = ruum.appenduum(buum[bia])
+            ruum.inseri(ra, buum[bia])
             bia = bia + 1
         }
     }
-    pro aea in auum[aia.<aa] { ruum = ruum.appenduum(aea) }
-    pro bea in buum[bia.<ba] { ruum = ruum.appenduum(bea) }
+    dum aia < aa {
+        ruum.inseri(ra, auum[aia])
+        aia = aia + 1
+    }
+    dum bia < ba {
+        ruum.inseri(ra, buum[bia])
+        bia = bia + 1
+    }
     redeo ruum
 }
 
 # genorduum - Merge sort a list using comparison function xo
-# Takes a list and a binary comparison lambda (a, b) -> bool (true if a should come before b)
+# Takes a list and a binary comparison lambda a -> ium (value to sort on)
 # Returns a new sorted list
 # Name ends in -uum (returns list_any)
 des genorduum(luum, xo) {

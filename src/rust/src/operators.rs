@@ -4,6 +4,7 @@ use crate::types::{AgoRange, AgoType};
 
 macro_rules! numeric_op {
     ($name:ident, $op:tt) => {
+        #[inline]
         pub fn $name(left: &AgoType, right: &AgoType) -> AgoType {
             match (left, right) {
                 (AgoType::Float(a), AgoType::Float(b)) => AgoType::Float(a $op b),
@@ -29,6 +30,7 @@ macro_rules! bitwise_op {
 
 macro_rules! comparison_op {
     ($name:ident, $op:tt) => {
+        #[inline]
         pub fn $name(left: &AgoType, right: &AgoType) -> AgoType {
             let result = match (left, right) {
                 (AgoType::Float(a), AgoType::Float(b)) => a $op b,

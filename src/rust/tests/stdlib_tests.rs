@@ -1,7 +1,7 @@
 //! Integration tests for the ago_stdlib crate.
 
 use ago_stdlib::collections::{get, inseri, removium, set};
-use ago_stdlib::functions::{aequalam, claverum, species};
+use ago_stdlib::functions::{aequalam, species};
 use ago_stdlib::operators::{
     add, and, bitwise_and, bitwise_or, bitwise_xor, contains, divide, elvis, greater_equal,
     greater_than, less_equal, less_than, modulo, multiply, not, or, slice, sliceto, subtract,
@@ -366,34 +366,6 @@ fn test_removium() {
 fn test_removium_struct_key_not_found() {
     let mut s = sample_struct();
     removium(&mut s, &AgoType::String("z".to_string()));
-}
-
-#[test]
-fn test_claverum() {
-    // Non-empty struct
-    let s = sample_struct();
-    let keys_ago = claverum(&s);
-    if let AgoType::StringList(mut keys) = keys_ago {
-        keys.sort(); // Sort for deterministic comparison
-        assert_eq!(keys, vec!["a".to_string(), "b".to_string()]);
-    } else {
-        panic!("claverum should return a StringList");
-    }
-
-    // Empty struct
-    let empty_s = AgoType::Struct(HashMap::new());
-    let empty_keys_ago = claverum(&empty_s);
-    if let AgoType::StringList(keys) = empty_keys_ago {
-        assert!(keys.is_empty());
-    } else {
-        panic!("claverum should return a StringList for an empty struct");
-    }
-}
-
-#[test]
-#[should_panic]
-fn test_claverum_on_non_struct() {
-    claverum(&AgoType::Int(1));
 }
 
 #[test]

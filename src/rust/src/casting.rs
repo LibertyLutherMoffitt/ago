@@ -422,6 +422,76 @@ impl AgoType {
                 AgoType::BoolList(new_list)
             }
 
+            // --- ListAny to Struct ---
+            // Rules:
+            // 1. If all elements are strings: keys are strings, values are IntList of original indices
+            // 2. If all elements are 2-element lists: first item is key (as string), second is value
+            // 3. Otherwise: keys are index strings ("0", "1", ...), values are elements
+            (AgoType::ListAny(val), TargetType::Struct) => {
+                use std::collections::HashMap;
+                
+                // Check if all elements are strings
+                let all_strings = val.iter().all(|item| matches!(item, AgoType::String(_)));
+                
+                if all_strings && !val.is_empty() {
+                    // Case 1: All strings - values become keys, values are lists of original indices
+                    let mut result: HashMap<String, Vec<i128>> = HashMap::new();
+                    for (idx, item) in val.iter().enumerate() {
+                        if let AgoType::String(s) = item {
+                            result.entry(s.clone()).or_insert_with(Vec::new).push(idx as i128);
+                        }
+                    }
+                    let struct_map: HashMap<String, AgoType> = result
+                        .into_iter()
+                        .map(|(k, v)| (k, AgoType::IntList(v)))
+                        .collect();
+                    return AgoType::Struct(struct_map);
+                }
+                
+                // Check if all elements are 2-element lists
+                let all_pairs = val.iter().all(|item| {
+                    match item {
+                        AgoType::ListAny(inner) => inner.len() == 2,
+                        _ => false,
+                    }
+                });
+                
+                if all_pairs && !val.is_empty() {
+                    // Case 2: All pairs - first item is key, second is value
+                    let mut struct_map: HashMap<String, AgoType> = HashMap::new();
+                    for item in val.iter() {
+                        if let AgoType::ListAny(inner) = item {
+                            let key = match &inner[0] {
+                                AgoType::String(s) => s.clone(),
+                                other => {
+                                    if let AgoType::String(s) = other.as_type(TargetType::String) {
+                                        s
+                                    } else {
+                                        unreachable!()
+                                    }
+                                }
+                            };
+                            struct_map.insert(key, inner[1].clone());
+                        }
+                    }
+                    return AgoType::Struct(struct_map);
+                }
+                
+                // Case 3: Default - keys are index strings
+                let struct_map: HashMap<String, AgoType> = val
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, item)| (idx.to_string(), item.clone()))
+                    .collect();
+                AgoType::Struct(struct_map)
+            }
+
+            // --- Struct to StringList (keys) ---
+            (AgoType::Struct(val), TargetType::StringList) => {
+                let keys: Vec<String> = val.keys().cloned().collect();
+                AgoType::StringList(keys)
+            }
+
             // Default error for unsupported conversions
             _ => panic!("Unsupported cast from {:?} to {:?}", self, target),
         }

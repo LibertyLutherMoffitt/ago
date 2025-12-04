@@ -8,7 +8,7 @@ All Ago values are represented by the `ago_stdlib::AgoType` enum in Rust. The fo
 
 ```rust
 use ago_stdlib::{
-    apertu, claverum, dici, exei, get, inseri, removium, set, species, AgoType,
+    apertu, dici, exei, get, inseri, removium, set, species, AgoType,
     TargetType,
 };
 use std::collections::HashMap;
@@ -223,26 +223,6 @@ These functions operate only on `AgoType::Int` values and panic on any other typ
   // nickname is null, so the default is returned.
   let result2 = elvis(&null_val, &default_name);
   assert_eq!(result2, default_name);
-  ```
-
----
-
-### claverum
-
-Returns a list of all keys within a `Struct`.
-
-- **Rust Signature:** `pub fn claverum(val: AgoType) -> AgoType`
-- **Parameters:**
-  - `val` (`AgoType::Struct`): The struct to get the keys from.
-- **Returns:** (`AgoType::StringList`): A list containing all the keys from the struct. The order is not guaranteed.
-- **Errors:** Panics if the provided value is not a `Struct`.
-- **Example:**
-  ```rust
-  let my_struct = AgoType::Struct(HashMap::from([
-      ("name".to_string(), AgoType::String("Ago".to_string())),
-      ("version".to_string(), AgoType::Int(1))
-  ]));
-  let keys = claverum(my_struct); // keys is an AgoType::StringList
   ```
 
 ---

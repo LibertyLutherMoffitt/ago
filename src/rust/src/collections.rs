@@ -1,6 +1,7 @@
 use crate::types::{AgoRange, AgoType};
 
 /// Helper to compute slice bounds from a range
+#[inline]
 fn range_bounds(range: &AgoRange, len: usize) -> (usize, usize) {
     let start = range.start.max(0) as usize;
     let end = if range.inclusive {
@@ -12,6 +13,7 @@ fn range_bounds(range: &AgoRange, len: usize) -> (usize, usize) {
 }
 
 /// Gets a value from an indexable AgoType. Panics on error.
+#[inline]
 pub fn get(iter: &AgoType, n: &AgoType) -> AgoType {
     match (iter, n) {
         // --- List Access by Index ---
@@ -213,6 +215,7 @@ pub fn set(iter: &mut AgoType, n: &AgoType, value: AgoType) {
 
 /// Inserts a value into an indexable AgoType. Panics on error.
 /// Name ends in -i (returns null/inanis)
+#[inline]
 pub fn inseri(coll: &mut AgoType, key: &AgoType, value: &AgoType) {
     match (coll, key) {
         // --- List Insertion ---

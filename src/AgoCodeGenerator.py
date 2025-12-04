@@ -590,7 +590,12 @@ class AgoCodeGenerator:
 
         # Call statement - the result should be returned
         if "call" in d:
-            expr = self._generate_expr(d["call"])
+            call_d = to_dict(d["call"]) if not isinstance(d["call"], str) else {}
+            # New grammar: call_stmt = expr:item
+            if call_d.get("expr") is not None:
+                expr = self._generate_expr(call_d["expr"])
+            else:
+                expr = self._generate_expr(d["call"])
             self.emit(expr)
             return
 
@@ -608,7 +613,7 @@ class AgoCodeGenerator:
         self.emit_raw("    slice, sliceto, contains, elvis,")
         self.emit_raw("    unary_minus, unary_plus,")
         self.emit_raw("    get, set, inseri, removium, validate_list_type, into_iter,")
-        self.emit_raw("    dici, apertu, species, exei, aequalam, claverum, scribi, audies")
+        self.emit_raw("    dici, apertu, species, exei, aequalam, scribi, audies")
         self.emit_raw("};")
         self.emit_raw("use std::collections::HashMap;")
         self.emit_raw("use std::rc::Rc;")
@@ -679,7 +684,12 @@ class AgoCodeGenerator:
             return
         # Check for call statement
         if "call" in d:
-            expr = self._generate_expr(d["call"])
+            call_d = to_dict(d["call"]) if not isinstance(d["call"], str) else {}
+            # New grammar: call_stmt = expr:item
+            if call_d.get("expr") is not None:
+                expr = self._generate_expr(call_d["expr"])
+            else:
+                expr = self._generate_expr(d["call"])
             self.emit(f"{expr};")
             return
         # Process as statement
@@ -767,21 +777,47 @@ class AgoCodeGenerator:
                 mutated.add(target)
             
             # Check for call statements that might mutate
-            # Pattern 1: {call: {first: {id: "param"}, chain: [...]}}
-            # Pattern 2: {first: {id: "param"}, chain: [...]}
-            # Pattern 3: {first: "param", chain: [...]}
+            # Old patterns:
+            # - {call: {first: {id: "param"}, chain: [...]}}
+            # - {first: {id: "param"}, chain: [...]}
+            # New pattern:
+            # - {call: {expr: {base: {id: "param"}, ops: [{call: {func: "inseri"}}]}}}
             
             call_node = d.get("call") or d
             if isinstance(call_node, dict) or hasattr(call_node, "parseinfo"):
                 call_d = to_dict(call_node)
+                
+                # Old pattern support
                 first = call_d.get("first")
                 chain = call_d.get("chain")
                 first_id = get_first_identifier(first)
                 
                 if first_id and first_id in params:
-                    # Check if this is a mutating call
                     if chain and check_for_mutating_calls(chain, first_id):
                         mutated.add(first_id)
+                
+                # New pattern: {expr: {base: {id: ...}, ops: [...]}}
+                expr = call_d.get("expr")
+                if expr:
+                    expr_d = to_dict(expr)
+                    base = expr_d.get("base")
+                    ops = expr_d.get("ops", [])
+                    
+                    # Get base identifier
+                    if base:
+                        base_id = get_first_identifier(base)
+                        if base_id and base_id in params:
+                            # Check if any op is a mutating call
+                            for op in (ops if isinstance(ops, (list, tuple)) else [ops]):
+                                if op is None:
+                                    continue
+                                op_d = to_dict(op) if not isinstance(op, str) else {}
+                                call = op_d.get("call")
+                                if call:
+                                    call_d2 = to_dict(call)
+                                    func = call_d2.get("func")
+                                    if func and str(func) in MUTATING_STDLIB_FUNCTIONS:
+                                        mutated.add(base_id)
             
             # Recurse into all dict values
             for key, val in d.items():
@@ -806,15 +842,18 @@ class AgoCodeGenerator:
             if d.get("value") is not None:
                 value = d["value"]
                 value_d = to_dict(value) if not isinstance(value, str) else {}
-                # The return value is wrapped: value -> value -> actual_content
+                # The return value is wrapped: value -> value -> base (for new structure)
                 inner = value_d.get("value")
                 if inner:
                     inner_d = to_dict(inner) if not isinstance(inner, str) else {}
-                    # Direct lambda return: inner has 'body' and 'params' keys (lambda structure)
-                    # but NOT 'base', 'chain', 'mchain', 'call', 'func' (method chain/call structure)
+                    # Direct lambda return (old structure): inner has 'body'
                     if inner_d.get("body") is not None:
-                        # Check it's not a method chain or call
-                        if not inner_d.get("base") and not inner_d.get("chain") and not inner_d.get("call") and not inner_d.get("func"):
+                        return True
+                    # New structure: inner has 'base' which contains the lambda
+                    base = inner_d.get("base")
+                    if base:
+                        base_d = to_dict(base) if not isinstance(base, str) else {}
+                        if base_d.get("body") is not None:
                             return True
             # Recurse into statements but NOT into expression arguments
             stmts = d.get("stmts")
@@ -962,6 +1001,11 @@ class AgoCodeGenerator:
             inner = d["value"]
             if isinstance(inner, dict) or hasattr(inner, "parseinfo"):
                 return self._extract_identifier(inner)
+        # Handle new postfix structure: base contains the identifier
+        if "base" in d:
+            base = d["base"]
+            if isinstance(base, dict) or hasattr(base, "parseinfo"):
+                return self._extract_identifier(base)
         return None
 
     def _process_block(self, block: Any) -> None:
@@ -1038,9 +1082,14 @@ class AgoCodeGenerator:
             self._generate_for(d["for_stmt"])
         elif "iterator" in d and "iterable" in d:
             self._generate_for(stmt)
-        # Call statement
+        # Call statement (now wraps an item via expr:)
         elif "call" in d:
-            expr = self._generate_expr(d["call"])
+            call_d = to_dict(d["call"]) if not isinstance(d["call"], str) else {}
+            # New grammar: call_stmt = expr:item
+            if call_d.get("expr") is not None:
+                expr = self._generate_expr(call_d["expr"])
+            else:
+                expr = self._generate_expr(d["call"])
             self.emit(f"{expr};")
         # Check for nested return
         elif "value" in d:
@@ -1095,18 +1144,29 @@ class AgoCodeGenerator:
         var_name = str(d["target"])
         value = d.get("value")
         index = d.get("index")
+        
+        # index is now always a list (possibly empty)
+        has_index = index and isinstance(index, (list, tuple)) and len(index) > 0
 
         expr = self._generate_expr(value)
         # Reassignment needs an owned value
         expr = self._ensure_owned(expr)
 
-        if index:
+        if has_index:
             # Indexed assignment: var[idx] = value
             # Evaluate RHS first to avoid borrow conflicts when RHS references var
-            idx_expr = self._generate_indexing(index)
+            # Handle multiple indices (nested indexing)
+            idx_expr = self._generate_indexing(index[0])  # First index
             temp_var = f"__temp_{self._get_temp_counter()}"
             self.emit(f"let {temp_var} = {expr};")
-            self.emit(f"set(&mut {var_name}, {self._make_ref(idx_expr)}, {temp_var});")
+            
+            # For now, only support single index; multi-index would require nested get/set
+            if len(index) == 1:
+                self.emit(f"set(&mut {var_name}, {self._make_ref(idx_expr)}, {temp_var});")
+            else:
+                # Multiple indices: need to get nested container, then set
+                # This is more complex - for now just handle first level
+                self.emit(f"set(&mut {var_name}, {self._make_ref(idx_expr)}, {temp_var});")
         else:
             self.emit(f"{var_name} = {expr};")
 
@@ -1358,11 +1418,16 @@ class AgoCodeGenerator:
             if first_d.get("func") is not None:
                 return self._generate_call(d)
 
-        # Method chain
+        # New unified postfix structure (indexing and method chains)
+        # The grammar creates both 'base'/'ops' and 'postfix' at the same level
+        if d.get("base") is not None:
+            return self._generate_postfix(d)
+
+        # Method chain (legacy support)
         if d.get("mchain") is not None:
             return self._generate_method_chain(d["mchain"])
 
-        # Indexed access
+        # Indexed access (legacy support)
         if d.get("indexed") is not None:
             return self._generate_indexed(d["indexed"])
 
@@ -1937,6 +2002,237 @@ class AgoCodeGenerator:
                         args.append(self._generate_expr(item_d["expr"]))
 
         return args
+
+    def _generate_postfix(self, postfix: Any) -> str:
+        """Generate postfix operations: indexing and method chains unified.
+        
+        Handles patterns like:
+        - x[0] -> indexing
+        - x[0].foo() -> indexing then method
+        - x.foo()[0] -> method then indexing
+        - x[0][1] -> chained indexing
+        - (expr)[0] -> indexing on expression result
+        """
+        d = to_dict(postfix)
+        base = d.get("base")
+        ops = d.get("ops", [])
+        
+        # Generate base expression (recursively handle primary_item)
+        base_d = to_dict(base) if not isinstance(base, str) else {}
+        
+        # Handle different primary_item types
+        if base_d.get("int") is not None:
+            result = f"AgoType::Int({base_d['int']})"
+        elif base_d.get("float") is not None:
+            result = f"AgoType::Float({base_d['float']})"
+        elif base_d.get("str") is not None:
+            result = f"AgoType::String({base_d['str']}.to_string())"
+        elif base_d.get("roman") is not None:
+            result = f"AgoType::Int({self._roman_to_int(base_d['roman'])})"
+        elif base_d.get("TRUE") is not None:
+            result = "AgoType::Bool(true)"
+        elif base_d.get("FALSE") is not None:
+            result = "AgoType::Bool(false)"
+        elif base_d.get("NULL") is not None:
+            result = "AgoType::Null"
+        elif base_d.get("id") is not None:
+            name = str(base_d["id"])
+            if name == "id":
+                result = "id"
+            else:
+                result = self._generate_variable_ref(name)
+        elif base_d.get("paren") is not None:
+            paren = base_d["paren"]
+            if isinstance(paren, (list, tuple)):
+                # Find the expression inside parens
+                for item in paren:
+                    if item not in ("(", ")") and item is not None:
+                        result = self._generate_expr(item)
+                        break
+                else:
+                    result = "AgoType::Null"
+            else:
+                result = self._generate_expr(paren)
+        elif base_d.get("call") is not None:
+            result = self._generate_call(base_d["call"])
+        elif base_d.get("list") is not None:
+            result = self._generate_list(base_d["list"])
+        elif base_d.get("mapstruct") is not None:
+            result = self._generate_struct(base_d["mapstruct"])
+        elif base_d.get("body") is not None and "name" not in base_d:
+            # Lambda
+            result = self._generate_lambda(base_d)
+        else:
+            # Fallback - try generic expression
+            result = self._generate_expr(base)
+        
+        # Track base variable name for mutating functions
+        base_var_name = None
+        if isinstance(base, str):
+            base_var_name = base
+        elif base_d.get("id"):
+            base_var_name = str(base_d["id"])
+        
+        # Process each postfix operation
+        if not isinstance(ops, (list, tuple)):
+            ops = [ops] if ops else []
+        
+        for op in ops:
+            if op is None:
+                continue
+            
+            op_d = to_dict(op) if not isinstance(op, str) else {}
+            
+            # Handle indexing operation
+            if op_d.get("idx") is not None:
+                idx_node = op_d["idx"]
+                idx_d = to_dict(idx_node)
+                
+                # New simplified indexing: just has 'expr'
+                idx_expr_node = idx_d.get("expr")
+                if idx_expr_node:
+                    idx_expr = self._generate_expr(idx_expr_node)
+                    if not result.startswith("&"):
+                        result = f"get(&{result}, &{idx_expr})"
+                    else:
+                        result = f"get({result}, &{idx_expr})"
+            
+            # Handle method call: meth:(PERIOD call:nodotcall_stmt)
+            # Grammar creates both 'call' and 'meth' keys at the same level
+            elif op_d.get("meth") is not None or op_d.get("call") is not None:
+                # Prefer 'call' key which is the dict, 'meth' is a list
+                call_d = None
+                if op_d.get("call") is not None:
+                    call_d = to_dict(op_d["call"])
+                else:
+                    meth_info = op_d["meth"]
+                    if isinstance(meth_info, (list, tuple)):
+                        for item in meth_info:
+                            if item != "." and item is not None:
+                                if isinstance(item, dict) or hasattr(item, "parseinfo"):
+                                    call_d = to_dict(item)
+                                    break
+                    else:
+                        meth_d = to_dict(meth_info) if not isinstance(meth_info, str) else {}
+                        call_node = meth_d.get("call")
+                        call_d = to_dict(call_node) if call_node else meth_d
+                
+                if call_d:
+                    func_name = call_d.get("func")
+                    if func_name:
+                        func_name_str = str(func_name)
+                        args = []
+                        args_node = call_d.get("args")
+                        if args_node:
+                            args = self._parse_args(args_node)
+                        
+                        result = self._apply_method_call(result, func_name_str, args, base_var_name)
+            
+            # Handle field access: field:(PERIOD name:identifier) or strfield:(PERIOD name:STR_LIT)
+            # Grammar creates both 'name' and 'field'/'strfield' keys at the same level
+            elif op_d.get("field") is not None or op_d.get("strfield") is not None or op_d.get("name") is not None:
+                # 'name' key has the identifier or string literal directly
+                field_name = op_d.get("name")
+                if field_name:
+                    field_name_str = str(field_name)
+                    # If it's a string literal, it will have quotes - strip them
+                    if field_name_str.startswith('"') and field_name_str.endswith('"'):
+                        field_name_str = field_name_str[1:-1]
+                    result = f'get(&{result}, &AgoType::String("{field_name_str}".to_string()))'
+        
+        return result
+
+    def _apply_method_call(self, receiver_expr: str, func_name: str, args: list, base_var_name: str = None) -> str:
+        """Apply a method call to a receiver expression.
+        
+        This handles type casting, stem resolution, stdlib vs user functions, and mutating functions.
+        """
+        # Check if this is a type cast (no args, name is a type suffix)
+        if (
+            not args
+            and func_name not in STDLIB_FUNCTIONS
+            and func_name not in self.user_functions
+        ):
+            # Check if name IS a type suffix
+            if func_name in ENDING_TO_TARGET_TYPE:
+                target_type = ENDING_TO_TARGET_TYPE[func_name]
+                return self._optimize_cast_chain(receiver_expr, target_type)
+            
+            # Check for stem-based function call
+            suffix, stem = get_suffix_and_stem(func_name)
+            if suffix and stem:
+                # Look for a user function with the same stem
+                for uf in self.user_functions:
+                    uf_suffix, uf_stem = get_suffix_and_stem(uf)
+                    if uf_stem == stem and uf != func_name:
+                        # Call the function with receiver as first arg, then cast result
+                        ref_receiver = self._make_ref(receiver_expr)
+                        call_result = f"{uf}({ref_receiver})"
+                        if suffix in ENDING_TO_TARGET_TYPE:
+                            target_type = ENDING_TO_TARGET_TYPE[suffix]
+                            return self._optimize_cast_chain(call_result, target_type)
+                        return call_result
+        
+        # Stem-based function resolution
+        actual_func_name = func_name
+        cast_target = None
+        if (
+            func_name not in self.user_functions
+            and func_name not in STDLIB_FUNCTIONS
+        ):
+            call_suffix, call_stem = get_suffix_and_stem(func_name)
+            if call_stem and call_suffix:
+                for uf in self.user_functions:
+                    uf_suffix, uf_stem = get_suffix_and_stem(uf)
+                    if uf_stem == call_stem and uf != func_name:
+                        actual_func_name = uf
+                        cast_target = ENDING_TO_RUST_TARGET.get(call_suffix)
+                        break
+        
+        # Method chaining: receiver becomes first arg
+        if actual_func_name in MUTATING_STDLIB_FUNCTIONS and base_var_name:
+            # Resolve actual variable name
+            actual_var = base_var_name
+            if base_var_name not in self.declared_vars:
+                suffix, stem = get_suffix_and_stem(base_var_name)
+                if stem:
+                    for dv in self.declared_vars:
+                        dv_suffix, dv_stem = get_suffix_and_stem(dv)
+                        if dv_stem == stem:
+                            actual_var = dv
+                            break
+            
+            # Handle args that reference the mutated variable
+            ref_args = []
+            for arg in args:
+                _, base_stem = get_suffix_and_stem(actual_var)
+                if base_stem and actual_var in arg:
+                    temp_var = f"__temp_{self._get_temp_counter()}"
+                    self.emit(f"let {temp_var} = {arg};")
+                    ref_args.append(f"&{temp_var}")
+                elif not arg.startswith("&"):
+                    ref_args.append(f"&{arg}")
+                else:
+                    ref_args.append(arg)
+            
+            receiver = f"&mut {actual_var}"
+            all_args = [receiver] + ref_args
+        elif actual_func_name in STDLIB_FUNCTIONS:
+            receiver = f"&{receiver_expr}" if not receiver_expr.startswith("&") else receiver_expr
+            ref_args = [f"&{arg}" if not arg.startswith("&") else arg for arg in args]
+            all_args = [receiver] + ref_args
+        else:
+            # User-defined functions
+            ref_args = [self._make_ref(arg) for arg in args]
+            all_args = [self._make_ref(receiver_expr)] + ref_args
+        
+        result = f"{actual_func_name}({', '.join(all_args)})"
+        
+        # Apply cast if stem resolution found a different suffix
+        if cast_target:
+            result = f"{result}.as_type(TargetType::{cast_target})"
+        
+        return result
 
     def _generate_method_chain(self, mchain: Any) -> str:
         """Generate method chain: a.b().c(d) -> c(&a, d)."""

@@ -481,11 +481,12 @@ def test_method_decl_missing_parens_is_invalid(parser):
         parser.parse(src)
 
 
-def test_lambda_decl_at_toplevel_is_invalid(parser):
-    # lambda_decl is only valid as an item/expression, not as sub_principio
+def test_lambda_decl_at_toplevel_is_expression(parser):
+    # With the new grammar, a bare lambda expression is a valid statement
+    # (like any expression can be used as a statement)
     src = "des(x){ redeo x }\n"
-    with pytest.raises(FailedParse):
-        parser.parse(src)  # using principio rule
+    ast = parser.parse(src)  # Should parse as an expression statement
+    assert ast is not None
 
 
 def test_call_missing_closing_paren_is_invalid(parser):
