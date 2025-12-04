@@ -227,7 +227,7 @@ des _conuum(auum, buum, xo) {
 }
 
 # genorduum - Merge sort a list using comparison function xo
-# Takes a list and a binary comparison lambda a -> ium (value to sort on)
+# Takes a list and a key function that extracts the sort key from each element
 # Returns a new sorted list
 # Name ends in -uum (returns list_any)
 des genorduum(luum, xo) {

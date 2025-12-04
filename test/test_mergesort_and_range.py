@@ -78,12 +78,17 @@ ago_stdlib = {{ path = "{STDLIB_DIR}" }}
 
 
 class TestMergeSort:
-    """Tests for genorduum merge sort function."""
+    """Tests for genorduum merge sort function.
+    
+    The sort function takes a key function that extracts the value to sort on.
+    For ascending order, use `des { id }` (identity function).
+    For descending order, use `des { 0 - id }` (negate to reverse order).
+    """
 
     def test_sort_ascending_basic(self):
         """Sort a simple list in ascending order."""
         output = compile_and_run(
-            '[3, 1, 4, 1, 5, 9, 2, 6].genorduum(des (aium, bium) { aium < bium }).mutatuum(des {ides}).iunges(",").dici()',
+            '[3, 1, 4, 1, 5, 9, 2, 6].genorduum(des { id }).mutatuum(des {ides}).iunges(",").dici()',
             include_prelude=True
         )
         assert output.strip() == "1,1,2,3,4,5,6,9"
@@ -91,7 +96,7 @@ class TestMergeSort:
     def test_sort_descending_basic(self):
         """Sort a simple list in descending order."""
         output = compile_and_run(
-            '[3, 1, 4, 1, 5, 9, 2, 6].genorduum(des (aium, bium) { aium > bium }).mutatuum(des {ides}).iunges(",").dici()',
+            '[3, 1, 4, 1, 5, 9, 2, 6].genorduum(des { 0 - id }).mutatuum(des {ides}).iunges(",").dici()',
             include_prelude=True
         )
         assert output.strip() == "9,6,5,4,3,2,1,1"
@@ -99,7 +104,7 @@ class TestMergeSort:
     def test_sort_already_sorted(self):
         """Sort an already sorted list."""
         output = compile_and_run(
-            '[1, 2, 3, 4, 5].genorduum(des (aium, bium) { aium < bium }).mutatuum(des {ides}).iunges(",").dici()',
+            '[1, 2, 3, 4, 5].genorduum(des { id }).mutatuum(des {ides}).iunges(",").dici()',
             include_prelude=True
         )
         assert output.strip() == "1,2,3,4,5"
@@ -107,7 +112,7 @@ class TestMergeSort:
     def test_sort_reverse_sorted(self):
         """Sort a reverse-sorted list."""
         output = compile_and_run(
-            '[5, 4, 3, 2, 1].genorduum(des (aium, bium) { aium < bium }).mutatuum(des {ides}).iunges(",").dici()',
+            '[5, 4, 3, 2, 1].genorduum(des { id }).mutatuum(des {ides}).iunges(",").dici()',
             include_prelude=True
         )
         assert output.strip() == "1,2,3,4,5"
@@ -115,7 +120,7 @@ class TestMergeSort:
     def test_sort_single_element(self):
         """Sort a single element list."""
         output = compile_and_run(
-            '[42].genorduum(des (aium, bium) { aium < bium }).mutatuum(des {ides}).iunges(",").dici()',
+            '[42].genorduum(des { id }).mutatuum(des {ides}).iunges(",").dici()',
             include_prelude=True
         )
         assert output.strip() == "42"
@@ -123,7 +128,7 @@ class TestMergeSort:
     def test_sort_empty_list(self):
         """Sort an empty list."""
         output = compile_and_run(
-            '[].genorduum(des (aium, bium) { aium < bium }).a().es().dici()',
+            '[].genorduum(des { id }).a().es().dici()',
             include_prelude=True
         )
         assert output.strip() == "0"
@@ -131,7 +136,7 @@ class TestMergeSort:
     def test_sort_two_elements(self):
         """Sort a two element list."""
         output = compile_and_run(
-            '[2, 1].genorduum(des (aium, bium) { aium < bium }).mutatuum(des {ides}).iunges(",").dici()',
+            '[2, 1].genorduum(des { id }).mutatuum(des {ides}).iunges(",").dici()',
             include_prelude=True
         )
         assert output.strip() == "1,2"
@@ -139,7 +144,7 @@ class TestMergeSort:
     def test_sort_negative_numbers(self):
         """Sort a list with negative numbers."""
         output = compile_and_run(
-            '[3, -1, 4, -1, 5, -9, 2, -6].genorduum(des (aium, bium) { aium < bium }).mutatuum(des {ides}).iunges(",").dici()',
+            '[3, -1, 4, -1, 5, -9, 2, -6].genorduum(des { id }).mutatuum(des {ides}).iunges(",").dici()',
             include_prelude=True
         )
         assert output.strip() == "-9,-6,-1,-1,2,3,4,5"
@@ -147,7 +152,7 @@ class TestMergeSort:
     def test_sort_all_same(self):
         """Sort a list where all elements are the same."""
         output = compile_and_run(
-            '[5, 5, 5, 5, 5].genorduum(des (aium, bium) { aium < bium }).mutatuum(des {ides}).iunges(",").dici()',
+            '[5, 5, 5, 5, 5].genorduum(des { id }).mutatuum(des {ides}).iunges(",").dici()',
             include_prelude=True
         )
         assert output.strip() == "5,5,5,5,5"
@@ -155,7 +160,7 @@ class TestMergeSort:
     def test_sort_large_list(self):
         """Sort a larger list to verify recursion works correctly."""
         output = compile_and_run(
-            '[1,6,4,2,6,-9,-4,2,1,4,6,89,9,6,4,2,112,3456,78,7654,2,3,456].genorduum(des (aium, bium) { aium < bium }).mutatuum(des {ides}).iunges(",").dici()',
+            '[1,6,4,2,6,-9,-4,2,1,4,6,89,9,6,4,2,112,3456,78,7654,2,3,456].genorduum(des { id }).mutatuum(des {ides}).iunges(",").dici()',
             include_prelude=True
         )
         expected = "-9,-4,1,1,2,2,2,2,3,4,4,4,6,6,6,6,9,78,89,112,456,3456,7654"
@@ -164,7 +169,7 @@ class TestMergeSort:
     def test_sort_with_zero(self):
         """Sort a list containing zero."""
         output = compile_and_run(
-            '[3, 0, -2, 5, 0, -1].genorduum(des (aium, bium) { aium < bium }).mutatuum(des {ides}).iunges(",").dici()',
+            '[3, 0, -2, 5, 0, -1].genorduum(des { id }).mutatuum(des {ides}).iunges(",").dici()',
             include_prelude=True
         )
         assert output.strip() == "-2,-1,0,0,3,5"
@@ -172,7 +177,7 @@ class TestMergeSort:
     def test_sort_preserves_length(self):
         """Verify sort preserves list length."""
         output = compile_and_run(
-            '[9, 1, 8, 2, 7, 3, 6, 4, 5].genorduum(des (aium, bium) { aium < bium }).a().es().dici()',
+            '[9, 1, 8, 2, 7, 3, 6, 4, 5].genorduum(des { id }).a().es().dici()',
             include_prelude=True
         )
         assert output.strip() == "9"
@@ -180,7 +185,7 @@ class TestMergeSort:
     def test_sort_then_min(self):
         """Sort then get minimum (should be first element)."""
         output = compile_and_run(
-            '[5, 3, 8, 1, 9].genorduum(des (aium, bium) { aium < bium }).minium().es().dici()',
+            '[5, 3, 8, 1, 9].genorduum(des { id }).minium().es().dici()',
             include_prelude=True
         )
         assert output.strip() == "1"
@@ -188,7 +193,7 @@ class TestMergeSort:
     def test_sort_then_max(self):
         """Sort then get maximum (should be last element)."""
         output = compile_and_run(
-            '[5, 3, 8, 1, 9].genorduum(des (aium, bium) { aium < bium }).maxium().es().dici()',
+            '[5, 3, 8, 1, 9].genorduum(des { id }).maxium().es().dici()',
             include_prelude=True
         )
         assert output.strip() == "9"
@@ -317,7 +322,7 @@ laem.liquum(des { id % II == 0 }).mutatuum(des {ides}).iunges(",").dici()
 le := (V..I)
 # This range is empty since start > end, but let's test a valid one
 re := (I..V)
-raem.genorduum(des (aium, bium) { aium > bium }).mutatuum(des {ides}).iunges(",").dici()
+raem.genorduum(des { 0 - id }).mutatuum(des {ides}).iunges(",").dici()
 """, include_prelude=True)
         # Sort 1..5 descending = [5,4,3,2,1]
         assert output.strip() == "5,4,3,2,1"

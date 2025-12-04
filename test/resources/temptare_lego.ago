@@ -1,19 +1,22 @@
-des legi() {
+des legies() {
     xae := 3.14
+    redeo "hello"
 }
 
-des tondei(xes) {
-    legi()
+des tondes(xes) {
+    legies()
+    redeo xes
 }
 
-des decidi(xes, yes) {
-    tondei(xes)
+des deciderum(xes, yes) {
+    tondes(xes)
+    redeo [xes, yes]
 }
 
 des sati() {
     xae := 4.2
     yae := -3.9
-    werum := legi().tondei().decidi(", ")
+    werum := deciderum("a", "b")
     xa := xa & ya
 }
 

@@ -1,13 +1,16 @@
-des legi() {
+des legies() {
     xae := 3.14
+    redeo "hello"
 }
 
-des tondei(xes) {
-    legi()
+des tondes(xes) {
+    legies()
+    redeo xes
 }
 
-des decidi(xes, yes) {
-    tondei(xes)
+des deciderum(xes, yes) {
+    tondes(xes)
+    redeo [xes, yes]
 }
 
 
@@ -17,12 +20,12 @@ des sates() {
     yae = 1.3
     ya := ya
     listaem := [1, 2, 3]
-    tabu := {"key":3}
+    tabu := {"keya":3}
 
-    legi()
-    werum := legi().tondei().decidi(", ")
+    legies()
+    werum := deciderum("a", "b")
 
-    pro ies in werum[0 .< 5] {
+    pro ies in werum[0 .< 2] {
         si (ia ^ I) > 0 {
             omitto
         }

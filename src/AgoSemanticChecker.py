@@ -733,8 +733,14 @@ class AgoSemanticChecker:
         base = d.get("base")
         ops = d.get("ops", [])
         
-        # Get base type
-        current_type = self.infer_expr_type(base)
+        # Check if base is a struct literal (list starting with '{')
+        if isinstance(base, (list, tuple)) and len(base) >= 2 and base[0] == "{":
+            # This is a struct literal - validate and return struct type
+            self._validate_struct_from_list(base, parent_node)
+            current_type = "struct"
+        else:
+            # Get base type
+            current_type = self.infer_expr_type(base)
         
         # Process each postfix operation
         if not isinstance(ops, (list, tuple)):
@@ -813,12 +819,22 @@ class AgoSemanticChecker:
                         else:
                             current_type = "Any"
             
-            # Handle field access: field:(PERIOD name:identifier)
-            elif op_d.get("field") is not None:
-                field_d = to_dict(op_d["field"])
-                field_name = field_d.get("name")
-                if field_name and current_type == "struct":
-                    current_type = "Any"  # Struct field access returns Any
+            # Handle field access: field:(PERIOD name:identifier) or strfield:(PERIOD name:STR_LIT)
+            # Grammar creates both 'name' and 'field'/'strfield' keys at the same level
+            elif op_d.get("field") is not None or op_d.get("strfield") is not None or op_d.get("name") is not None:
+                # 'name' key has the identifier or string literal directly
+                field_name = op_d.get("name")
+                if field_name:
+                    field_name_str = str(field_name)
+                    # If it's a string literal, strip quotes
+                    if field_name_str.startswith('"') and field_name_str.endswith('"'):
+                        field_name_str = field_name_str[1:-1]
+                    # Infer type from field name suffix
+                    field_type = infer_type_from_name(field_name_str)
+                    if field_type:
+                        current_type = field_type
+                    else:
+                        current_type = "Any"  # Unknown field type
         
         return current_type
 
@@ -1224,6 +1240,49 @@ class AgoSemanticChecker:
                 parent_node,
             )
 
+    def _validate_struct_from_list(self, struct_list: Any, parent_node: Any) -> None:
+        """Validate struct literal from new AST format ['{', content, '}']."""
+        if not isinstance(struct_list, (list, tuple)):
+            return
+        
+        # Find the content between { and }
+        for item in struct_list:
+            if item in ("{", "}", "\n") or item is None:
+                continue
+            if isinstance(item, (list, tuple)):
+                self._validate_struct_content_list(item, parent_node)
+            elif hasattr(item, "parseinfo") or isinstance(item, dict):
+                self._validate_mapcontent(item, parent_node)
+
+    def _validate_struct_content_list(self, content: Any, parent_node: Any) -> None:
+        """Validate struct content from list format ['key', ':', value, ...]."""
+        if not isinstance(content, (list, tuple)):
+            return
+        
+        i = 0
+        while i < len(content):
+            item = content[i]
+            
+            # Skip newlines and commas
+            if item in ("\n", ",", "\r\n") or item is None:
+                i += 1
+                continue
+            
+            # Look for key : value pattern
+            if isinstance(item, str) and item not in ("{", "}", ":", ",", "\n"):
+                # This might be a key
+                if i + 2 < len(content) and content[i + 1] == ":":
+                    key = item
+                    value = content[i + 2]
+                    self._validate_struct_key(key, value, parent_node)
+                    i += 3
+                    continue
+            elif isinstance(item, (list, tuple)):
+                # Nested list - recurse
+                self._validate_struct_content_list(item, parent_node)
+            
+            i += 1
+
     def _infer_ternary_type(self, d: dict, node: Any) -> str:
         """Infer result type of a ternary operation (condition ? true_val : false_val)."""
         cond_type = self.infer_expr_type(d.get("condition"))
@@ -1614,11 +1673,21 @@ class AgoSemanticChecker:
         """Handle lambda declaration and return a Symbol representing it."""
         d = to_dict(ast)
 
-        # Unwrap 'value' wrapper if present
-        if "value" in d and d.get("value") is not None:
+        # Unwrap 'value' wrapper if present (can be nested)
+        while "value" in d and d.get("value") is not None:
             inner = d["value"]
             if isinstance(inner, dict) or hasattr(inner, "parseinfo"):
                 d = to_dict(inner)
+            else:
+                break
+
+        # Check for new structure: lambda is in 'base'
+        if "base" in d and d.get("base") is not None:
+            base = d["base"]
+            if isinstance(base, dict) or hasattr(base, "parseinfo"):
+                base_d = to_dict(base)
+                if "body" in base_d:
+                    d = base_d
 
         # Parse parameters
         param_symbols = self._parse_params(d.get("params"))
@@ -1708,11 +1777,21 @@ class AgoSemanticChecker:
             return False
         d = to_dict(node)
 
-        # Unwrap 'value' wrapper if present
-        if "value" in d and d.get("value") is not None:
+        # Unwrap 'value' wrapper if present (can be nested)
+        while "value" in d and d.get("value") is not None:
             inner = d["value"]
             if isinstance(inner, dict) or hasattr(inner, "parseinfo"):
                 d = to_dict(inner)
+            else:
+                break
+
+        # Check for new structure: base contains the lambda
+        if "base" in d and d.get("base") is not None:
+            base = d["base"]
+            if isinstance(base, dict) or hasattr(base, "parseinfo"):
+                base_d = to_dict(base)
+                if "body" in base_d and "name" not in base_d:
+                    return True
 
         # Lambda has 'body' but no 'name' (unlike method_decl)
         return "body" in d and "name" not in d
@@ -2014,7 +2093,13 @@ class AgoSemanticChecker:
         """Handle call statement."""
         d = to_dict(call_node)
 
-        # call_stmt structure: {recv, first, chain}
+        # New call_stmt structure: {expr: {base: ..., ops: ...}}
+        expr = d.get("expr")
+        if expr:
+            self._validate_call_expr(expr, call_node)
+            return
+
+        # Old call_stmt structure: {recv, first, chain}
         recv = d.get("recv")
         first = d.get("first")
 
@@ -2078,6 +2163,89 @@ class AgoSemanticChecker:
                         f"'{func_name}' is not callable (type '{sym.type_t}')",
                         call_node,
                     )
+
+    def _validate_call_expr(self, expr_node: Any, parent_node: Any):
+        """Validate a call expression in the new AST structure (base + ops)."""
+        d = to_dict(expr_node)
+        base = d.get("base")
+        ops = d.get("ops", [])
+        
+        if not base:
+            return
+        
+        base_d = to_dict(base) if not isinstance(base, str) else {}
+        
+        # If base is a function call, validate it
+        call_info = base_d.get("call")
+        if call_info:
+            call_d = to_dict(call_info)
+            func_name = call_d.get("func")
+            args_node = call_d.get("args")
+            
+            if func_name:
+                func_name = str(func_name)
+                
+                # Look up the function
+                sym, cast_type = self._find_function_by_stem(func_name)
+                
+                if sym is None:
+                    # Check if there's a non-callable symbol with this exact name
+                    exact_sym = self.sym_table.get_symbol(func_name)
+                    if exact_sym and exact_sym.category != "func" and exact_sym.type_t != "function":
+                        self.report_error(
+                            f"'{func_name}' is not callable (type '{exact_sym.type_t}')",
+                            parent_node,
+                        )
+                    else:
+                        self.report_error(
+                            f"Use of undeclared identifier '{func_name}'", parent_node
+                        )
+                elif sym.category == "func":
+                    # Validate arguments
+                    self._validate_call_args(call_info, sym, receiver=None)
+                elif sym.type_t == "function":
+                    # Variable holding a lambda - validate call args
+                    self._validate_call_args(call_info, sym, receiver=None)
+                else:
+                    self.report_error(
+                        f"'{func_name}' is not callable (type '{sym.type_t}')",
+                        parent_node,
+                    )
+        else:
+            # Base is not a direct call, just infer its type (validates references)
+            self.infer_expr_type(base)
+        
+        # Validate ops (method calls, indexing, etc.)
+        if not isinstance(ops, (list, tuple)):
+            ops = [ops] if ops else []
+        
+        for op in ops:
+            if op is None:
+                continue
+            
+            op_d = to_dict(op) if not isinstance(op, str) else {}
+            
+            # Handle method call in ops
+            call_in_op = op_d.get("call")
+            if call_in_op:
+                call_op_d = to_dict(call_in_op)
+                method_name = call_op_d.get("func")
+                if method_name:
+                    method_name_str = str(method_name)
+                    # Skip type casts
+                    if method_name_str not in ENDING_TO_TYPE:
+                        sym, cast_type = self._find_function_by_stem(method_name_str)
+                        if sym is None:
+                            exact_sym = self.sym_table.get_symbol(method_name_str)
+                            if exact_sym and exact_sym.category != "func" and exact_sym.type_t != "function":
+                                self.report_error(
+                                    f"'{method_name_str}' is not callable (type '{exact_sym.type_t}')",
+                                    parent_node,
+                                )
+                            else:
+                                self.report_error(
+                                    f"Use of undeclared identifier '{method_name_str}'", parent_node
+                                )
 
     def _validate_call_chain(self, chain, current_type: str, parent_node: Any):
         """Validate the rest of a method call chain after the first call."""
