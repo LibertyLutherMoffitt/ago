@@ -74,6 +74,7 @@ des digitam(ses) {
         pro zes in digitserum {
             si xes == zes {
                 vexillam = verum
+                frio
             }
         }
         si non vexillam {
@@ -83,8 +84,9 @@ des digitam(ses) {
     redeo verum
 }
 
-# iunges - join a list of strings with "
-# name ends in -es (returns string)
+# iunges - join a list of strings with a separator
+# Takes a StringList and separator string, returns joined string
+# Name ends in -es (returns string)
 des iunges(lerum, ses) {
     res := lerum[0]
     vexillam := falsus
@@ -101,16 +103,15 @@ des iunges(lerum, ses) {
 # liquum - Filter a list, returning elements where predicate returns true
 # Takes a list and a predicate lambda, returns a new list with matching elements
 # Name ends in -uum (returns list_any)
+# Optimized: builds new list O(n) instead of in-place removal O(n²)
 des liquum(luum, xo) {
-    ia := 0
-    dum ia < la {
-        si non xo(luum[ia]) {
-            luum.removium(ia)
-        } aluid {
-            ia = ia + 1
+    ruum := []
+    pro lium in luum {
+        si xo(lium) {
+            ruum.inseri(ra, lium)
         }
     }
-    redeo luum
+    redeo ruum
 }
 
 # plicium - Fold/reduce a list using a binary function
@@ -150,7 +151,9 @@ des maxium(luum) {
     redeo luum.plicium(des (aium, bium) {aium > bium ? aium : bium})
 }
 
-# finderum - Returns the string split on the 1 character seperator
+# finderum - Split a string on a single character separator
+# Takes a string and separator, returns list of substrings
+# Name ends in -erum (returns StringList)
 des finderum(les, ses) {
     rerum := []
     ba := 0
@@ -170,14 +173,23 @@ des finderum(les, ses) {
     redeo rerum
 }
 
+# sumium - Sum all elements of a numeric list
+# Returns the sum of all elements, or inanis for empty lists
+# Name ends in -ium (returns int/float/any)
 des sumium(luum) {
     redeo luum.plicium(des (aium, bium) {aium + bium})
 }
 
+# prodium - Product of all elements of a numeric list
+# Returns the product of all elements, or inanis for empty lists
+# Name ends in -ium (returns int/float/any)
 des prodium(luum) {
     redeo luum.plicium(des (aium, bium) {aium * bium})
 }
 
+# invena - Find the index of an element in a list
+# Returns the first index where the element is found, or inanis if not found
+# Name ends in -a (returns int)
 des invena(luum, xium) {
     pro ia in le {
         si luum[ia] == xium {

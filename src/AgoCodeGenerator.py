@@ -1219,7 +1219,17 @@ class AgoCodeGenerator:
         self.emit(f"for {iterator} in into_iter(&{iterable_expr}) {{")
         self.indent_level += 1
         self.declared_vars.add(iterator)
+        
+        # Track this as a loop iterator (needs cloning when passed to lambdas)
+        if not hasattr(self, "_loop_iterators"):
+            self._loop_iterators = set()
+        self._loop_iterators.add(iterator)
+        
         self._process_block(d.get("body"))
+        
+        # Remove from loop iterators
+        self._loop_iterators.discard(iterator)
+        
         self.indent_level -= 1
         self.emit("}")
 
@@ -1825,7 +1835,15 @@ class AgoCodeGenerator:
             # Check if this is a lambda variable (ends with 'o' and is a declared var)
             if func_name in self.declared_vars:
                 # Lambda call - pass args as slice
-                args_str = ", ".join(args)
+                # Clone args that are loop iterators (they'd be moved into the array otherwise)
+                loop_iters = getattr(self, "_loop_iterators", set())
+                cloned_args = []
+                for arg in args:
+                    if arg in loop_iters:
+                        cloned_args.append(f"{arg}.clone()")
+                    else:
+                        cloned_args.append(arg)
+                args_str = ", ".join(cloned_args)
                 return f"{func_name}(&[{args_str}])"
 
             # Check for stem-based function call (e.g., aae() to call aa() and cast to float)

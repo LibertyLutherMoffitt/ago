@@ -12,7 +12,7 @@
 
       perSystem = {pkgs, self', ...}: let
         # Python environment with dependencies
-        pythonEnv = pkgs.python3.withPackages (p: with p; [tatsu pytest tkinter]);
+        pythonEnv = pkgs.python3.withPackages (p: with p; [tatsu pytest pytest-xdist tkinter]);
         
         # Version
         version = "0.1.0";

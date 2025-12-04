@@ -4,6 +4,8 @@ Tests compile Ago code to Rust and verify execution output.
 """
 
 import subprocess
+import tempfile
+import os
 from pathlib import Path
 
 from src.AgoParser import AgoParser
@@ -12,13 +14,20 @@ from src.AgoCodeGenerator import generate
 
 # Paths
 SCRIPT_DIR = Path(__file__).parent.parent.resolve()
-OUTPUT_DIR = SCRIPT_DIR / "output"
-SRC_DIR = OUTPUT_DIR / "src"
-MAIN_RS = SRC_DIR / "main.rs"
+STDLIB_DIR = SCRIPT_DIR / "src" / "rust"
+PRELUDE_FILE = SCRIPT_DIR / "stdlib" / "prelude.ago"
 
 
-def compile_and_run(ago_source: str) -> str:
-    """Compile Ago source to Rust and run it, returning stdout."""
+def compile_and_run(ago_source: str, include_prelude: bool = False) -> str:
+    """Compile Ago source to Rust and run it, returning stdout.
+    
+    Uses a unique temp directory for each invocation to support parallel testing.
+    """
+    # Optionally prepend the prelude
+    if include_prelude and PRELUDE_FILE.exists():
+        prelude = PRELUDE_FILE.read_text() + "\n"
+        ago_source = prelude + ago_source
+
     # Parse and check
     parser = AgoParser()
     semantics = AgoSemanticChecker()
@@ -30,25 +39,42 @@ def compile_and_run(ago_source: str) -> str:
     # Generate Rust
     rust_code = generate(ast)
 
-    # Write to file
-    SRC_DIR.mkdir(parents=True, exist_ok=True)
-    MAIN_RS.write_text(rust_code)
+    # Use a unique temp directory for this test
+    with tempfile.TemporaryDirectory(prefix="ago_test_") as tmpdir:
+        output_dir = Path(tmpdir)
+        src_dir = output_dir / "src"
+        src_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Write main.rs
+        main_rs = src_dir / "main.rs"
+        main_rs.write_text(rust_code)
+        
+        # Write Cargo.toml pointing to the stdlib
+        cargo_toml = output_dir / "Cargo.toml"
+        cargo_toml.write_text(f'''[package]
+name = "ago_program"
+version = "0.1.0"
+edition = "2021"
 
-    # Compile
-    result = subprocess.run(
-        ["cargo", "build", "--release"],
-        cwd=OUTPUT_DIR,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"Compilation failed:\n{result.stderr}")
+[dependencies]
+ago_stdlib = {{ path = "{STDLIB_DIR}" }}
+''')
 
-    # Run
-    exe_path = OUTPUT_DIR / "target" / "release" / "ago_program"
-    result = subprocess.run([str(exe_path)], capture_output=True, text=True)
+        # Compile
+        result = subprocess.run(
+            ["cargo", "build", "--release"],
+            cwd=output_dir,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"Compilation failed:\n{result.stderr}")
 
-    return result.stdout
+        # Run
+        exe_path = output_dir / "target" / "release" / "ago_program"
+        result = subprocess.run([str(exe_path)], capture_output=True, text=True)
+
+        return result.stdout
 
 
 # =============================================================================
@@ -1161,3 +1187,298 @@ des numbera() {
 dici(numberes())
 """)
         assert output.strip() == "99"
+
+
+class TestStdlibPrelude:
+    """Tests for all stdlib/prelude.ago functions."""
+
+    # ===== abbium (absolute value) =====
+    def test_abbium_positive(self):
+        """abbium returns positive number unchanged."""
+        output = compile_and_run('abbium(42).es().dici()', include_prelude=True)
+        assert output.strip() == "42"
+
+    def test_abbium_negative(self):
+        """abbium returns absolute value of negative number."""
+        output = compile_and_run('abbium(-42).es().dici()', include_prelude=True)
+        assert output.strip() == "42"
+
+    def test_abbium_zero(self):
+        """abbium returns zero unchanged."""
+        output = compile_and_run('abbium(0).es().dici()', include_prelude=True)
+        assert output.strip() == "0"
+
+    # ===== appenduum (append to list) =====
+    def test_appenduum_basic(self):
+        """appenduum appends element to list."""
+        output = compile_and_run('[1, 2, 3].appenduum(4).a().es().dici()', include_prelude=True)
+        assert output.strip() == "4"
+
+    def test_appenduum_empty_list(self):
+        """appenduum works on empty list."""
+        output = compile_and_run('[].appenduum(1).a().es().dici()', include_prelude=True)
+        assert output.strip() == "1"
+
+    def test_appenduum_string_list(self):
+        """appenduum works with string lists."""
+        output = compile_and_run('["a", "b"].appenduum("c").iunges("").dici()', include_prelude=True)
+        assert output.strip() == "abc"
+
+    # ===== vicissuum (reverse list) =====
+    def test_vicissuum_basic(self):
+        """vicissuum reverses a list."""
+        output = compile_and_run('[1, 2, 3].vicissuum().mutatuum(des {ides}).iunges(",").dici()', include_prelude=True)
+        assert output.strip() == "3,2,1"
+
+    def test_vicissuum_empty(self):
+        """vicissuum handles empty list."""
+        output = compile_and_run('[].vicissuum().a().es().dici()', include_prelude=True)
+        assert output.strip() == "0"
+
+    def test_vicissuum_single(self):
+        """vicissuum handles single element list."""
+        output = compile_and_run('[42].vicissuum().sumium().es().dici()', include_prelude=True)
+        assert output.strip() == "42"
+
+    # ===== spoliares (strip whitespace) =====
+    def test_spoliares_leading(self):
+        """spoliares removes leading whitespace."""
+        output = compile_and_run('"   hello".spoliares().dici()', include_prelude=True)
+        assert output.strip() == "hello"
+
+    def test_spoliares_trailing(self):
+        """spoliares removes trailing whitespace."""
+        output = compile_and_run('"hello   ".spoliares().dici()', include_prelude=True)
+        assert output.strip() == "hello"
+
+    def test_spoliares_both(self):
+        """spoliares removes both leading and trailing whitespace."""
+        output = compile_and_run('"  hello  ".spoliares().dici()', include_prelude=True)
+        assert output.strip() == "hello"
+
+    def test_spoliares_tabs_newlines(self):
+        """spoliares removes tabs and newlines."""
+        output = compile_and_run('"\\t\\nhello\\n\\t".spoliares().dici()', include_prelude=True)
+        assert output.strip() == "hello"
+
+    def test_spoliares_no_whitespace(self):
+        """spoliares handles string with no whitespace."""
+        output = compile_and_run('"hello".spoliares().dici()', include_prelude=True)
+        assert output.strip() == "hello"
+
+    # ===== digitam (is all digits) =====
+    def test_digitam_all_digits(self):
+        """digitam returns true for all digits."""
+        output = compile_and_run('"12345".digitam().es().dici()', include_prelude=True)
+        assert output.strip() == "true"
+
+    def test_digitam_with_letters(self):
+        """digitam returns false if letters present."""
+        output = compile_and_run('"123a45".digitam().es().dici()', include_prelude=True)
+        assert output.strip() == "false"
+
+    def test_digitam_empty(self):
+        """digitam returns true for empty string."""
+        output = compile_and_run('"".digitam().es().dici()', include_prelude=True)
+        assert output.strip() == "true"
+
+    def test_digitam_with_space(self):
+        """digitam returns false if space present."""
+        output = compile_and_run('"123 45".digitam().es().dici()', include_prelude=True)
+        assert output.strip() == "false"
+
+    # ===== iunges (join list with separator) =====
+    def test_iunges_basic(self):
+        """iunges joins list with separator."""
+        output = compile_and_run('["a", "b", "c"].iunges("-").dici()', include_prelude=True)
+        assert output.strip() == "a-b-c"
+
+    def test_iunges_empty_separator(self):
+        """iunges joins with empty separator."""
+        output = compile_and_run('["a", "b", "c"].iunges("").dici()', include_prelude=True)
+        assert output.strip() == "abc"
+
+    def test_iunges_single_element(self):
+        """iunges handles single element list."""
+        output = compile_and_run('["hello"].iunges(",").dici()', include_prelude=True)
+        assert output.strip() == "hello"
+
+    def test_iunges_multi_char_separator(self):
+        """iunges works with multi-char separator."""
+        output = compile_and_run('["a", "b", "c"].iunges(" - ").dici()', include_prelude=True)
+        assert output.strip() == "a - b - c"
+
+    # ===== liquum (filter list) =====
+    def test_liquum_filter_evens(self):
+        """liquum filters list keeping elements where predicate is true."""
+        output = compile_and_run('[1, 2, 3, 4, 5, 6].liquum(des {id % 2 == 0}).sumium().es().dici()', include_prelude=True)
+        assert output.strip() == "12"  # 2+4+6
+
+    def test_liquum_filter_all(self):
+        """liquum filters out all elements."""
+        output = compile_and_run('[1, 2, 3].liquum(des {id > 10}).a().es().dici()', include_prelude=True)
+        assert output.strip() == "0"
+
+    def test_liquum_filter_none(self):
+        """liquum keeps all elements when predicate always true."""
+        output = compile_and_run('[1, 2, 3].liquum(des {id > 0}).a().es().dici()', include_prelude=True)
+        assert output.strip() == "3"
+
+    # ===== plicium (fold/reduce) =====
+    def test_plicium_sum(self):
+        """plicium sums list elements."""
+        output = compile_and_run('[1, 2, 3, 4].plicium(des (aium, bium) {aium + bium}).es().dici()', include_prelude=True)
+        assert output.strip() == "10"
+
+    def test_plicium_product(self):
+        """plicium multiplies list elements."""
+        output = compile_and_run('[1, 2, 3, 4].plicium(des (aium, bium) {aium * bium}).es().dici()', include_prelude=True)
+        assert output.strip() == "24"
+
+    def test_plicium_empty_list(self):
+        """plicium returns inanis for empty list."""
+        output = compile_and_run("""
+xa := [].plicium(des (aium, bium) {aium + bium})
+si xa == inanis { dici("null") } aluid { dici("not null") }
+""", include_prelude=True)
+        assert output.strip() == "null"
+
+    def test_plicium_single_element(self):
+        """plicium returns single element unchanged."""
+        output = compile_and_run('[42].plicium(des (aium, bium) {aium + bium}).es().dici()', include_prelude=True)
+        assert output.strip() == "42"
+
+    # ===== mutatuum (map list) =====
+    def test_mutatuum_double(self):
+        """mutatuum doubles all elements."""
+        output = compile_and_run('[1, 2, 3].mutatuum(des {id * 2}).sumium().es().dici()', include_prelude=True)
+        assert output.strip() == "12"  # 2+4+6
+
+    def test_mutatuum_square(self):
+        """mutatuum squares all elements."""
+        output = compile_and_run('[1, 2, 3, 4].mutatuum(des {id * id}).sumium().es().dici()', include_prelude=True)
+        assert output.strip() == "30"  # 1+4+9+16
+
+    def test_mutatuum_empty_list(self):
+        """mutatuum handles empty list."""
+        output = compile_and_run('[].mutatuum(des {id * 2}).a().es().dici()', include_prelude=True)
+        assert output.strip() == "0"
+
+    # ===== minium (minimum element) =====
+    def test_minium_basic(self):
+        """minium returns minimum element."""
+        output = compile_and_run('[3, 1, 4, 1, 5].minium().es().dici()', include_prelude=True)
+        assert output.strip() == "1"
+
+    def test_minium_negative(self):
+        """minium works with negative numbers."""
+        output = compile_and_run('[3, -5, 2, -1].minium().es().dici()', include_prelude=True)
+        assert output.strip() == "-5"
+
+    def test_minium_single(self):
+        """minium returns single element."""
+        output = compile_and_run('[42].minium().es().dici()', include_prelude=True)
+        assert output.strip() == "42"
+
+    # ===== maxium (maximum element) =====
+    def test_maxium_basic(self):
+        """maxium returns maximum element."""
+        output = compile_and_run('[3, 1, 4, 1, 5].maxium().es().dici()', include_prelude=True)
+        assert output.strip() == "5"
+
+    def test_maxium_negative(self):
+        """maxium works with negative numbers."""
+        output = compile_and_run('[-3, -5, -2, -1].maxium().es().dici()', include_prelude=True)
+        assert output.strip() == "-1"
+
+    def test_maxium_single(self):
+        """maxium returns single element."""
+        output = compile_and_run('[42].maxium().es().dici()', include_prelude=True)
+        assert output.strip() == "42"
+
+    # ===== finderum (split string) =====
+    def test_finderum_basic(self):
+        """finderum splits string on separator."""
+        output = compile_and_run('"a,b,c".finderum(",").iunges("-").dici()', include_prelude=True)
+        assert output.strip() == "a-b-c"
+
+    def test_finderum_no_separator(self):
+        """finderum returns single element when separator not found."""
+        output = compile_and_run('"hello".finderum(",").a().es().dici()', include_prelude=True)
+        assert output.strip() == "1"
+
+    def test_finderum_multiple_separators(self):
+        """finderum handles multiple consecutive separators."""
+        output = compile_and_run('"a,,b".finderum(",").a().es().dici()', include_prelude=True)
+        assert output.strip() == "2"
+
+    def test_finderum_newline(self):
+        """finderum splits on newline."""
+        output = compile_and_run('"line1\\nline2\\nline3".finderum("\\n").a().es().dici()', include_prelude=True)
+        assert output.strip() == "3"
+
+    # ===== sumium (sum of list) =====
+    def test_sumium_basic(self):
+        """sumium returns sum of list elements."""
+        output = compile_and_run('[1, 2, 3, 4, 5].sumium().es().dici()', include_prelude=True)
+        assert output.strip() == "15"
+
+    def test_sumium_negative(self):
+        """sumium handles negative numbers."""
+        output = compile_and_run('[1, -2, 3, -4].sumium().es().dici()', include_prelude=True)
+        assert output.strip() == "-2"
+
+    def test_sumium_single(self):
+        """sumium returns single element."""
+        output = compile_and_run('[42].sumium().es().dici()', include_prelude=True)
+        assert output.strip() == "42"
+
+    def test_sumium_floats(self):
+        """sumium works with floats."""
+        output = compile_and_run('[1.5, 2.5, 3.0].sumium().es().dici()', include_prelude=True)
+        assert "7" in output.strip()
+
+    # ===== prodium (product of list) =====
+    def test_prodium_basic(self):
+        """prodium returns product of list elements."""
+        output = compile_and_run('[1, 2, 3, 4].prodium().es().dici()', include_prelude=True)
+        assert output.strip() == "24"
+
+    def test_prodium_with_zero(self):
+        """prodium returns zero if any element is zero."""
+        output = compile_and_run('[1, 2, 0, 4].prodium().es().dici()', include_prelude=True)
+        assert output.strip() == "0"
+
+    def test_prodium_negative(self):
+        """prodium handles negative numbers."""
+        output = compile_and_run('[2, -3, 4].prodium().es().dici()', include_prelude=True)
+        assert output.strip() == "-24"
+
+    def test_prodium_single(self):
+        """prodium returns single element."""
+        output = compile_and_run('[42].prodium().es().dici()', include_prelude=True)
+        assert output.strip() == "42"
+
+    # ===== invena (find index) =====
+    def test_invena_found(self):
+        """invena returns index when element found."""
+        output = compile_and_run('[10, 20, 30, 40].invena(30).es().dici()', include_prelude=True)
+        assert output.strip() == "2"
+
+    def test_invena_first(self):
+        """invena returns first occurrence index."""
+        output = compile_and_run('[1, 2, 2, 3].invena(2).es().dici()', include_prelude=True)
+        assert output.strip() == "1"
+
+    def test_invena_not_found(self):
+        """invena returns inanis when element not found."""
+        output = compile_and_run("""
+xa := [1, 2, 3].invena(99)
+si xa == inanis { dici("not found") } aluid { dici("found") }
+""", include_prelude=True)
+        assert output.strip() == "not found"
+
+    def test_invena_string_list(self):
+        """invena works with string lists."""
+        output = compile_and_run('["a", "b", "c"].invena("b").es().dici()', include_prelude=True)
+        assert output.strip() == "1"
