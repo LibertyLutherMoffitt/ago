@@ -1153,20 +1153,43 @@ class AgoCodeGenerator:
         expr = self._ensure_owned(expr)
 
         if has_index:
-            # Indexed assignment: var[idx] = value
+            # Indexed assignment: var[idx] = value or var[idx1][idx2] = value
             # Evaluate RHS first to avoid borrow conflicts when RHS references var
-            # Handle multiple indices (nested indexing)
-            idx_expr = self._generate_indexing(index[0])  # First index
-            temp_var = f"__temp_{self._get_temp_counter()}"
-            self.emit(f"let {temp_var} = {expr};")
+            temp_val = f"__temp_{self._get_temp_counter()}"
+            self.emit(f"let {temp_val} = {expr};")
             
-            # For now, only support single index; multi-index would require nested get/set
             if len(index) == 1:
-                self.emit(f"set(&mut {var_name}, {self._make_ref(idx_expr)}, {temp_var});")
+                # Single index: var[idx] = value
+                idx_expr = self._generate_indexing(index[0])
+                self.emit(f"set(&mut {var_name}, {self._make_ref(idx_expr)}, {temp_val});")
             else:
-                # Multiple indices: need to get nested container, then set
-                # This is more complex - for now just handle first level
-                self.emit(f"set(&mut {var_name}, {self._make_ref(idx_expr)}, {temp_var});")
+                # Multiple indices: var[idx1][idx2]... = value
+                # Strategy: get each nested container, modify innermost, set back up the chain
+                # Example: griduum[1][1] = -1
+                #   let inner = get(&griduum, &1).clone();
+                #   let mut inner = inner;
+                #   set(&mut inner, &1, -1);
+                #   set(&mut griduum, &1, inner);
+                
+                # Generate index expressions
+                idx_exprs = [self._generate_indexing(idx) for idx in index]
+                
+                # Get nested containers (all but the last index)
+                temp_vars = []
+                current = var_name
+                for i, idx_expr in enumerate(idx_exprs[:-1]):
+                    temp_container = f"__nested_{self._get_temp_counter()}"
+                    self.emit(f"let mut {temp_container} = get(&{current}, &{idx_expr}).clone();")
+                    temp_vars.append((temp_container, idx_expr, current))
+                    current = temp_container
+                
+                # Set the innermost value
+                last_idx = idx_exprs[-1]
+                self.emit(f"set(&mut {current}, &{last_idx}, {temp_val});")
+                
+                # Set back up the chain (in reverse order)
+                for temp_container, idx_expr, parent in reversed(temp_vars):
+                    self.emit(f"set(&mut {parent}, &{idx_expr}, {temp_container});")
         else:
             self.emit(f"{var_name} = {expr};")
 
