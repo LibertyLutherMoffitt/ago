@@ -197,3 +197,33 @@ des invena(luum, xium) {
         }
     }
 }
+
+# _conuum - Internal merge function for merge sort
+# Merges two sorted lists using comparison function xo
+# Name ends in -uum (returns list_any)
+des _conuum(auum, buum, xo) {
+    ruum := []
+    aia := 0
+    bia := 0
+    dum aia < aa et bia < ba {
+        si xo(auum[aia], buum[bia]) {
+            ruum = ruum.appenduum(auum[aia])
+            aia = aia + 1
+        } aluid {
+            ruum = ruum.appenduum(buum[bia])
+            bia = bia + 1
+        }
+    }
+    pro aea in auum[aia.<aa] { ruum = ruum.appenduum(aea) }
+    pro bea in buum[bia.<ba] { ruum = ruum.appenduum(bea) }
+    redeo ruum
+}
+
+# genorduum - Merge sort a list using comparison function xo
+# Takes a list and a binary comparison lambda (a, b) -> bool (true if a should come before b)
+# Returns a new sorted list
+# Name ends in -uum (returns list_any)
+des genorduum(luum, xo) {
+    si la <= 1 { redeo luum }
+    redeo _conuum(genorduum(luum[0.<la/2], xo), genorduum(luum[la/2.<la], xo), xo)
+}

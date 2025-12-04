@@ -178,7 +178,7 @@ class AgoCodeGenerator:
         - Function/method call results (anything ending in ')')
         - Already cloned expressions
         - Expressions with .as_type() (returns owned)
-        - Lambda expressions (Box<dyn Fn> - can't be cloned)
+        - Lambda expressions (Rc<dyn Fn> - needs .clone() for sharing)
         
         Needs cloning:
         - Bare variable references
@@ -194,10 +194,10 @@ class AgoCodeGenerator:
         ):
             return expr
         
-        # Lambda expressions can't be cloned - they're Box<dyn Fn>
-        # A bare lambda looks like: Box::new(__lambda_N) as AgoLambda
+        # Lambda expressions are Rc<dyn Fn>, can be cloned
+        # A bare lambda looks like: Rc::new(__lambda_N) as AgoLambda
         if (
-            expr.startswith("Box::new(") and " as AgoLambda" in expr
+            expr.startswith("Rc::new(") and " as AgoLambda" in expr
         ):
             return expr
         
@@ -215,14 +215,17 @@ class AgoCodeGenerator:
         Convert an expression to a reference for passing to stdlib functions.
         
         Removes unnecessary .clone() calls since we're just borrowing.
-        Does NOT add & to lambdas (they're passed by value).
+        Does NOT add & to lambdas (they're passed by value, with .clone() if needed).
         """
         # Don't add & to lambda expressions - they're passed by value
-        # But DO add & to function calls that have lambda arguments
-        # A bare lambda looks like: Box::new(__lambda_N) as AgoLambda
-        # NOT like: some_func(..., Box::new(...) as AgoLambda)
-        if expr.startswith("Box::new(") and " as AgoLambda" in expr:
+        # A bare lambda looks like: Rc::new(__lambda_N) as AgoLambda
+        if expr.startswith("Rc::new(") and " as AgoLambda" in expr:
             return expr
+        
+        # Check if this is a lambda parameter - clone it instead of referencing
+        lambda_params = getattr(self, "_lambda_params", set())
+        if expr in lambda_params:
+            return f"{expr}.clone()"
         
         # If expression ends with .clone(), remove it and add &
         if expr.endswith(".clone()"):
@@ -368,9 +371,21 @@ class AgoCodeGenerator:
                 self._register_lambda(d)
                 # Don't recurse into lambda body (it's already processed)
                 return
-            # Recurse
+            
+            # For call_stmt/method chains, process keys in source order:
+            # recv (receiver), first (first call), then chain (rest of chain)
+            # This ensures lambdas are collected in left-to-right source order
+            priority_keys = ["recv", "first", "chain", "more"]
+            processed = set()
+            
+            for key in priority_keys:
+                if key in d and d[key] is not None:
+                    self._collect_lambdas(d[key], seen)
+                    processed.add(key)
+            
+            # Process remaining keys
             for key, val in d.items():
-                if val is not None:
+                if key not in processed and val is not None:
                     self._collect_lambdas(val, seen)
 
     def _register_lambda(self, d: dict) -> int:
@@ -596,6 +611,7 @@ class AgoCodeGenerator:
         self.emit_raw("    dici, apertu, species, exei, aequalam, claverum, scribi, audies")
         self.emit_raw("};")
         self.emit_raw("use std::collections::HashMap;")
+        self.emit_raw("use std::rc::Rc;")
 
     def _collect_function_names(self, ast: Any) -> None:
         """Pre-pass: collect all user function names for stem resolution."""
@@ -2271,8 +2287,8 @@ class AgoCodeGenerator:
         lambda_id = self._lambda_gen_counter
         self._lambda_gen_counter += 1
 
-        # Return a boxed reference to the lambda function
-        return f"Box::new(__lambda_{lambda_id}) as AgoLambda"
+        # Return an Rc reference to the lambda function (Rc allows cloning for recursive calls)
+        return f"Rc::new(__lambda_{lambda_id}) as AgoLambda"
 
     def _roman_to_int(self, roman: str) -> int:
         """Convert Roman numeral to integer."""

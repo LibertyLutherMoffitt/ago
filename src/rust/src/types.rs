@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::rc::Rc;
 
 // This enum is the heart of the stdlib. Every variable, parameter, and
 // return value in the transpiled Ago code will be of this type.
@@ -29,7 +30,8 @@ pub type AgoBoolList = Vec<AgoBool>;
 pub type AgoStringList = Vec<AgoString>;
 pub type AgoStruct = HashMap<String, AgoType>;
 pub type AgoListAny = Vec<AgoType>;
-pub type AgoLambda = Box<dyn Fn(&[AgoType]) -> AgoType>;
+// Use Rc instead of Box so lambdas can be cloned for recursive functions
+pub type AgoLambda = Rc<dyn Fn(&[AgoType]) -> AgoType>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AgoRange {
