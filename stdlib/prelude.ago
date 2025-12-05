@@ -173,6 +173,29 @@ des finderum(les, ses) {
     redeo rerum
 }
 
+# findomnerum - Split a string on a single character separator
+# Takes a string and separator, returns list of substrings
+# Returns "" as well when separators are adjacent
+# Name ends in -erum (returns StringList)
+des findomnerum(les, ses) {
+    rerum := []
+    ba := 0
+    ea := 0
+    dum ea < lerum.a() {
+        si ses == les[ea] {
+            si ba <= ea {
+                rerum.inseri(rerum.a(), les[ba.<ea])
+            }
+            ba = ea + 1
+        }
+        ea = ea + 1
+    }
+    si ba <= ea {
+        rerum.inseri(rerum.a(), les[ba.<ea])
+    }
+    redeo rerum
+}
+
 # sumium - Sum all elements of a numeric list
 # Returns the sum of all elements, or inanis for empty lists
 # Name ends in -ium (returns int/float/any)
@@ -234,3 +257,20 @@ des genorduum(luum, xo) {
     si la <= 1 { redeo luum }
     redeo _conuum(genorduum(luum[0.<la/2], xo), genorduum(luum[la/2.<la], xo), xo)
 }
+
+# ullam - any
+des ullam(luum, xo) {
+    pro lium in luum { si xo(lium) { redeo verum } }
+    redeo falsus
+}
+
+# omnam - all
+des omnam(luum, xo) {
+    redeo non luum.ullam(des{ non xo(id) })
+}
+
+# nullam - none
+des nullam(luum, xo) {
+    redeo non luum.ullam(xo)
+}
+

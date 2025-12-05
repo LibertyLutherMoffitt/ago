@@ -201,6 +201,10 @@ class AgoCodeGenerator:
         ):
             return expr
         
+        # Block-wrapped lambdas with captures: { let x = x.clone(); Rc::new(move |...|) as AgoLambda }
+        if expr.startswith("{ ") and "as AgoLambda }" in expr:
+            return expr
+        
         # Check if this is a reference parameter - needs cloning
         ref_params = getattr(self, "_ref_params", set())
         if expr in ref_params:
@@ -220,6 +224,10 @@ class AgoCodeGenerator:
         # Don't add & to lambda expressions - they're passed by value
         # A bare lambda looks like: Rc::new(__lambda_N) as AgoLambda
         if expr.startswith("Rc::new(") and " as AgoLambda" in expr:
+            return expr
+        
+        # Block-wrapped lambdas with captures: { let x = x.clone(); Rc::new(move |...|) as AgoLambda }
+        if expr.startswith("{ ") and "as AgoLambda }" in expr:
             return expr
         
         # Check if this is a lambda parameter - clone it instead of referencing
@@ -315,16 +323,10 @@ class AgoCodeGenerator:
         # First pass: collect user function NAMES (needed for stem resolution in lambdas)
         self._collect_function_names(ast)
 
-        # Second pass: collect lambdas (they need to be defined before user functions)
-        self._collect_lambdas(ast)
+        # Note: Lambdas are now generated inline as closures (not as top-level functions)
+        # This allows them to capture variables from their surrounding scope
 
-        # Emit lambda functions (before user functions)
-        if self.lambdas:
-            for lambda_code in self.lambdas:
-                self.emit_raw("")
-                self.emit_raw(lambda_code)
-
-        # Third pass: generate user function declarations
+        # Second pass: generate user function declarations
         self._collect_functions(ast)
 
         # Generate main function wrapper
@@ -2591,23 +2593,118 @@ class AgoCodeGenerator:
             return f"AgoType::Struct(HashMap::from([{pairs_str}]))"
         return "AgoType::Struct(HashMap::new())"
 
+    def _find_captured_vars(self, body: Any, local_vars: set) -> set:
+        """Find variables used in lambda body that aren't locally declared.
+        
+        These are 'captured' variables that need to be cloned for move closures.
+        """
+        used_vars = set()
+        
+        def visit(node):
+            if node is None:
+                return
+            if isinstance(node, str):
+                # Check if this looks like a variable name (simple identifier)
+                if node.isidentifier() and not node.startswith("_"):
+                    used_vars.add(node)
+                return
+            if isinstance(node, (list, tuple)):
+                for item in node:
+                    visit(item)
+                return
+            if isinstance(node, dict) or hasattr(node, "parseinfo"):
+                d = to_dict(node)
+                # Check for identifier references
+                if "id" in d and isinstance(d["id"], str):
+                    used_vars.add(d["id"])
+                # Recurse into all values
+                for key, val in d.items():
+                    if key != "parseinfo" and val is not None:
+                        visit(val)
+        
+        visit(body)
+        
+        # Captured = used but not locally declared
+        captured = set()
+        for var in used_vars:
+            # Check if this is a variable in the outer scope (declared_vars)
+            # and not in the local lambda scope
+            if var not in local_vars and var in self.declared_vars:
+                captured.add(var)
+            else:
+                # Also check for stem-based variable references
+                suffix, stem = get_suffix_and_stem(var)
+                if stem:
+                    for dv in self.declared_vars:
+                        dv_suffix, dv_stem = get_suffix_and_stem(dv)
+                        if dv_stem == stem and dv not in local_vars:
+                            captured.add(dv)
+        
+        return captured
+
     def _generate_lambda(self, d: dict) -> str:
-        """Generate lambda/closure reference."""
-        # Find the lambda ID by looking for it in our registered lambdas
-        # We need to find the matching lambda by generating it again and comparing
-        # For simplicity, use a counter that matches registration order
-
-        # Find or create the lambda ID
-        # Since we already collected lambdas, find the matching one
-        # This is a simplified approach - track lambda_ids during generation
-        if not hasattr(self, "_lambda_gen_counter"):
-            self._lambda_gen_counter = 0
-
-        lambda_id = self._lambda_gen_counter
-        self._lambda_gen_counter += 1
-
-        # Return an Rc reference to the lambda function (Rc allows cloning for recursive calls)
-        return f"Rc::new(__lambda_{lambda_id}) as AgoLambda"
+        """Generate lambda/closure as an inline Rust closure.
+        
+        This generates move closures that capture cloned values from their
+        surrounding scope, allowing them to be stored in Rc<dyn Fn>.
+        """
+        params = self._parse_params(d.get("params"))
+        body = d.get("body")
+        
+        # Build the set of local variables (params + id if implicit)
+        local_vars = set(params) if params else {"id"}
+        
+        # Find captured variables from outer scope
+        captured = self._find_captured_vars(body, local_vars)
+        
+        # Save current state
+        old_lines = self.output_lines
+        old_indent = self.indent_level
+        old_declared = self.declared_vars.copy()
+        old_in_lambda = getattr(self, "_in_id_lambda", False)
+        
+        # Set up for lambda body generation
+        self.output_lines = []
+        self.indent_level = 0
+        
+        if params:
+            # Explicit params - unpack from args array
+            for i, p in enumerate(params):
+                self.emit(f"let {p} = args.get({i}).cloned().unwrap_or(AgoType::Null);")
+                self.declared_vars.add(p)
+            self._in_id_lambda = False
+        else:
+            # No explicit params - this is an `id` lambda
+            self.emit("let id = args.get(0).cloned().unwrap_or(AgoType::Null);")
+            self.declared_vars.add("id")
+            self._in_id_lambda = True
+        
+        # Generate body
+        if body:
+            self._process_lambda_block(body)
+        else:
+            self.emit("AgoType::Null")
+        
+        # Capture the generated body
+        body_lines = self.output_lines
+        
+        # Restore state
+        self.output_lines = old_lines
+        self.indent_level = old_indent
+        self.declared_vars = old_declared
+        self._in_id_lambda = old_in_lambda
+        
+        # Build the inline move closure
+        # Format: { let cap = cap.clone(); Rc::new(move |args: &[AgoType]| -> AgoType { body }) as AgoLambda }
+        body_code = " ".join(line.strip() for line in body_lines)
+        
+        if captured:
+            # Clone captured variables before the closure
+            clone_stmts = " ".join(f"let {var} = {var}.clone();" for var in sorted(captured))
+            return f"{{ {clone_stmts} Rc::new(move |args: &[AgoType]| -> AgoType {{ {body_code} }}) as AgoLambda }}"
+        else:
+            # No captures - simple closure
+            return f"Rc::new(|args: &[AgoType]| -> AgoType {{ {body_code} }}) as AgoLambda"
 
     def _roman_to_int(self, roman: str) -> int:
         """Convert Roman numeral to integer."""
