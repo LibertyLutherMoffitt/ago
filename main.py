@@ -308,6 +308,87 @@ def run_binary(exe_path: Path) -> int:
     return result.returncode
 
 
+def compile_llvm(
+    llvm_code: str, output_path: Path, quiet: bool = False, verbose: bool = False
+) -> Path:
+    """Compile LLVM IR to binary."""
+    # Create temporary directory for LLVM compilation
+    llvm_build_dir = CACHE_DIR / "llvm_build"
+    llvm_build_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Write LLVM IR to file
+    llvm_ir_file = llvm_build_dir / "program.ll"
+    llvm_ir_file.write_text(llvm_code)
+    
+    if verbose:
+        print_info(f"generated LLVM IR: {llvm_ir_file}")
+    
+    # Path to stdlib
+    stdlib_dir = AGO_HOME / "src" / "llvm"
+    stdlib_obj = stdlib_dir / "ago_stdlib.o"
+    
+    # Build stdlib if it doesn't exist
+    if not stdlib_obj.exists():
+        if not quiet:
+            print_info("building standard library...")
+        result = subprocess.run(
+            ["make"],
+            cwd=stdlib_dir,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            print_error("failed to build standard library")
+            print(result.stderr, file=sys.stderr)
+            sys.exit(1)
+    
+    # Compile LLVM IR to assembly
+    if not quiet:
+        print_info("compiling LLVM IR...")
+    
+    asm_file = llvm_build_dir / "program.s"
+    result = subprocess.run(
+        ["llc", str(llvm_ir_file), "-o", str(asm_file)],
+        capture_output=True,
+        text=True,
+    )
+    
+    if result.returncode != 0:
+        print_error("LLVM compilation failed")
+        print(result.stderr, file=sys.stderr)
+        sys.exit(1)
+    
+    # Assemble to object file
+    obj_file = llvm_build_dir / "program.o"
+    result = subprocess.run(
+        ["gcc", "-c", str(asm_file), "-o", str(obj_file)],
+        capture_output=True,
+        text=True,
+    )
+    
+    if result.returncode != 0:
+        print_error("Assembly failed")
+        print(result.stderr, file=sys.stderr)
+        sys.exit(1)
+    
+    # Link with stdlib
+    if not quiet:
+        print_info("linking...")
+    
+    result = subprocess.run(
+        ["gcc", str(obj_file), str(stdlib_obj), "-o", str(output_path)],
+        capture_output=True,
+        text=True,
+    )
+    
+    if result.returncode != 0:
+        print_error("linking failed")
+        print(result.stderr, file=sys.stderr)
+        sys.exit(1)
+    
+    return output_path
+
+
 def main():
     args = parse_args()
 
@@ -359,10 +440,27 @@ def main():
             print(llvm_code)
             sys.exit(0)
         
-        # For LLVM backend, we need to compile differently
-        # For now, just output LLVM IR
-        print(llvm_code)
-        sys.exit(0)
+        # Handle --emit=bin for LLVM
+        if args.emit == "bin":
+            output_path = Path(args.output) if args.output else Path("program")
+            exe_path = compile_llvm(llvm_code, output_path, args.quiet, args.verbose)
+            print_success(f"compiled to {exe_path}")
+            sys.exit(0)
+        
+        # Default: compile and run with LLVM
+        with tempfile.TemporaryDirectory():
+            exe_path = compile_llvm(
+                llvm_code,
+                CACHE_DIR / "llvm_build" / "ago_program",
+                args.quiet,
+                args.verbose,
+            )
+
+            if not args.quiet:
+                print(c("─" * 40, Colors.DIM), file=sys.stderr)
+
+            exit_code = run_binary(exe_path)
+            sys.exit(exit_code)
     else:
         # Generate Rust code
         rust_code = generate(ast)
@@ -372,27 +470,27 @@ def main():
             print(rust_code)
             sys.exit(0)
 
-    # Handle --emit=bin
-    if args.emit == "bin":
-        output_path = Path(args.output) if args.output else Path("program")
-        exe_path = compile_rust(rust_code, output_path, args.quiet, args.verbose)
-        print_success(f"compiled to {exe_path}")
-        sys.exit(0)
+        # Handle --emit=bin
+        if args.emit == "bin":
+            output_path = Path(args.output) if args.output else Path("program")
+            exe_path = compile_rust(rust_code, output_path, args.quiet, args.verbose)
+            print_success(f"compiled to {exe_path}")
+            sys.exit(0)
 
-    # Default: compile and run
-    with tempfile.TemporaryDirectory():
-        exe_path = compile_rust(
-            rust_code,
-            OUTPUT_DIR / "target" / "release" / "ago_program",
-            args.quiet,
-            args.verbose,
-        )
+        # Default: compile and run
+        with tempfile.TemporaryDirectory():
+            exe_path = compile_rust(
+                rust_code,
+                OUTPUT_DIR / "target" / "release" / "ago_program",
+                args.quiet,
+                args.verbose,
+            )
 
-        if not args.quiet:
-            print(c("─" * 40, Colors.DIM), file=sys.stderr)
+            if not args.quiet:
+                print(c("─" * 40, Colors.DIM), file=sys.stderr)
 
-        exit_code = run_binary(exe_path)
-        sys.exit(exit_code)
+            exit_code = run_binary(exe_path)
+            sys.exit(exit_code)
 
 
 if __name__ == "__main__":

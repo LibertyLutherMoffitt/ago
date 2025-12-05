@@ -148,6 +148,8 @@ class AgoLLVMGenerator:
         # Current function context
         self.current_function: Optional[str] = None
         self.current_return_type: Optional[str] = None
+        # Track loop context for break/continue
+        self.loop_stack: List[tuple[str, str]] = []  # [(continue_label, break_label), ...]
 
     def get_llvm_type(self, ago_type: str) -> str:
         """Convert Ago type to LLVM type."""
@@ -253,13 +255,77 @@ class AgoLLVMGenerator:
         if d.get("NULL"):
             return ("null", "i8*")
 
+        # List literal
+        if d.get("list") is not None:
+            return self.generate_list_literal(d["list"])
+
         # Default
         return ("null", "i8*")
+
+    def generate_list_literal(self, list_node: Any) -> tuple[str, str]:
+        """Generate LLVM IR for a list literal."""
+        # Extract list items - need to handle nested structure
+        items = []
+        
+        def extract_items(node):
+            """Recursively extract list items."""
+            if node is None or node in ("[", "]", ",", "\n"):
+                return
+            if isinstance(node, str):
+                return
+            if isinstance(node, (list, tuple)):
+                for item in node:
+                    extract_items(item)
+                return
+            # This is an actual item
+            d = to_dict(node)
+            if "value" in d or "int" in d or "float" in d or "str" in d:
+                items.append(node)
+        
+        if isinstance(list_node, (list, tuple)):
+            for item in list_node:
+                if item not in ("[", "]", ",", None) and item != "\n":
+                    extract_items(item)
+        
+        if not items:
+            # Empty list - return list_any
+            temp = self.ctx.new_temp()
+            self.ctx.emit(f"{temp} = insertvalue {{i64, i8*}} undef, i64 0, 0")
+            temp2 = self.ctx.new_temp()
+            self.ctx.emit(f"{temp2} = insertvalue {{i64, i8*}} {temp}, i8* null, 1")
+            return (temp2, "{i64, i8*}")
+        
+        # For now, assume int list
+        # Allocate array
+        length = len(items)
+        array_size = length * 8  # 8 bytes per i64
+        
+        data_ptr = self.ctx.new_temp()
+        self.ctx.emit(f"{data_ptr} = call i8* @malloc(i64 {array_size})")
+        
+        # Cast to i64*
+        typed_ptr = self.ctx.new_temp()
+        self.ctx.emit(f"{typed_ptr} = bitcast i8* {data_ptr} to i64*")
+        
+        # Store each element
+        for i, item in enumerate(items):
+            item_reg, item_type = self.generate_expr(item)
+            elem_ptr = self.ctx.new_temp()
+            self.ctx.emit(f"{elem_ptr} = getelementptr i64, i64* {typed_ptr}, i64 {i}")
+            self.ctx.emit(f"store i64 {item_reg}, i64* {elem_ptr}")
+        
+        # Create list struct {i64, i64*}
+        temp = self.ctx.new_temp()
+        self.ctx.emit(f"{temp} = insertvalue {{i64, i64*}} undef, i64 {length}, 0")
+        temp2 = self.ctx.new_temp()
+        self.ctx.emit(f"{temp2} = insertvalue {{i64, i64*}} {temp}, i64* {typed_ptr}, 1")
+        
+        return (temp2, "{i64, i64*}")
 
     def generate_expr(self, expr: Any) -> tuple[str, str]:
         """Generate LLVM IR for an expression. Returns (result_reg, type)."""
         if expr is None:
-            return ("null", "i8*")
+            return ("0", "i64")
 
         if isinstance(expr, str):
             if expr == "verum":
@@ -279,7 +345,8 @@ class AgoLLVMGenerator:
                 else:
                     # Parameter or SSA value
                     return (f"%{expr}", llvm_type)
-            return ("null", "i8*")
+            # Unknown variable - return 0 as default
+            return ("0", "i64")
 
         d = to_dict(expr)
 
@@ -289,9 +356,25 @@ class AgoLLVMGenerator:
             if isinstance(inner, dict) or hasattr(inner, "parseinfo"):
                 return self.generate_expr(inner)
 
+        # List literal
+        if d.get("list") is not None:
+            return self.generate_list_literal(d["list"])
+
         # Literals
         if any(key in d for key in ["int", "float", "str", "roman", "TRUE", "FALSE", "NULL"]):
             return self.generate_literal(expr)
+
+        # Ternary operator
+        if d.get("condition") is not None and d.get("true_val") is not None and d.get("false_val") is not None:
+            return self.generate_ternary(d)
+
+        # Unary operations
+        if d.get("op") and d.get("right") and d.get("left") is None:
+            return self.generate_unary_op(d)
+
+        # Range literals (.. and .<)
+        if d.get("op") in ("..", ".<") and d.get("left") and d.get("right"):
+            return self.generate_range_literal(d)
 
         # Binary operations
         if d.get("op") and d.get("left"):
@@ -320,29 +403,82 @@ class AgoLLVMGenerator:
 
         # Use stdlib functions for operations
         if op == "+":
-            result = self.ctx.new_temp()
-            self.ctx.emit(f"{result} = call i64 @ago_add(i64 {left_reg}, i64 {right_reg})")
-            return (result, "i64")
+            # Check if either operand is a string
+            if left_type == "{i64, i8*}" or right_type == "{i64, i8*}":
+                # String concatenation
+                # Extract string pointers
+                if left_type == "{i64, i8*}":
+                    left_ptr = self.ctx.new_temp()
+                    self.ctx.emit(f"{left_ptr} = extractvalue {{i64, i8*}} {left_reg}, 1")
+                else:
+                    left_ptr = left_reg
+                
+                if right_type == "{i64, i8*}":
+                    right_ptr = self.ctx.new_temp()
+                    self.ctx.emit(f"{right_ptr} = extractvalue {{i64, i8*}} {right_reg}, 1")
+                else:
+                    right_ptr = right_reg
+                
+                # Call string_concat
+                result_ptr = self.ctx.new_temp()
+                self.ctx.emit(f"{result_ptr} = call i8* @ago_string_concat(i8* {left_ptr}, i8* {right_ptr})")
+                
+                # Get length of result (for now, approximate)
+                # TODO: string_concat should return length too
+                result_len = self.ctx.new_temp()
+                self.ctx.emit(f"{result_len} = call i64 @ago_string_length(i8* {result_ptr})")
+                
+                # Create string struct
+                temp = self.ctx.new_temp()
+                self.ctx.emit(f"{temp} = insertvalue {{i64, i8*}} undef, i64 {result_len}, 0")
+                temp2 = self.ctx.new_temp()
+                self.ctx.emit(f"{temp2} = insertvalue {{i64, i8*}} {temp}, i8* {result_ptr}, 1")
+                return (temp2, "{i64, i8*}")
+            else:
+                # Numeric addition
+                result = self.ctx.new_temp()
+                self.ctx.emit(f"{result} = call i64 @ago_add(i64 {left_reg}, i64 {right_reg})")
+                return (result, "i64")
 
         if op == "-":
-            result = self.ctx.new_temp()
-            self.ctx.emit(f"{result} = call i64 @ago_subtract(i64 {left_reg}, i64 {right_reg})")
-            return (result, "i64")
+            if left_type == "double" or right_type == "double":
+                result = self.ctx.new_temp()
+                self.ctx.emit(f"{result} = fsub double {left_reg}, {right_reg}")
+                return (result, "double")
+            else:
+                result = self.ctx.new_temp()
+                self.ctx.emit(f"{result} = call i64 @ago_subtract(i64 {left_reg}, i64 {right_reg})")
+                return (result, "i64")
 
         if op == "*":
-            result = self.ctx.new_temp()
-            self.ctx.emit(f"{result} = call i64 @ago_multiply(i64 {left_reg}, i64 {right_reg})")
-            return (result, "i64")
+            if left_type == "double" or right_type == "double":
+                result = self.ctx.new_temp()
+                self.ctx.emit(f"{result} = fmul double {left_reg}, {right_reg}")
+                return (result, "double")
+            else:
+                result = self.ctx.new_temp()
+                self.ctx.emit(f"{result} = call i64 @ago_multiply(i64 {left_reg}, i64 {right_reg})")
+                return (result, "i64")
 
         if op == "/":
-            result = self.ctx.new_temp()
-            self.ctx.emit(f"{result} = call i64 @ago_divide(i64 {left_reg}, i64 {right_reg})")
-            return (result, "i64")
+            if left_type == "double" or right_type == "double":
+                result = self.ctx.new_temp()
+                self.ctx.emit(f"{result} = fdiv double {left_reg}, {right_reg}")
+                return (result, "double")
+            else:
+                result = self.ctx.new_temp()
+                self.ctx.emit(f"{result} = call i64 @ago_divide(i64 {left_reg}, i64 {right_reg})")
+                return (result, "i64")
 
         if op == "%":
-            result = self.ctx.new_temp()
-            self.ctx.emit(f"{result} = call i64 @ago_modulo(i64 {left_reg}, i64 {right_reg})")
-            return (result, "i64")
+            if left_type == "double" or right_type == "double":
+                result = self.ctx.new_temp()
+                self.ctx.emit(f"{result} = frem double {left_reg}, {right_reg}")
+                return (result, "double")
+            else:
+                result = self.ctx.new_temp()
+                self.ctx.emit(f"{result} = call i64 @ago_modulo(i64 {left_reg}, i64 {right_reg})")
+                return (result, "i64")
 
         if op == "==":
             result = self.ctx.new_temp()
@@ -386,9 +522,165 @@ class AgoLLVMGenerator:
             result = self.ctx.new_temp()
             self.ctx.emit(f"{result} = call i1 @ago_logical_or(i1 {left_reg}, i1 {right_reg})")
             return (result, "i1")
+        # Bitwise operators
+        if op == "&":
+            result = self.ctx.new_temp()
+            self.ctx.emit(f"{result} = and i64 {left_reg}, {right_reg}")
+            return (result, "i64")
+
+        if op == "|":
+            result = self.ctx.new_temp()
+            self.ctx.emit(f"{result} = or i64 {left_reg}, {right_reg}")
+            return (result, "i64")
+
+        if op == "^":
+            result = self.ctx.new_temp()
+            self.ctx.emit(f"{result} = xor i64 {left_reg}, {right_reg}")
+            return (result, "i64")
+
+        # Elvis operator (?:) - returns left if not null, else right
+        if op == "?:":
+            # Check if left is null
+            is_null = self.ctx.new_temp()
+            if left_type == "i8*":
+                self.ctx.emit(f"{is_null} = icmp eq i8* {left_reg}, null")
+            else:
+                # For non-pointer types, always false (never null)
+                self.ctx.emit(f"{is_null} = icmp eq i64 0, 1")  # Always false
+            
+            # Select left or right based on null check
+            result = self.ctx.new_temp()
+            self.ctx.emit(f"{result} = select i1 {is_null}, i64 {right_reg}, i64 {left_reg}")
+            return (result, left_type if left_type == right_type else "i64")
+
+        # 'in' operator - membership testing
+        if op == "in":
+            # For now, not fully implemented - would need runtime support
+            result = self.ctx.new_temp()
+            self.ctx.emit(f"{result} = icmp eq i64 0, 0")  # Placeholder: always true
+            return (result, "i1")
+
+        # 'est' operator - type equality
+        if op == "est":
+            # For now, not fully implemented - would need runtime type tags
+            result = self.ctx.new_temp()
+            self.ctx.emit(f"{result} = icmp eq i64 0, 0")  # Placeholder: always true
+            return (result, "i1")
+
 
         # Default
         return ("null", "i8*")
+
+    def generate_unary_op(self, d: dict) -> tuple[str, str]:
+        """Generate LLVM IR for unary operations."""
+        op = d.get("op")
+        right_reg, right_type = self.generate_expr(d.get("right"))
+
+        if op == "-":
+            # Unary minus
+            if right_type == "i64":
+                result = self.ctx.new_temp()
+                self.ctx.emit(f"{result} = sub i64 0, {right_reg}")
+                return (result, "i64")
+            elif right_type == "double":
+                result = self.ctx.new_temp()
+                self.ctx.emit(f"{result} = fsub double 0.0, {right_reg}")
+                return (result, "double")
+
+        if op == "+":
+            # Unary plus (no-op)
+            return (right_reg, right_type)
+
+        if op == "non":
+            # Logical not
+            result = self.ctx.new_temp()
+            self.ctx.emit(f"{result} = call i1 @ago_logical_not(i1 {right_reg})")
+            return (result, "i1")
+
+        # Range operators
+        if op == "..":
+            # Inclusive range
+            temp = self.ctx.new_temp()
+            self.ctx.emit(f"{temp} = insertvalue {{i64, i64, i1}} undef, i64 {left_reg}, 0")
+            temp2 = self.ctx.new_temp()
+            self.ctx.emit(f"{temp2} = insertvalue {{i64, i64, i1}} {temp}, i64 {right_reg}, 1")
+            temp3 = self.ctx.new_temp()
+            self.ctx.emit(f"{temp3} = insertvalue {{i64, i64, i1}} {temp2}, i1 true, 2")
+            return (temp3, "{i64, i64, i1}")
+
+        if op == ".<":
+            # Exclusive range
+            temp = self.ctx.new_temp()
+            self.ctx.emit(f"{temp} = insertvalue {{i64, i64, i1}} undef, i64 {left_reg}, 0")
+            temp2 = self.ctx.new_temp()
+            self.ctx.emit(f"{temp2} = insertvalue {{i64, i64, i1}} {temp}, i64 {right_reg}, 1")
+            temp3 = self.ctx.new_temp()
+            self.ctx.emit(f"{temp3} = insertvalue {{i64, i64, i1}} {temp2}, i1 false, 2")
+            return (temp3, "{i64, i64, i1}")
+
+        # Default
+        return ("null", "i8*")
+
+    def generate_range_literal(self, d: dict) -> tuple[str, str]:
+        """Generate LLVM IR for range literal (start..end or start.<end)."""
+        op = d.get("op")
+        left_reg, _ = self.generate_expr(d.get("left"))
+        right_reg, _ = self.generate_expr(d.get("right"))
+        
+        inclusive = "true" if op == ".." else "false"
+        
+        temp = self.ctx.new_temp()
+        self.ctx.emit(f"{temp} = insertvalue {{i64, i64, i1}} undef, i64 {left_reg}, 0")
+        temp2 = self.ctx.new_temp()
+        self.ctx.emit(f"{temp2} = insertvalue {{i64, i64, i1}} {temp}, i64 {right_reg}, 1")
+        temp3 = self.ctx.new_temp()
+        self.ctx.emit(f"{temp3} = insertvalue {{i64, i64, i1}} {temp2}, i1 {inclusive}, 2")
+        
+        return (temp3, "{i64, i64, i1}")
+
+    def generate_ternary(self, d: dict) -> tuple[str, str]:
+        """Generate LLVM IR for ternary operator (condition ? true_val : false_val)."""
+        # Evaluate condition
+        cond_reg, cond_type = self.generate_expr(d.get("condition"))
+        
+        # Convert to i1 if needed
+        if cond_type != "i1":
+            bool_reg = self.ctx.new_temp()
+            if cond_type == "i64":
+                self.ctx.emit(f"{bool_reg} = icmp ne i64 {cond_reg}, 0")
+            else:
+                self.ctx.emit(f"{bool_reg} = icmp ne i8* {cond_reg}, null")
+            cond_reg = bool_reg
+        
+        # Create labels
+        true_label = self.ctx.new_label()
+        false_label = self.ctx.new_label()
+        end_label = self.ctx.new_label()
+        
+        # Branch based on condition
+        self.ctx.emit(f"br i1 {cond_reg}, label %{true_label}, label %{false_label}")
+        
+        # True branch
+        self.ctx.emit_raw(f"{true_label}:")
+        true_reg, true_type = self.generate_expr(d.get("true_val"))
+        true_block = self.ctx.new_label()
+        self.ctx.emit(f"br label %{end_label}")
+        
+        # False branch
+        self.ctx.emit_raw(f"{false_label}:")
+        false_reg, false_type = self.generate_expr(d.get("false_val"))
+        false_block = self.ctx.new_label()
+        self.ctx.emit(f"br label %{end_label}")
+        
+        # End - use phi node to select result
+        self.ctx.emit_raw(f"{end_label}:")
+        result = self.ctx.new_temp()
+        
+        # Use the common type (assume both branches have same type for now)
+        result_type = true_type if true_type == false_type else "i64"
+        self.ctx.emit(f"{result} = phi {result_type} [ {true_reg}, %{true_label} ], [ {false_reg}, %{false_label} ]")
+        
+        return (result, result_type)
 
     def generate_variable_ref(self, name: str) -> tuple[str, str]:
         """Generate variable reference with possible casting."""
@@ -415,12 +707,146 @@ class AgoLLVMGenerator:
         base = d.get("base")
         ops = d.get("ops", [])
 
-        # Start with base expression
-        result_reg, result_type = self.generate_expr(base)
+        # Check if base is a list literal (starts with "[")
+        if isinstance(base, (list, tuple)) and len(base) > 0 and base[0] == "[":
+            result_reg, result_type = self.generate_list_literal(base)
+        else:
+            # Start with base expression
+            base_result = self.generate_expr(base)
+            if base_result is None:
+                return ("null", "i8*")
+            result_reg, result_type = base_result
 
-        # For now, ignore ops (indexing, method calls) - just return base
-        # This handles simple variable references
+        # Process postfix operations
+        if not isinstance(ops, (list, tuple)):
+            ops = [ops] if ops else []
+        
+        for op in ops:
+            if op is None:
+                continue
+            
+            op_d = to_dict(op) if not isinstance(op, str) else {}
+            
+            # Handle indexing: idx:{expr:...}
+            if op_d.get("idx") is not None:
+                idx_d = to_dict(op_d["idx"])
+                idx_expr = idx_d.get("expr")
+                if idx_expr:
+                    result_reg, result_type = self.generate_indexing(result_reg, result_type, idx_expr)
+            
+            # Handle method call: meth:(PERIOD call:nodotcall_stmt)
+            elif op_d.get("meth") is not None:
+                meth_info = op_d["meth"]
+                # Extract the call from meth structure
+                call_d = None
+                if isinstance(meth_info, (list, tuple)):
+                    for item in meth_info:
+                        if item != "." and item is not None:
+                            if isinstance(item, dict) or hasattr(item, "parseinfo"):
+                                call_d = to_dict(item)
+                                break
+                else:
+                    meth_d = to_dict(meth_info) if not isinstance(meth_info, str) else {}
+                    call_node = meth_d.get("call")
+                    call_d = to_dict(call_node) if call_node else meth_d
+                
+                if call_d:
+                    result_reg, result_type = self.generate_method_call(result_reg, result_type, call_d)
+            
+            # Handle field access: field:(PERIOD name:identifier)
+            elif op_d.get("field") is not None or op_d.get("name") is not None:
+                field_name = op_d.get("name")
+                if field_name:
+                    result_reg, result_type = self.generate_field_access(result_reg, result_type, str(field_name))
+        
         return (result_reg, result_type)
+
+    def generate_indexing(self, base_reg: str, base_type: str, index_expr: Any) -> tuple[str, str]:
+        """Generate indexing operation (list[index] or struct[key])."""
+        index_reg, index_type = self.generate_expr(index_expr)
+        
+        # Check if this is a range (slicing)
+        if index_type == "{i64, i64, i1}":
+            # Slicing - returns same type as base
+            # For now, not implemented
+            return (base_reg, base_type)
+        
+        # Element access
+        if base_type == "{i64, i64*}":  # int_list
+            # Extract data pointer
+            data_ptr = self.ctx.new_temp()
+            self.ctx.emit(f"{data_ptr} = extractvalue {{i64, i64*}} {base_reg}, 1")
+            
+            # Get element at index
+            elem_ptr = self.ctx.new_temp()
+            self.ctx.emit(f"{elem_ptr} = getelementptr i64, i64* {data_ptr}, i64 {index_reg}")
+            
+            # Load element
+            result = self.ctx.new_temp()
+            self.ctx.emit(f"{result} = load i64, i64* {elem_ptr}")
+            return (result, "i64")
+        
+        # For other types, return null for now
+        return ("null", "i8*")
+
+    def generate_method_call(self, receiver_reg: str, receiver_type: str, call_d: dict) -> tuple[str, str]:
+        """Generate method call (receiver.method(args))."""
+        func_name = call_d.get("func")
+        if not func_name:
+            return ("null", "i8*")
+        
+        func_name = str(func_name)
+        
+        # Check if this is a type cast (no args, name is a type suffix)
+        args_node = call_d.get("args")
+        if not args_node or self._is_empty_args_node(args_node):
+            if func_name in ENDING_TO_TYPE:
+                # Type cast - for now, just return receiver
+                # TODO: Implement actual type casting
+                return (receiver_reg, self.get_llvm_type(ENDING_TO_TYPE[func_name]))
+        
+        # Regular method call - receiver becomes first argument
+        if func_name in self.functions:
+            return_type, param_types = self.functions[func_name]
+            
+            # Generate arguments (receiver + explicit args)
+            args = [receiver_reg]
+            if args_node:
+                args_d = to_dict(args_node)
+                first = args_d.get("first")
+                if first:
+                    arg_reg, _ = self.generate_expr(first)
+                    args.append(arg_reg)
+                
+                rest = args_d.get("rest")
+                if rest:
+                    for item in rest:
+                        if isinstance(item, list) and len(item) >= 2:
+                            arg_expr = item[1]
+                            arg_reg, _ = self.generate_expr(arg_expr)
+                            args.append(arg_reg)
+            
+            # Generate call
+            result = self.ctx.new_temp()
+            args_str = ", ".join(f"i64 {arg}" for arg in args)
+            llvm_return_type = self.get_llvm_type(return_type)
+            self.ctx.emit(f"{result} = call {llvm_return_type} @{func_name}({args_str})")
+            return (result, llvm_return_type)
+        
+        return ("null", "i8*")
+
+    def generate_field_access(self, base_reg: str, base_type: str, field_name: str) -> tuple[str, str]:
+        """Generate field access (struct.field)."""
+        # For now, struct field access is not implemented
+        # Would need hash map lookup
+        return ("null", "i8*")
+
+    def _is_empty_args_node(self, args_node: Any) -> bool:
+        """Check if args node is empty."""
+        if args_node is None:
+            return True
+        args_d = to_dict(args_node)
+        return args_d.get("first") is None
 
     def generate_call(self, call_node: Any) -> tuple[str, str]:
         """Generate function call."""
@@ -460,12 +886,73 @@ class AgoLLVMGenerator:
                     if first:
                         arg_reg, _ = self.generate_expr(first)
                         args.append(arg_reg)
+                    
+                    # Handle rest of arguments
+                    rest = args_d.get("rest")
+                    if rest:
+                        for item in rest:
+                            if isinstance(item, list) and len(item) >= 2:
+                                arg_expr = item[1]
+                                arg_reg, _ = self.generate_expr(arg_expr)
+                                args.append(arg_reg)
 
                 # Generate call
                 result = self.ctx.new_temp()
                 args_str = ", ".join(f"i64 {arg}" for arg in args)  # Assume i64 for now
                 llvm_return_type = self.get_llvm_type(return_type)
                 self.ctx.emit(f"{result} = call {llvm_return_type} @{func_name}({args_str})")
+    def generate_reassignment(self, stmt: Any) -> None:
+        """Generate variable reassignment."""
+        d = to_dict(stmt)
+        var_name = str(d["target"])
+        value = d.get("value")
+        index_list = d.get("index", [])
+        
+        # Check if variable exists
+        if var_name not in self.declared_vars:
+            # Variable not declared - skip (semantic checker should catch this)
+            return
+        
+        llvm_type, is_pointer = self.declared_vars[var_name]
+        
+        # Generate RHS
+        rhs_reg, rhs_type = self.generate_expr(value)
+        
+        # Handle indexed reassignment
+        if index_list and len(index_list) > 0:
+            # Load the list/struct
+            base_reg = self.ctx.new_temp()
+            self.ctx.emit(f"{base_reg} = load {llvm_type}, {llvm_type}* %{var_name}")
+            
+            # For now, handle single-level indexing on lists
+            if llvm_type == "{i64, i64*}":  # int_list
+                # Extract the first index
+                first_index = index_list[0]
+                index_d = to_dict(first_index)
+                index_expr = index_d.get("expr")
+                
+                if index_expr:
+                    index_reg, _ = self.generate_expr(index_expr)
+                    
+                    # Extract data pointer
+                    data_ptr = self.ctx.new_temp()
+                    self.ctx.emit(f"{data_ptr} = extractvalue {{i64, i64*}} {base_reg}, 1")
+                    
+                    # Get element pointer
+                    elem_ptr = self.ctx.new_temp()
+                    self.ctx.emit(f"{elem_ptr} = getelementptr i64, i64* {data_ptr}, i64 {index_reg}")
+                    
+                    # Store new value
+                    self.ctx.emit(f"store i64 {rhs_reg}, i64* {elem_ptr}")
+        else:
+            # Simple reassignment
+            if is_pointer:
+                self.ctx.emit(f"store {llvm_type} {rhs_reg}, {llvm_type}* %{var_name}")
+            else:
+                # Can't reassign non-pointer (parameter)
+                # This should be caught by semantic checker
+                pass
+
                 return (result, llvm_return_type)
 
         return ("null", "i8*")
@@ -539,6 +1026,22 @@ class AgoLLVMGenerator:
         else_label = self.ctx.new_label()
         end_label = self.ctx.new_label()
 
+    def generate_break(self) -> None:
+        """Generate break statement - branch to loop end label."""
+        if not self.loop_stack:
+            # Error: break outside loop (should be caught by semantic checker)
+            return
+        _, break_label = self.loop_stack[-1]
+        self.ctx.emit(f"br label %{break_label}")
+
+    def generate_continue(self) -> None:
+        """Generate continue statement - branch to loop start label."""
+        if not self.loop_stack:
+            # Error: continue outside loop (should be caught by semantic checker)
+            return
+        continue_label, _ = self.loop_stack[-1]
+        self.ctx.emit(f"br label %{continue_label}")
+
         self.ctx.emit(f"br i1 {cond_reg}, label %{then_label}, label %{else_label}")
 
         # Then block
@@ -565,6 +1068,9 @@ class AgoLLVMGenerator:
         body_label = self.ctx.new_label()
         end_label = self.ctx.new_label()
 
+        # Push loop context for break/continue
+        self.loop_stack.append((loop_label, end_label))
+
         self.ctx.emit(f"br label %{loop_label}")
 
         # Loop condition
@@ -589,6 +1095,9 @@ class AgoLLVMGenerator:
 
         # End
         self.ctx.emit_raw(f"{end_label}:")
+        
+        # Pop loop context
+        self.loop_stack.pop()
 
     def generate_for(self, stmt: Any) -> None:
         """Generate for loop (simplified version)."""
@@ -615,7 +1124,11 @@ class AgoLLVMGenerator:
         self.ctx.emit(f"{start_reg} = add i64 0, 0")  # Start from 0
 
         # Get range end from iterable (simplified)
-        iter_expr_reg, _ = self.generate_expr(iterable)
+        iter_result = self.generate_expr(iterable)
+        if iter_result is None:
+            iter_expr_reg = "0"
+        else:
+            iter_expr_reg, _ = iter_result
         end_reg = iter_expr_reg  # Assume iterable is the end value
 
         # Store initial value
@@ -651,9 +1164,10 @@ class AgoLLVMGenerator:
 
         # Infer return type from name
         suffix, _ = get_suffix_and_stem(func_name)
-        return_type = "any"
-        if suffix:
-            return_type = ENDING_TO_TYPE.get(suffix, "any")
+        # For functions: -ium (any) defaults to int for concrete LLVM types
+        return_type = "int"
+        if suffix and suffix != "ium":
+            return_type = ENDING_TO_TYPE.get(suffix, "int")
 
         # Parse parameters
         params = []
@@ -669,9 +1183,10 @@ class AgoLLVMGenerator:
                     param_name = self.extract_identifier(value)
                     if param_name:
                         suffix, _ = get_suffix_and_stem(param_name)
-                        param_type = "any"
-                        if suffix:
-                            param_type = ENDING_TO_TYPE.get(suffix, "any")
+                        # For parameters: -ium (any) defaults to int for concrete LLVM types
+                        param_type = "int"
+                        if suffix and suffix != "ium":
+                            param_type = ENDING_TO_TYPE.get(suffix, "int")
                         params.append((param_name, param_type))
 
             # Handle rest parameters
@@ -686,9 +1201,10 @@ class AgoLLVMGenerator:
                             param_name = self.extract_identifier(value)
                             if param_name:
                                 suffix, _ = get_suffix_and_stem(param_name)
-                                param_type = "any"
-                                if suffix:
-                                    param_type = ENDING_TO_TYPE.get(suffix, "any")
+                                # For parameters: -ium (any) defaults to int
+                                param_type = "int"
+                                if suffix and suffix != "ium":
+                                    param_type = ENDING_TO_TYPE.get(suffix, "int")
                                 params.append((param_name, param_type))
 
         # Generate function signature
@@ -701,6 +1217,9 @@ class AgoLLVMGenerator:
         param_list = ", ".join(param_strs) if param_strs else ""
         self.ctx.emit_raw("")
         self.ctx.emit_raw(f"define {llvm_return_type} @{func_name}({param_list}) {{")
+        
+        # Add entry label
+        self.ctx.emit_raw("entry:")
 
         # Set up function context
         old_function = self.current_function
@@ -781,7 +1300,17 @@ class AgoLLVMGenerator:
             return
 
         if isinstance(stmt, str):
-            return  # Skip strings
+            # Handle break and continue
+            if stmt == "frio":
+                self.generate_break()
+                return
+            if stmt == "pergo":
+                self.generate_continue()
+                return
+            if stmt == "omitto":
+                # Pass statement - no-op
+                return
+            return  # Skip other strings
 
         if isinstance(stmt, list):
             for sub in stmt:
@@ -792,6 +1321,8 @@ class AgoLLVMGenerator:
 
         if "name" in d and "value" in d and "target" not in d:
             self.generate_declaration(stmt)
+        elif "target" in d and "value" in d:
+            self.generate_reassignment(stmt)
         elif "return_stmt" in d or ("value" in d and d.get("return_stmt") is not None):
             self.generate_return(stmt)
         elif "if_stmt" in d:
@@ -806,6 +1337,13 @@ class AgoLLVMGenerator:
             self.generate_for(d["for_stmt"])
         elif "iterator" in d and "iterable" in d:
             self.generate_for(stmt)
+        elif d.get("BREAK") is not None:
+            self.generate_break()
+        elif d.get("CONTINUE") is not None:
+            self.generate_continue()
+        elif d.get("PASS") is not None:
+            # Pass statement - no-op
+            pass
         elif "call" in d:
             # Call statement - handle new expr wrapper
             call_data = d["call"]
@@ -879,6 +1417,7 @@ class AgoLLVMGenerator:
         self.ctx.emit_raw("declare i1 @ago_logical_or(i1, i1)")
         self.ctx.emit_raw("declare i1 @ago_logical_not(i1)")
         self.ctx.emit_raw("declare i8* @ago_string_concat(i8*, i8*)")
+        self.ctx.emit_raw("declare i64 @ago_string_length(i8*)")
         self.ctx.emit_raw("declare void @ago_print_int(i64)")
         self.ctx.emit_raw("declare void @ago_print_string(i8*)")
         self.ctx.emit_raw("")
@@ -891,6 +1430,7 @@ class AgoLLVMGenerator:
         # Generate main function
         self.ctx.emit_raw("")
         self.ctx.emit_raw("define i32 @main() {")
+        self.ctx.emit_raw("entry:")
         self.ctx.indent_level += 1
 
         # Process top-level statements

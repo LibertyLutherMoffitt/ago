@@ -2,6 +2,8 @@
 # Ago Project Specific
 # =============================================================================
 
+*.o
+*.ll
 # Generated output directory (compiled Ago programs)
 output/
 

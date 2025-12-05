@@ -1,0 +1,8 @@
+des adda(xa, ya) {
+    redeo xa + ya
+}
+
+xa := 10
+ya := 20
+resulta := adda(xa, ya)
+scribi(resulta)
