@@ -1,0 +1,7 @@
+des scribia(xa) {
+    redeo xa + 1
+}
+
+xa := 5
+ya := scribia(xa)
+scribi(ya)

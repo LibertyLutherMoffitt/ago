@@ -23,6 +23,7 @@ from tatsu.util import asjson
 from src.AgoParser import AgoParser
 from src.AgoSemanticChecker import AgoSemanticChecker
 from src.AgoCodeGenerator import generate
+from src.AgoLLVMGenerator import generate as generate_llvm
 
 # Directory where this script lives
 SCRIPT_DIR = Path(__file__).parent.resolve()
@@ -171,7 +172,8 @@ def parse_args():
 
     parser.add_argument("file", metavar="FILE")
     parser.add_argument("--check", action="store_true")
-    parser.add_argument("--emit", choices=["rust", "bin"], metavar="TYPE")
+    parser.add_argument("--emit", choices=["rust", "bin", "llvm"], metavar="TYPE")
+    parser.add_argument("--backend", choices=["rust", "llvm"], default="rust", metavar="TYPE")
     parser.add_argument("-o", "--output", metavar="PATH")
     parser.add_argument("--ast", action="store_true")
     parser.add_argument("--no-color", action="store_true")
@@ -347,13 +349,28 @@ def main():
         print_success(f"no errors in {file_path}")
         sys.exit(0)
 
-    # Generate Rust code
-    rust_code = generate(ast)
-
-    # Handle --emit=rust
-    if args.emit == "rust":
-        print(rust_code)
+    # Generate code based on backend
+    if args.backend == "llvm" or args.emit == "llvm":
+        # Generate LLVM IR
+        llvm_code = generate_llvm(ast)
+        
+        # Handle --emit=llvm
+        if args.emit == "llvm":
+            print(llvm_code)
+            sys.exit(0)
+        
+        # For LLVM backend, we need to compile differently
+        # For now, just output LLVM IR
+        print(llvm_code)
         sys.exit(0)
+    else:
+        # Generate Rust code
+        rust_code = generate(ast)
+
+        # Handle --emit=rust
+        if args.emit == "rust":
+            print(rust_code)
+            sys.exit(0)
 
     # Handle --emit=bin
     if args.emit == "bin":
