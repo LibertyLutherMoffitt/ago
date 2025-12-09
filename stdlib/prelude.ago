@@ -7,7 +7,9 @@
 des sqrtae(sium) {
     subtilita := 0
 
-    si sium < powa(X, V) {
+    si sium < MMM {
+        subtilita = XIII
+    } aluid sium < powa(X, V) {
         subtilita = XIII
     } aluid sium < powa(X, VIII) {
         subtilita = MXXIV
