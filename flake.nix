@@ -1,5 +1,5 @@
 {
-  description = "Ago - A Latin-inspired programming language that transpiles to Rust";
+  description = "Ago - A Latin-inspired programming language that transpiles to Python";
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs?ref=nixos-unstable";
@@ -15,7 +15,7 @@
         pythonEnv = pkgs.python3.withPackages (p: with p; [tatsu pytest pytest-xdist tkinter]);
         
         # Version
-        version = "0.1.0";
+        version = "0.2.0";
       in {
         # The main Ago CLI package
         packages.default = pkgs.stdenv.mkDerivation {
@@ -25,14 +25,8 @@
           src = ./.;
           
           nativeBuildInputs = [
-            pkgs.cargo
             pkgs.makeWrapper
           ];
-          
-          buildPhase = ''
-            # Build the Rust standard library
-            (cd src/rust && cargo build --release -vv)
-          '';
           
           installPhase = ''
             mkdir -p $out/bin $out/lib/ago $out/share/ago
@@ -44,14 +38,10 @@
             # Copy stdlib (Ago standard library prelude)
             cp -r stdlib $out/lib/ago/
             
-            # Copy the compiled stdlib (needed for linking)
-            cp -r src/rust/target $out/lib/ago/src/rust/
-            
             # Create the main wrapper script
             makeWrapper ${pythonEnv}/bin/python3 $out/bin/ago \
               --add-flags "$out/lib/ago/main.py" \
-              --set AGO_HOME "$out/lib/ago" \
-              --prefix PATH : ${pkgs.lib.makeBinPath [pkgs.cargo pkgs.rustc]}
+              --set AGO_HOME "$out/lib/ago"
             
             # Create shell completions directory
             mkdir -p $out/share/bash-completion/completions
@@ -65,15 +55,11 @@ _ago() {
     COMPREPLY=()
     cur="''${COMP_WORDS[COMP_CWORD]}"
     prev="''${COMP_WORDS[COMP_CWORD-1]}"
-    opts="--help --version --check --emit --output --ast --no-color --quiet --verbose"
+    opts="--help --version --check --emit --ast --no-color --quiet"
     
     case "$prev" in
         --emit)
-            COMPREPLY=( $(compgen -W "rust bin" -- "$cur") )
-            return 0
-            ;;
-        --output|-o)
-            COMPREPLY=( $(compgen -f -- "$cur") )
+            COMPREPLY=( $(compgen -W "python" -- "$cur") )
             return 0
             ;;
     esac
@@ -97,14 +83,11 @@ _ago() {
         '--help[Show help message]' \
         '--version[Show version]' \
         '--check[Only run semantic checks]' \
-        '--emit[Emit output type]:type:(rust bin)' \
-        '-o[Output path]:path:_files' \
-        '--output[Output path]:path:_files' \
+        '--emit[Emit output type]:type:(python)' \
         '--ast[Print parsed AST]' \
         '--no-color[Disable colored output]' \
         '-q[Suppress info messages]' \
-        '--quiet[Suppress info messages]' \
-        '--verbose[Show verbose output]'
+        '--quiet[Suppress info messages]'
 }
 
 _ago "$@"
@@ -117,12 +100,10 @@ complete -c ago -a '(__fish_complete_suffix .ago)'
 complete -c ago -l help -d 'Show help message'
 complete -c ago -l version -d 'Show version'
 complete -c ago -l check -d 'Only run semantic checks'
-complete -c ago -l emit -d 'Emit output type' -xa 'rust bin'
-complete -c ago -s o -l output -d 'Output path' -r
+complete -c ago -l emit -d 'Emit output type' -xa 'python'
 complete -c ago -l ast -d 'Print parsed AST'
 complete -c ago -l no-color -d 'Disable colored output'
 complete -c ago -s q -l quiet -d 'Suppress info messages'
-complete -c ago -l verbose -d 'Show verbose output'
 FISH
             
             # Man page
@@ -130,24 +111,21 @@ FISH
             cat > $out/share/man/man1/ago.1 <<'MAN'
 .TH AGO 1 "2024" "ago ${version}" "User Commands"
 .SH NAME
-ago \- A Latin-inspired programming language that transpiles to Rust
+ago \- A Latin-inspired programming language that transpiles to Python
 .SH SYNOPSIS
 .B ago
 .RI [ OPTIONS ]
 .I FILE
 .SH DESCRIPTION
-Ago is a programming language with Latin-inspired syntax that compiles to Rust.
-It features a unique type system where variable name endings indicate types.
+Ago is a programming language with Latin-inspired syntax that compiles to Python.
+It features a unique type system where variable name endings indicate types, though this is not enforced in the Python backend.
 .SH OPTIONS
 .TP
 .B \-\-check
 Only run semantic checks without compiling or running.
 .TP
-.B \-\-emit=TYPE
-Emit output of TYPE: 'rust' for Rust source code, 'bin' for compiled binary.
-.TP
-.B \-o, \-\-output=PATH
-Output path for \-\-emit=bin (default: ./program).
+.B \-\-emit=python
+Emit generated Python source code to standard output.
 .TP
 .B \-\-ast
 Print the parsed AST in JSON format (for debugging).
@@ -157,9 +135,6 @@ Disable colored terminal output.
 .TP
 .B \-q, \-\-quiet
 Suppress informational messages.
-.TP
-.B \-\-verbose
-Show verbose compilation output.
 .TP
 .B \-v, \-\-version
 Show version information.
@@ -174,34 +149,8 @@ Run an Ago program:
 Check for errors without running:
 .B ago hello.ago \-\-check
 .TP
-Generate Rust code:
-.B ago hello.ago \-\-emit=rust > hello.rs
-.TP
-Compile to binary:
-.B ago hello.ago \-\-emit=bin \-o hello
-.SH TYPE ENDINGS
-In Ago, variable name endings indicate types:
-.TP
-.B \-a
-Integer (int)
-.TP
-.B \-ae
-Float
-.TP
-.B \-es
-String
-.TP
-.B \-am
-Boolean
-.TP
-.B \-u
-Struct
-.TP
-.B \-o
-Function/Lambda
-.TP
-.B \-i
-Null (inanis)
+Generate Python code:
+.B ago hello.ago \-\-emit=python > hello.py
 .SH AUTHOR
 Written by LLM.
 .SH BUGS
@@ -212,7 +161,7 @@ MAN
           '';
           
           meta = with pkgs.lib; {
-            description = "A Latin-inspired programming language that transpiles to Rust";
+            description = "A Latin-inspired programming language that transpiles to Python";
             homepage = "https://github.com/libertyluthermoffitt/ago";
             license = licenses.mit;
             maintainers = [];
@@ -220,7 +169,7 @@ MAN
           };
         };
 
-        # Format script - runs ruff format, ruff check --fix, and rustfmt
+        # Format script - runs ruff format and check
         packages.fmt = pkgs.writeShellScriptBin "ago-fmt" ''
           set -e
           cd "$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
@@ -230,9 +179,6 @@ MAN
           
           echo "🔧 Fixing Python lint issues with ruff..."
           ${pkgs.ruff}/bin/ruff check --fix . || true
-          
-          echo "🔧 Formatting Rust with rustfmt..."
-          ${pkgs.rustfmt}/bin/rustfmt src/rust/src/*.rs src/rust/tests/*.rs 2>/dev/null || true
           
           echo "✅ Done!"
         '';
@@ -248,9 +194,6 @@ MAN
           echo "🔍 Checking Python lint..."
           ${pkgs.ruff}/bin/ruff check .
           
-          echo "🔍 Checking Rust formatting..."
-          ${pkgs.rustfmt}/bin/rustfmt --check src/rust/src/*.rs src/rust/tests/*.rs 2>/dev/null || true
-          
           echo "✅ All checks passed!"
         '';
 
@@ -258,17 +201,13 @@ MAN
         devShells.default = pkgs.mkShell {
           packages = [
             pythonEnv
-            pkgs.cargo
-            pkgs.rustc
             pkgs.ruff
             pkgs.pyright
-            pkgs.rustfmt
-            pkgs.rust-analyzer
             self'.packages.default  # Make 'ago' command available
           ];
           
           shellHook = ''
-            echo "🏛️  Ago Development Shell"
+            echo "🏛️  Ago Development Shell (Python Backend)"
             echo "   Run ago:     ago <file.ago>"
             echo "   Run tests:   pytest test/"
             echo "   Format:      nix run .#fmt"
