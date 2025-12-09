@@ -2,7 +2,40 @@
 # These functions are automatically available in all Ago programs.
 
 
-# abbium - returns int absolute value
+# sqrtae - returns the square root of sium
+# Name ends in -tae (returns int/float)
+des sqrtae(sium) {
+    subtilita := 0
+
+    si sium < powa(X, V) {
+        subtilita = XIII
+    } aluid sium < powa(X, VIII) {
+        subtilita = MXXIV
+    } aluid sium < powa(X, IX) {
+        subtilita = MMXLVIII
+    } aluid {
+        subtilita = MMXLVIII * III
+    }
+
+    xium := sium / 2
+
+    pro ia in 0..subtilita {
+        xium = 0.5 * (xium + (sium / xium))
+    }
+    redeo xium
+}
+
+# powa - returns xa to the na power
+# Name ends in -a (returns int)
+des powa(xa, na) {
+    ra := 1
+    pro ia in 0..na {
+        ra = ra * xa
+    }
+    redeo ra
+}
+
+# abbium - returns absolute value
 # Name ends in -ium (returns int/float)
 des abbium(xium) {
     redeo xium < 0  ? -xium : xium
