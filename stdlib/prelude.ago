@@ -309,3 +309,16 @@ des nullam(luum, xo) {
     redeo non luum.ullam(xo)
 }
 
+# pivot / transpose
+des carduum(luum) {
+    ruum := []
+    si non lam {redeo []}
+    pro ja in luum[0].e() {
+        suum := []
+        pro ia in le {
+            suum = suum.appenduum(luum[ia][ja])
+        }
+        ruum = ruum.appenduum(suum)
+    }
+    redeo ruum
+}
