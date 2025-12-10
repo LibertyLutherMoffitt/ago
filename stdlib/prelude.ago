@@ -322,3 +322,18 @@ des carduum(luum) {
     }
     redeo ruum
 }
+
+# flatten
+des planuum(luum) {
+    ruum := []
+    pro lium in luum {
+        si "List" in lium.species() {
+            pro sium in lium.planuum() {
+                ruum = ruum.appenduum(sium)
+            }
+        } aluid {
+            ruum = ruum.appenduum(lium)
+        }
+    }
+    redeo ruum
+}
