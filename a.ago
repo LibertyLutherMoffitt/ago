@@ -1,8 +1,0 @@
-answera := 0
-ferum := "i".apertu().contentes.finderum("\n")
-
-testaem := [IV, IX, XVI, XXV, XXXVI, XLIX, LXIV, LXXXI]
-
-pro ia in testaem {
-    dici(sqrtae(ia).es())
-}

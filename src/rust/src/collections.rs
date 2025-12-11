@@ -110,13 +110,13 @@ pub fn get(iter: &AgoType, n: &AgoType) -> AgoType {
 }
 
 /// Sets a value in a mutable, indexable AgoType. Panics on error.
-pub fn set(iter: &mut AgoType, n: &AgoType, value: AgoType) {
+pub fn set(iter: &mut AgoType, n: &AgoType, value: &AgoType) {
     match (iter, n) {
         // --- List Mutation ---
         (AgoType::IntList(list), AgoType::Int(index)) => {
             let idx = *index as usize;
             if let Some(elem) = list.get_mut(idx) {
-                if let AgoType::Int(new_val) = value {
+                if let AgoType::Int(new_val) = value.clone() {
                     *elem = new_val;
                 } else {
                     panic!("Cannot set value of type {:?} in an IntList", value);
@@ -128,7 +128,7 @@ pub fn set(iter: &mut AgoType, n: &AgoType, value: AgoType) {
         (AgoType::FloatList(list), AgoType::Int(index)) => {
             let idx = *index as usize;
             if let Some(elem) = list.get_mut(idx) {
-                if let AgoType::Float(new_val) = value {
+                if let AgoType::Float(new_val) = value.clone() {
                     *elem = new_val;
                 } else {
                     panic!("Cannot set value of type {:?} in a FloatList", value);
@@ -140,7 +140,7 @@ pub fn set(iter: &mut AgoType, n: &AgoType, value: AgoType) {
         (AgoType::BoolList(list), AgoType::Int(index)) => {
             let idx = *index as usize;
             if let Some(elem) = list.get_mut(idx) {
-                if let AgoType::Bool(new_val) = value {
+                if let AgoType::Bool(new_val) = value.clone() {
                     *elem = new_val;
                 } else {
                     panic!("Cannot set value of type {:?} in a BoolList", value);
@@ -152,7 +152,7 @@ pub fn set(iter: &mut AgoType, n: &AgoType, value: AgoType) {
         (AgoType::StringList(list), AgoType::Int(index)) => {
             let idx = *index as usize;
             if let Some(elem) = list.get_mut(idx) {
-                if let AgoType::String(new_val) = value {
+                if let AgoType::String(new_val) = value.clone() {
                     *elem = new_val;
                 } else {
                     panic!("Cannot set value of type {:?} in a StringList", value);
@@ -164,7 +164,7 @@ pub fn set(iter: &mut AgoType, n: &AgoType, value: AgoType) {
         (AgoType::ListAny(list), AgoType::Int(index)) => {
             let idx = *index as usize;
             if let Some(elem) = list.get_mut(idx) {
-                *elem = value; // ListAny can hold any AgoType
+                *elem = value.clone(); // ListAny can hold any AgoType
             } else {
                 panic!("Index out of bounds: {}", idx);
             }
@@ -194,7 +194,7 @@ pub fn set(iter: &mut AgoType, n: &AgoType, value: AgoType) {
 
         // --- Struct Mutation ---
         (AgoType::Struct(map), AgoType::String(key)) => {
-            map.insert(key.clone(), value);
+            map.insert(key.clone(), value.clone());
         }
 
         // --- Error Cases ---

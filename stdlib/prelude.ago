@@ -168,8 +168,11 @@ des plicium(luum, xo) {
 # Takes a list and a predicate lambda, returns a new list with modified elements
 # Name ends in -uum (returns list_any)
 des mutatuum(luum, xo) {
-    pro xa in le { luum[xa] = xo(luum[xa]) }
-    redeo luum
+    ruum := []
+    pro xa in le { 
+        ruum = ruum.appenduum(xo(luum[xa]))
+    }
+    redeo ruum
 }
 
 # minium - Returns the minimum element of any list
