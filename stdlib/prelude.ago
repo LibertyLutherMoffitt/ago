@@ -31,7 +31,7 @@ des sqrtae(sium) {
 # Name ends in -a (returns int)
 des powa(xa, na) {
     ra := 1
-    pro ia in 0..na {
+    pro ia in 0.<na {
         ra = ra * xa
     }
     redeo ra
