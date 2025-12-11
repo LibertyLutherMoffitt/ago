@@ -178,7 +178,7 @@ def can_cast(from_type: str, to_type: str) -> bool:
     if from_type in LIST_TYPES and to_type in ("int", "bool", "string", "range"):
         return True
     # Struct can cast to bool (non-empty) or string
-    if from_type == "struct" and to_type in ("bool", "string"):
+    if from_type == "struct" and to_type in ("bool", "string", "string_list"):
         return True
     # List types can cast between each other if elements can cast
     if from_type in LIST_TYPES and to_type in LIST_TYPES:
