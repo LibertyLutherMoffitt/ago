@@ -1163,15 +1163,15 @@ class AgoCodeGenerator:
             if len(index) == 1:
                 # Single index: var[idx] = value
                 idx_expr = self._generate_indexing(index[0])
-                self.emit(f"set(&mut {var_name}, {self._make_ref(idx_expr)}, {temp_val});")
+                self.emit(f"set(&mut {var_name}, {self._make_ref(idx_expr)}, &{temp_val});")
             else:
                 # Multiple indices: var[idx1][idx2]... = value
                 # Strategy: get each nested container, modify innermost, set back up the chain
                 # Example: griduum[1][1] = -1
                 #   let inner = get(&griduum, &1).clone();
                 #   let mut inner = inner;
-                #   set(&mut inner, &1, -1);
-                #   set(&mut griduum, &1, inner);
+                #   set(&mut inner, &1, &-1);
+                #   set(&mut griduum, &1, &inner);
                 
                 # Generate index expressions
                 idx_exprs = [self._generate_indexing(idx) for idx in index]
@@ -1187,11 +1187,11 @@ class AgoCodeGenerator:
                 
                 # Set the innermost value
                 last_idx = idx_exprs[-1]
-                self.emit(f"set(&mut {current}, &{last_idx}, {temp_val});")
+                self.emit(f"set(&mut {current}, &{last_idx}, &{temp_val});")
                 
                 # Set back up the chain (in reverse order)
                 for temp_container, idx_expr, parent in reversed(temp_vars):
-                    self.emit(f"set(&mut {parent}, &{idx_expr}, {temp_container});")
+                    self.emit(f"set(&mut {parent}, &{idx_expr}, &{temp_container});")
         else:
             self.emit(f"{var_name} = {expr};")
 

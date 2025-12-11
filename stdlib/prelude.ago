@@ -340,3 +340,127 @@ des planuum(luum) {
     }
     redeo ruum
 }
+
+# _siftdownuum - Internal sift-down for heapsort
+# Maintains max-heap property by sifting down element at starta
+# Returns the modified list (Ago uses value semantics)
+# Name ends in -uum (returns list_any)
+des _siftdownuum(luum, starta, enda, xo) {
+    roota := starta
+    dum roota * II + I <= enda {
+        childa := roota * II + I
+        swapa := roota
+        
+        si xo(luum[swapa]) < xo(luum[childa]) {
+            swapa = childa
+        }
+        
+        si childa + I <= enda et xo(luum[swapa]) < xo(luum[childa + I]) {
+            swapa = childa + I
+        }
+        
+        si swapa != roota {
+            tempa := luum[roota]
+            luum[roota] = luum[swapa]
+            luum[swapa] = tempa
+            roota = swapa
+        } aluid {
+            redeo luum
+        }
+    }
+    redeo luum
+}
+
+# heaporduum - Heapsort using a key function
+# Takes a list and a key function that extracts the sort key from each element
+# O(n log n) guaranteed - can be faster than genorduum for some data
+# Name ends in -uum (returns list_any)
+des heaporduum(luum, xo) {
+    si la <= I { redeo luum }
+    
+    # Build max-heap (bottom-up heapify)
+    starta := (la - II) / II
+    dum starta >= 0 {
+        luum = _siftdownuum(luum, starta, la - I, xo)
+        starta = starta - I
+    }
+    
+    # Extract elements one by one
+    enda := la - I
+    dum enda > 0 {
+        tempa := luum[0]
+        luum[0] = luum[enda]
+        luum[enda] = tempa
+        
+        enda = enda - I
+        luum = _siftdownuum(luum, 0, enda, xo)
+    }
+    
+    redeo luum
+}
+
+# _mediana - Helper to find median of three for pivot selection
+# Returns index of median value among luum[aa], luum[ba], luum[ca]
+# Name ends in -a (returns int)
+des _mediana(luum, aa, ba, ca, xo) {
+    xa := xo(luum[aa])
+    ya := xo(luum[ba])
+    za := xo(luum[ca])
+    
+    si (xa <= ya et ya <= za) vel (za <= ya et ya <= xa) {
+        redeo ba
+    }
+    si (ya <= xa et xa <= za) vel (za <= xa et xa <= ya) {
+        redeo aa
+    }
+    redeo ca
+}
+
+# _quickuum - Internal quicksort partition and recurse
+# Sorts luum[loa..hia] and returns the modified list
+# Name ends in -uum (returns list_any)
+des _quickuum(luum, loa, hia, xo) {
+    si loa >= hia { redeo luum }
+    
+    # Median-of-three pivot selection
+    mida := (loa + hia) / II
+    pivota := _mediana(luum, loa, mida, hia, xo)
+    
+    # Move pivot to end
+    tempa := luum[pivota]
+    luum[pivota] = luum[hia]
+    luum[hia] = tempa
+    
+    pivotium := xo(luum[hia])
+    ia := loa
+    
+    # Partition
+    pro ja in loa.<hia {
+        si xo(luum[ja]) < pivotium {
+            tempa = luum[ia]
+            luum[ia] = luum[ja]
+            luum[ja] = tempa
+            ia = ia + I
+        }
+    }
+    
+    # Place pivot in final position
+    tempa = luum[ia]
+    luum[ia] = luum[hia]
+    luum[hia] = tempa
+    
+    # Recurse on partitions
+    luum = _quickuum(luum, loa, ia - I, xo)
+    luum = _quickuum(luum, ia + I, hia, xo)
+    redeo luum
+}
+
+# celerorduum - Quicksort using a key function  
+# Takes a list and a key function that extracts the sort key from each element
+# Uses median-of-three pivot selection to avoid O(n²) worst case
+# O(n log n) average - can be very fast for large lists
+# Name ends in -uum (returns list_any)
+des celerorduum(luum, xo) {
+    si la <= I { redeo luum }
+    redeo _quickuum(luum, 0, la - I, xo)
+}
