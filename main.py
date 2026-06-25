@@ -23,6 +23,7 @@ from tatsu.util import asjson
 from src.AgoParser import AgoParser
 from src.AgoSemanticChecker import AgoSemanticChecker
 from src.AgoCodeGenerator import generate
+from src.AgoFormatter import format_source
 
 # Directory where this script lives
 SCRIPT_DIR = Path(__file__).parent.resolve()
@@ -121,6 +122,8 @@ def print_help():
 
     print(f"""{get_banner()}
 {C}Usage:{E} ago {G}FILE{E} [{Y}OPTIONS{E}]
+       ago fmt [{Y}--check{E}|{Y}-w{E}] {G}FILE...{E}   {D}# format Ago source{E}
+       ago lsp                       {D}# run the language server (stdio){E}
 
 {C}Arguments:{E}
   {G}FILE{E}                   Ago source file (.ago)
@@ -306,7 +309,72 @@ def run_binary(exe_path: Path) -> int:
     return result.returncode
 
 
+def run_fmt(argv) -> int:
+    """`ago fmt [--check] [-w|--write] FILE...` - format Ago source.
+
+    With no flags, prints the formatted source to stdout (reads stdin if no
+    files). --check reports unformatted files and exits non-zero. -w/--write
+    rewrites files in place.
+    """
+    write = False
+    check = False
+    files = []
+    for a in argv:
+        if a in ("-w", "--write"):
+            write = True
+        elif a == "--check":
+            check = True
+        elif a in ("-h", "--help"):
+            print("usage: ago fmt [--check] [-w|--write] FILE...")
+            return 0
+        elif a.startswith("-"):
+            print_error(f"unknown fmt option: {a}")
+            return 2
+        else:
+            files.append(a)
+
+    if not files:
+        sys.stdout.write(format_source(sys.stdin.read()))
+        return 0
+
+    rc = 0
+    unformatted = False
+    for f in files:
+        path = Path(f)
+        try:
+            original = path.read_text()
+        except OSError as e:
+            print_error(f"cannot read {f}: {e}")
+            rc = 1
+            continue
+        formatted = format_source(original)
+        if check:
+            if formatted != original:
+                print(f"{f}: not formatted", file=sys.stderr)
+                unformatted = True
+        elif write:
+            if formatted != original:
+                path.write_text(formatted)
+                print_success(f"formatted {f}")
+        else:
+            sys.stdout.write(formatted)
+    if check and unformatted:
+        return 1
+    return rc
+
+
 def main():
+    # `ago fmt` subcommand
+    if len(sys.argv) >= 2 and sys.argv[1] == "fmt":
+        sys.exit(run_fmt(sys.argv[2:]))
+
+    # `ago lsp` subcommand: run the language server over stdio
+    if len(sys.argv) >= 2 and sys.argv[1] == "lsp":
+        from src.AgoLsp import main as lsp_main
+
+        lsp_main()
+        sys.exit(0)
+
     args = parse_args()
 
     # Handle --no-color

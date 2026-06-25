@@ -12,7 +12,7 @@
 
       perSystem = {pkgs, self', ...}: let
         # Python environment with dependencies
-        pythonEnv = pkgs.python3.withPackages (p: with p; [tatsu pytest pytest-xdist tkinter]);
+        pythonEnv = pkgs.python3.withPackages (p: with p; [tatsu pytest pytest-xdist tkinter pygls]);
         
         # Version
         version = "0.1.0";
@@ -253,6 +253,32 @@ MAN
           
           echo "✅ All checks passed!"
         '';
+
+        # Tree-sitter grammar for Ago (compiled from the checked-in parser.c).
+        # Build with: nix build .#tree-sitter-ago
+        packages.tree-sitter-ago = pkgs.tree-sitter.buildGrammar {
+          language = "ago";
+          version = version;
+          src = ./tree-sitter-ago;
+        };
+
+        # Ago language server (reuses the compiler's parser + semantic checker).
+        # Run with: nix run .#ago-lsp   (speaks LSP over stdio)
+        packages.ago-lsp = pkgs.stdenv.mkDerivation {
+          pname = "ago-lsp";
+          inherit version;
+          src = ./.;
+          nativeBuildInputs = [pkgs.makeWrapper];
+          installPhase = ''
+            mkdir -p $out/bin $out/lib/ago
+            cp -r src $out/lib/ago/
+            cp -r stdlib $out/lib/ago/
+            makeWrapper ${pythonEnv}/bin/python3 $out/bin/ago-lsp \
+              --add-flags "-m src.AgoLsp" \
+              --set AGO_HOME "$out/lib/ago" \
+              --prefix PYTHONPATH : "$out/lib/ago"
+          '';
+        };
 
         # Development shell
         devShells.default = pkgs.mkShell {

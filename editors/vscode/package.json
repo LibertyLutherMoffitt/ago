@@ -1,0 +1,74 @@
+{
+  "name": "ago",
+  "displayName": "Ago",
+  "description": "Language support for Ago: syntax highlighting, diagnostics, completion, go-to-definition, formatting, and stem-based identifier coloring.",
+  "version": "0.1.0",
+  "publisher": "ago",
+  "license": "MIT",
+  "engines": { "vscode": "^1.75.0" },
+  "categories": ["Programming Languages"],
+  "activationEvents": ["onLanguage:ago"],
+  "main": "./extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "ago",
+        "aliases": ["Ago", "ago"],
+        "extensions": [".ago"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "ago",
+        "scopeName": "source.ago",
+        "path": "./syntaxes/ago.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "title": "Ago",
+      "properties": {
+        "ago.serverCommand": {
+          "type": "string",
+          "default": "ago",
+          "description": "Command used to start the Ago language server."
+        },
+        "ago.serverArgs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["lsp"],
+          "description": "Arguments passed to the language server command."
+        }
+      }
+    },
+    "configurationDefaults": {
+      "editor.semanticHighlighting.enabled": true,
+      "[ago]": {
+        "editor.semanticHighlighting.enabled": true
+      },
+      "editor.semanticTokenColorCustomizations": {
+        "rules": {
+          "agoStem0": "#e06c75",
+          "agoStem1": "#98c379",
+          "agoStem2": "#e5c07b",
+          "agoStem3": "#61afef",
+          "agoStem4": "#c678dd",
+          "agoStem5": "#56b6c2",
+          "agoStem6": "#d19a66",
+          "agoStem7": "#be5046",
+          "agoStem8": "#7fbf7f",
+          "agoStem9": "#c9a36b",
+          "agoStem10": "#5fb3b3",
+          "agoStem11": "#a3a1f7",
+          "agoStem12": "#f08fc0",
+          "agoStem13": "#86b300",
+          "agoStem14": "#00a3cc",
+          "agoStem15": "#cc8800"
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  }
+}

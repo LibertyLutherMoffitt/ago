@@ -1,0 +1,14 @@
+node_modules/
+err.txt
+
+# Generated language-binding scaffolding (not needed; the nix package and
+# editors use grammar.js, src/parser.c and queries/).
+bindings/
+Cargo.toml
+Makefile
+Package.swift
+setup.py
+pyproject.toml
+binding.gyp
+.editorconfig
+.gitattributes

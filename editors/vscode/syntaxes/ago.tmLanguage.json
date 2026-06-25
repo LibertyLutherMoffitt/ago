@@ -1,0 +1,76 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Ago",
+  "scopeName": "source.ago",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#keywords" },
+    { "include": "#constants" },
+    { "include": "#numbers" },
+    { "include": "#functions" },
+    { "include": "#operators" }
+  ],
+  "repository": {
+    "comments": {
+      "match": "#.*$",
+      "name": "comment.line.number-sign.ago"
+    },
+    "strings": {
+      "name": "string.quoted.double.ago",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        { "match": "\\\\([tnrf\"\\\\]|[0-7]{3})", "name": "constant.character.escape.ago" }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "match": "\\b(si|aluid|discerne|pro|dum|in|redeo|frio|pergo|omitto)\\b",
+          "name": "keyword.control.ago"
+        },
+        {
+          "match": "\\b(et|vel|non|est)\\b",
+          "name": "keyword.operator.word.ago"
+        },
+        {
+          "match": "\\b(des)\\b",
+          "name": "keyword.declaration.function.ago"
+        }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        { "match": "\\b(verum|falsus)\\b", "name": "constant.language.boolean.ago" },
+        { "match": "\\b(inanis)\\b", "name": "constant.language.null.ago" },
+        { "match": "\\b(id)\\b", "name": "variable.language.ago" }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        { "match": "\\b[0-9]*\\.[0-9]+\\b", "name": "constant.numeric.float.ago" },
+        { "match": "\\b[0-9]+\\b", "name": "constant.numeric.integer.ago" },
+        { "match": "\\b[MCDLXIV]+\\b", "name": "constant.numeric.roman.ago" }
+      ]
+    },
+    "functions": {
+      "patterns": [
+        {
+          "comment": "function definition name",
+          "match": "(?<=\\bdes\\s)([A-Za-z_][A-Za-z_0-9]*)",
+          "name": "entity.name.function.ago"
+        },
+        {
+          "comment": "call / method name",
+          "match": "([A-Za-z_][A-Za-z_0-9]*)(?=\\s*\\()",
+          "name": "entity.name.function.call.ago"
+        }
+      ]
+    },
+    "operators": {
+      "match": ":=|\\+=|-=|\\*=|/=|%=|==|!=|>=|<=|\\.\\.|\\.<|\\?:|[-+*/%<>=&|\\^?:]",
+      "name": "keyword.operator.ago"
+    }
+  }
+}
