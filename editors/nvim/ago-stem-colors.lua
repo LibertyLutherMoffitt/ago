@@ -65,17 +65,34 @@ function M.highlight(bufnr)
   vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
   local root = parser:parse()[1]:root()
   local query = vim.treesitter.query.parse("ago", "(identifier) @id")
+  local keywords = {
+    si=true, aluid=true, pro=true, ["in"]=true, dum=true, discerne=true,
+    redeo=true, frio=true, pergo=true, omitto=true, des=true, vel=true,
+    et=true, est=true, non=true, verum=true, falsus=true, inanis=true, id=true
+  }
+
   for _, node in query:iter_captures(root, bufnr, 0, -1) do
     local text = vim.treesitter.get_node_text(node, bufnr)
-    if text and #text > 0 then
-      local grp = "AgoStem" .. color_index(stem(text))
-      local sr, sc, er, ec = node:range()
-      pcall(vim.api.nvim_buf_set_extmark, bufnr, ns, sr, sc, {
-        end_row = er,
-        end_col = ec,
-        hl_group = grp,
-        priority = 200, -- above tree-sitter @variable highlighting
-      })
+    if text and #text > 0 and not keywords[text] then
+      local parent = node:parent()
+      local is_func = false
+      if parent then
+        local ptype = parent:type()
+        if ptype == "function_definition" and parent:field("name")[1] == node then is_func = true end
+        if ptype == "call" and parent:field("function")[1] == node then is_func = true end
+        if ptype == "method_call" and parent:field("name")[1] == node then is_func = true end
+      end
+
+      if not is_func then
+        local grp = "AgoStem" .. color_index(stem(text))
+        local sr, sc, er, ec = node:range()
+        pcall(vim.api.nvim_buf_set_extmark, bufnr, ns, sr, sc, {
+          end_row = er,
+          end_col = ec,
+          hl_group = grp,
+          priority = 200, -- above tree-sitter @variable highlighting
+        })
+      end
     end
   end
 end

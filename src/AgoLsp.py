@@ -55,6 +55,29 @@ _PRELUDE_FILE = _AGO_HOME / "stdlib" / "prelude.ago"
 _IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z_0-9]*")
 
 
+
+_STDLIB_DOCS_CACHE = {}
+
+def builtin_doc(stem: str) -> str:
+    if not _STDLIB_DOCS_CACHE:
+        stdlib_path = _AGO_HOME / "docs" / "stdlib.md"
+        if stdlib_path.exists():
+            text = stdlib_path.read_text()
+            current_func = None
+            current_doc = []
+            for line in text.split("\n"):
+                if line.startswith("#### "):
+                    if current_func:
+                        _STDLIB_DOCS_CACHE[current_func] = "\n".join(current_doc).strip()
+                    current_func = line[5:].strip()
+                    current_doc = []
+                elif current_func:
+                    current_doc.append(line)
+            if current_func:
+                _STDLIB_DOCS_CACHE[current_func] = "\n".join(current_doc).strip()
+    return _STDLIB_DOCS_CACHE.get(stem, "")
+
+
 def _load_prelude() -> str:
     try:
         return _PRELUDE_FILE.read_text() + "\n"
@@ -143,30 +166,97 @@ def _word_at(line_text: str, character: int) -> str | None:
     return None
 
 
+def _word_info_at(line_text: str, character: int):
+    for m in _IDENT_RE.finditer(line_text):
+        if m.start() <= character <= m.end():
+            return m.group(0), m.start(), m.end()
+    return None, None, None
+
+
 server = LanguageServer("ago-lsp", "0.1.0")
 
 
-def _publish(ls: LanguageServer, uri: str) -> None:
+import asyncio
+import sys
+
+_diag_process = None
+_diag_task = None
+
+async def _publish(ls: LanguageServer, uri: str) -> None:
+    if uri.endswith("prelude.ago"):
+        ls.text_document_publish_diagnostics(
+            lsp.PublishDiagnosticsParams(uri=uri, diagnostics=[])
+        )
+        return
+
     doc = ls.workspace.get_text_document(uri)
-    diags = compute_diagnostics(doc.source)
-    ls.text_document_publish_diagnostics(
-        lsp.PublishDiagnosticsParams(uri=uri, diagnostics=diags)
-    )
+    source = doc.source
+
+    global _diag_task
+    if _diag_task is not None and not _diag_task.done():
+        _diag_task.cancel()
+
+    async def task():
+        try:
+            await asyncio.sleep(0.5)
+            
+            global _diag_process
+            if _diag_process is not None and _diag_process.returncode is None:
+                try:
+                    _diag_process.kill()
+                except ProcessLookupError:
+                    pass
+
+            script_path = _AGO_HOME / "src" / "check_syntax.py"
+            _diag_process = await asyncio.create_subprocess_exec(
+                sys.executable, str(script_path),
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            stdout, stderr = await _diag_process.communicate(input=source.encode('utf-8'))
+            
+            if stdout:
+                import json
+                try:
+                    data = json.loads(stdout.decode('utf-8'))
+                    diags = []
+                    for item in data:
+                        d = lsp.Diagnostic(
+                            range=lsp.Range(
+                                start=lsp.Position(line=item["line"], character=item["col"]),
+                                end=lsp.Position(line=item["end_line"], character=item["end_col"])
+                            ),
+                            message=item["msg"]
+                        )
+                        diags.append(d)
+                    ls.text_document_publish_diagnostics(
+                        lsp.PublishDiagnosticsParams(uri=uri, diagnostics=diags)
+                    )
+                except Exception:
+                    pass
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            pass
+
+    _diag_task = asyncio.create_task(task())
 
 
 @server.feature(lsp.TEXT_DOCUMENT_DID_OPEN)
-def did_open(ls: LanguageServer, params: lsp.DidOpenTextDocumentParams) -> None:
-    _publish(ls, params.text_document.uri)
+async def did_open(ls: LanguageServer, params: lsp.DidOpenTextDocumentParams) -> None:
+    await _publish(ls, params.text_document.uri)
 
 
 @server.feature(lsp.TEXT_DOCUMENT_DID_CHANGE)
-def did_change(ls: LanguageServer, params: lsp.DidChangeTextDocumentParams) -> None:
-    _publish(ls, params.text_document.uri)
+async def did_change(ls: LanguageServer, params: lsp.DidChangeTextDocumentParams) -> None:
+    await _publish(ls, params.text_document.uri)
 
 
 @server.feature(lsp.TEXT_DOCUMENT_DID_SAVE)
-def did_save(ls: LanguageServer, params: lsp.DidSaveTextDocumentParams) -> None:
-    _publish(ls, params.text_document.uri)
+async def did_save(ls: LanguageServer, params: lsp.DidSaveTextDocumentParams) -> None:
+    await _publish(ls, params.text_document.uri)
 
 
 @server.feature(lsp.TEXT_DOCUMENT_HOVER)
@@ -176,24 +266,56 @@ def hover(ls: LanguageServer, params: lsp.HoverParams):
     pos = params.position
     if pos.line >= len(lines):
         return None
-    word = _word_at(lines[pos.line], pos.character)
+    word, start_col, end_col = _word_info_at(lines[pos.line], pos.character)
     if not word:
         return None
-    ty = infer_type_from_name(word)
+        
+    keywords = {
+        "si", "aluid", "pro", "in", "dum", "discerne",
+        "redeo", "frio", "pergo", "omitto", "des", "vel",
+        "et", "est", "non", "verum", "falsus", "inanis", "id",
+        "inporto", "tunc"
+    }
+    if word in keywords:
+        return lsp.Hover(contents=lsp.MarkupContent(kind=lsp.MarkupKind.Markdown, value=f"**keyword:** `{word}`"))
+        
+    target_stem = _stem(word)
+    prelude_funcs = [f for f in prelude_functions() if f["stem"] == target_stem]
+    local_funcs = [d for d in collect_definitions(doc.source) if d["stem"] == target_stem and d["kind"] == "function"]
+    local_vars = [d for d in collect_definitions(doc.source) if d["stem"] == target_stem and d["kind"] == "variable"]
+
     parts = []
-    if ty:
-        parts.append(f"`{word}` — **{ty}** (from suffix)")
-    if word in _BUILTINS:
-        parts.append("_builtin function_")
-    elif any(f["name"] == word for f in prelude_functions()):
-        parts.append("_prelude function_")
+    if target_stem in _BUILTINS:
+        bdoc = builtin_doc(target_stem)
+        if bdoc:
+            parts.append(f"_builtin function: {target_stem}_\n\n{bdoc}")
+        else:
+            parts.append(f"_builtin function: {target_stem}_")
+    elif prelude_funcs:
+        func = prelude_funcs[0]
+        parts.append(f"_prelude function: {func['name']}_\n\n{func.get('doc', '')}")
+    elif local_funcs:
+        func = local_funcs[0]
+        parts.append(f"_local function: {func['name']}_\n\n{func.get('doc', '')}\n\nDefined at line {func['line'] + 1}")
+    elif local_vars:
+        func = local_vars[0]
+        ty = infer_type_from_name(word) or "unknown type"
+        parts.append(f"`{word}` — **{ty}** variable\n\nDefined at line {func['line'] + 1}")
+    else:
+        ty = infer_type_from_name(word)
+        if ty:
+            parts.append(f"`{word}` — **{ty}** (from suffix)")
+
     if not parts:
         return None
     return lsp.Hover(
         contents=lsp.MarkupContent(
             kind=lsp.MarkupKind.Markdown, value="  \n".join(parts)
         ),
-        range=_full_line_range(lines, pos.line),
+        range=lsp.Range(
+            start=lsp.Position(line=pos.line, character=start_col),
+            end=lsp.Position(line=pos.line, character=end_col),
+        ),
     )
 
 
@@ -251,68 +373,66 @@ def _extra_names(d: dict) -> list:
     return names
 
 
+_FAST_DECL_RE = re.compile(r"^\s*([A-Za-z_][A-Za-z_0-9]*(?:\s*,\s*[A-Za-z_][A-Za-z_0-9]*)*)\s*:=")
+_FAST_FUNC_RE = re.compile(r"^\s*des\s+([A-Za-z_][A-Za-z_0-9]*)\s*\((.*?)\)")
+_FAST_FOR_RE = re.compile(r"^\s*pro\s+([A-Za-z_][A-Za-z_0-9]*(?:\s*,\s*[A-Za-z_][A-Za-z_0-9]*)*)\s+in")
+_FAST_LAMBDA_RE = re.compile(r"^\s*des\s*\((.*?)\)")
+
 def collect_definitions(text: str) -> list[dict]:
-    """Walk the user file's AST and collect variable/function/param definitions
-    as {name, stem, line}. Parsed alone (no prelude) so lines are 0-based and
-    in the user's own coordinates."""
-    try:
-        ast = AgoParser(parseinfo=True).parse(text, semantics=AgoSemanticChecker())
-    except Exception:  # noqa: BLE001
-        return []
+    """Fast regex-based definition collection to avoid slow Tatsu backtracking on invalid ASTs."""
     lines = text.split("\n")
-    defs: list[dict] = []
-    seen: set[int] = set()
-
-    def add(name, line, kind):
+    defs = []
+    def add(name, line, kind, doc=""):
+        name = name.strip()
         if name and name.isidentifier():
-            defs.append({"name": name, "stem": _stem(name), "line": line or 0, "kind": kind})
+            defs.append({"name": name, "stem": _stem(name), "line": line, "kind": kind, "doc": doc})
 
-    def line_of(node):
-        pi = getattr(node, "parseinfo", None)
-        return getattr(pi, "line", None) if pi is not None else None
+    current_doc = []
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            current_doc.append(stripped.lstrip("#").strip())
+            continue
 
-    def visit(node):
-        if node is None or isinstance(node, str):
-            return
-        if isinstance(node, (list, tuple)):
-            for x in node:
-                visit(x)
-            return
-        if id(node) in seen:
-            return
-        seen.add(id(node))
-        d = to_dict(node)
-        if not isinstance(d, dict):
-            return
-        line = line_of(node)
-        hdr = lines[line] if line is not None and 0 <= line < len(lines) else ""
-        # function definition: name + body + params
-        if "name" in d and "body" in d and "params" in d:
-            add(str(d["name"]), line, "function")
-            for p in _params_on_line(hdr):
-                add(p, line, "parameter")
-        # declaration: name := value (no target)
-        elif "name" in d and "value" in d and "target" not in d:
-            add(str(d["name"]), line, "variable")
-            for nm in _extra_names(d):
-                add(nm, line, "variable")
-        # lambda: body + params, no name
-        if "body" in d and "name" not in d and "params" in d:
-            for p in _params_on_line(hdr):
-                add(p, line, "parameter")
-        # for loop iterators
-        if "iterator" in d and "iterable" in d:
-            for key in ("iterator", "iterator2"):
-                it = d.get(key)
-                if isinstance(it, str):
-                    add(it, line, "variable")
-        # Recurse only into AST values, skipping the parseinfo payload.
-        for key, v in d.items():
-            if key == "parseinfo":
-                continue
-            visit(v)
+        # Variables
+        m = _FAST_DECL_RE.match(line)
+        if m:
+            for v in m.group(1).split(","):
+                add(v, i, "variable")
+            current_doc = []
+            continue
+        if m:
+            for v in m.group(1).split(","):
+                add(v, i, "variable")
+            continue
+        # Functions
+        m = _FAST_FUNC_RE.match(line)
+        if m:
+            sig = line.strip()
+            if "{" in sig: sig = sig.split("{")[0].strip()
+            doc_str = f"```ago\n{sig}\n```\n\n" + "\n".join(current_doc) if current_doc else f"```ago\n{sig}\n```"
+            add(m.group(1), i, "function", doc_str)
+            for p in m.group(2).split(","):
+                add(p, i, "parameter")
+            current_doc = []
+            continue
+        # For loops
+        m = _FAST_FOR_RE.match(line)
+        if m:
+            for v in m.group(1).split(","):
+                add(v, i, "variable")
+            current_doc = []
+            continue
+        # Lambdas
+        m = _FAST_LAMBDA_RE.match(line)
+        if m:
+            for p in m.group(1).split(","):
+                add(p, i, "parameter")
+            current_doc = []
+            continue
 
-    visit(ast)
+        if stripped:
+            current_doc = []
     return defs
 
 
@@ -329,10 +449,21 @@ def prelude_functions() -> list[dict]:
     try:
         lines = _PRELUDE_FILE.read_text().split("\n")
         uri = _PRELUDE_FILE.as_uri()
+        doc_lines = []
         for i, line in enumerate(lines):
-            m = _PRELUDE_FUNC_RE.match(line)
-            if m:
-                out.append({"name": m.group(1), "stem": _stem(m.group(1)), "line": i, "uri": uri})
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                doc_lines.append(stripped.lstrip("#").strip())
+            else:
+                m = _PRELUDE_FUNC_RE.match(line)
+                if m:
+                    sig = line.strip()
+                    if "{" in sig:
+                        sig = sig.split("{")[0].strip()
+                    doc = f"```ago\n{sig}\n```\n\n" + "\n".join(doc_lines)
+                    out.append({"name": m.group(1), "stem": _stem(m.group(1)), "line": i, "uri": uri, "doc": doc})
+                if stripped:
+                    doc_lines = []
     except OSError:
         pass
     _prelude_funcs_cache = out
