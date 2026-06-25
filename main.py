@@ -13,6 +13,7 @@ Usage:
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -24,6 +25,7 @@ from src.AgoParser import AgoParser
 from src.AgoSemanticChecker import AgoSemanticChecker
 from src.AgoCodeGenerator import generate
 from src.AgoFormatter import format_source
+from src.AgoErrors import render_diagnostic, closest
 
 # Directory where this script lives
 SCRIPT_DIR = Path(__file__).parent.resolve()
@@ -196,12 +198,13 @@ def load_prelude() -> str:
     return ""
 
 
-def read_source(file_path: Path) -> str:
-    """Read source file with automatic stdlib prelude inclusion."""
-    # Load stdlib prelude
-    prelude = load_prelude()
+def read_source(file_path: Path):
+    """Read source with the stdlib prelude prepended.
 
-    # Load user code
+    Returns (combined_source, user_code, prelude_line_offset). The offset lets
+    error reporting map combined line numbers back to the user's own lines.
+    """
+    prelude = load_prelude()
     try:
         with open(file_path, "r") as f:
             user_code = f.read() + "\n"
@@ -211,24 +214,200 @@ def read_source(file_path: Path) -> str:
     except PermissionError:
         print_error(f"permission denied: {file_path}")
         sys.exit(1)
-
-    # Combine prelude + user code
-    return prelude + user_code
+    return prelude + user_code, user_code, prelude.count("\n")
 
 
-def parse_source(source: str, file_path: Path):
-    """Parse source and run semantic checks."""
-    parser = AgoParser()
+# Keywords + builtins used for "did you mean ...?" suggestions on parse errors.
+_KNOWN_WORDS = [
+    "si", "aluid", "pro", "dum", "in", "est", "et", "vel", "non", "des",
+    "redeo", "frio", "pergo", "omitto", "discerne", "verum", "falsus", "inanis",
+]
+
+_CLOSERS = {")": "(", "]": "[", "}": "{"}
+
+
+def _report_parse_error(exc, file_path, user_code, prelude_offset):
+    """Render a TatSu parse failure as a clean Ago diagnostic (no rule stack)."""
+    text = str(exc)
+    m = re.search(r"\((\d+):(\d+)\)", text)
+    user_lines = user_code.split("\n")
+    line0 = col0 = None
+    if m:
+        line0 = int(m.group(1)) - 1 - prelude_offset
+        col0 = int(m.group(2)) - 1
+    # Pull the "expecting ..." phrase (first line, before the rule stack).
+    first = text.split("\n", 1)[0]
+    em = re.search(r"expecting (?:one of: )?(.+?)\s*:?\s*$", first)
+    expecting = em.group(1).strip() if em else None
+    message = "syntax error"
+    suggestion = None
+    if expecting:
+        message = f"syntax error: expecting {expecting}"
+        # If exactly one closer is expected, give a concrete hint.
+        toks = re.findall(r"'([^']+)'", expecting)
+        for t in toks:
+            if t in _CLOSERS:
+                suggestion = f"add a closing '{t}'"
+                break
+    if line0 is None or line0 < 0 or not user_lines:
+        print_error(f"parse error in {file_path}")
+        print(f"  {first}", file=sys.stderr)
+        sys.exit(1)
+    sys.stderr.write(
+        render_diagnostic(
+            filename=str(file_path),
+            source_lines=user_lines,
+            line=line0,
+            col=col0,
+            length=1,
+            message=message,
+            label=expecting and f"expected {expecting}" or None,
+            suggestion=suggestion,
+            color=color_enabled(),
+        )
+    )
+    sys.exit(1)
+
+
+_OPENERS = {"(": ")", "[": "]", "{": "}"}
+_NAMES = {"(": "parenthesis", "[": "bracket", "{": "brace"}
+
+
+def _check_brackets(user_code, file_path):
+    """Precise diagnostics for unbalanced brackets / unterminated strings, which
+    TatSu otherwise reports confusingly (e.g. "expecting '['" for a missing
+    ')'). Returns True if it reported an error (and exits), else False."""
+    lines = user_code.split("\n")
+    stack = []  # (char, line0, col0)
+    for ln, text in enumerate(lines):
+        i = 0
+        n = len(text)
+        while i < n:
+            ch = text[i]
+            if ch == "#":
+                break
+            if ch == '"':
+                j = i + 1
+                closed = False
+                while j < n:
+                    if text[j] == "\\":
+                        j += 2
+                        continue
+                    if text[j] == '"':
+                        closed = True
+                        break
+                    j += 1
+                if not closed:
+                    _emit_syntax(file_path, lines, ln, i, 1,
+                                 "unterminated string literal",
+                                 "string is never closed",
+                                 "add a closing '\"'")
+                    return True
+                i = j + 1
+                continue
+            if ch in _OPENERS:
+                stack.append((ch, ln, i))
+            elif ch in (")", "]", "}"):
+                if not stack:
+                    _emit_syntax(file_path, lines, ln, i, 1,
+                                 f"unexpected closing '{ch}'",
+                                 f"no matching opening {_NAMES[{')':'(',']':'[','}':'{'}[ch]]}",
+                                 None)
+                    return True
+                op, oln, ocol = stack.pop()
+                if _OPENERS[op] != ch:
+                    _emit_syntax(file_path, lines, ln, i, 1,
+                                 f"mismatched '{ch}': expected '{_OPENERS[op]}'",
+                                 f"opened with '{op}' here is closed by '{ch}'",
+                                 f"did you mean '{_OPENERS[op]}'?")
+                    return True
+            i += 1
+    if stack:
+        op, oln, ocol = stack[-1]
+        _emit_syntax(file_path, lines, oln, ocol, 1,
+                     f"unclosed '{op}'",
+                     f"this {_NAMES[op]} is never closed",
+                     f"add a closing '{_OPENERS[op]}'")
+        return True
+    return False
+
+
+def _emit_syntax(file_path, lines, line0, col0, length, message, label, suggestion):
+    sys.stderr.write(
+        render_diagnostic(
+            filename=str(file_path),
+            source_lines=lines,
+            line=line0,
+            col=col0,
+            length=length,
+            message=f"syntax error: {message}",
+            label=label,
+            suggestion=suggestion,
+            color=color_enabled(),
+        )
+    )
+
+
+def parse_source(source, file_path, user_code, prelude_offset):
+    """Parse source (with positions) and run semantic checks."""
+    # A cheap, precise pre-check catches the most common syntax mistakes with
+    # better messages than the generic parser can give.
+    if _check_brackets(user_code, file_path):
+        sys.exit(1)
+
+    parser = AgoParser(parseinfo=True)
     semantics = AgoSemanticChecker()
-
     try:
         ast = parser.parse(source, semantics=semantics)
     except Exception as e:
-        print_error(f"parse error in {file_path}")
-        print(f"  {e}", file=sys.stderr)
-        sys.exit(1)
+        _report_parse_error(e, file_path, user_code, prelude_offset)
 
     return ast, semantics
+
+
+def _node_loc(node, combined_source):
+    """(combined_line0, col0, length) from a node's parseinfo, or None."""
+    pi = getattr(node, "parseinfo", None)
+    if pi is None:
+        return None
+    pos = getattr(pi, "pos", None)
+    endpos = getattr(pi, "endpos", None)
+    line0 = getattr(pi, "line", None)
+    if pos is None or line0 is None:
+        return None
+    line_start = combined_source.rfind("\n", 0, pos) + 1
+    col0 = pos - line_start
+    length = max(1, (endpos - pos)) if endpos else 1
+    return line0, col0, length
+
+
+def _report_semantic_errors(errors, source, file_path, user_code, prelude_offset):
+    user_lines = user_code.split("\n")
+    for err in errors:
+        loc = _node_loc(getattr(err, "node", None), source)
+        if loc:
+            cline0, col0, length = loc
+            line0 = cline0 - prelude_offset
+        elif err.line is not None:
+            line0, col0, length = err.line - prelude_offset, None, 1
+        else:
+            line0, col0, length = 0, None, 1
+        if line0 < 0:
+            line0 = 0
+        suggestion = getattr(err, "suggestion", None)
+        sys.stderr.write(
+            render_diagnostic(
+                filename=str(file_path),
+                source_lines=user_lines,
+                line=line0,
+                col=col0,
+                length=min(length, 80),
+                message=str(err.message),
+                suggestion=suggestion,
+                color=color_enabled(),
+            )
+        )
+        sys.stderr.write("\n")
 
 
 def setup_build_dir():
@@ -304,9 +483,37 @@ def compile_rust(
 
 
 def run_binary(exe_path: Path) -> int:
-    """Run the compiled binary."""
-    result = subprocess.run([exe_path])
+    """Run the compiled binary.
+
+    stdout streams to the user live; stderr is captured so that a Rust panic can
+    be reformatted as a clean Ago runtime error (no Rust backtrace / file paths).
+    """
+    env = dict(os.environ)
+    env["RUST_BACKTRACE"] = "0"
+    result = subprocess.run([exe_path], stderr=subprocess.PIPE, text=True, env=env)
+    if result.returncode != 0 and result.stderr:
+        _report_runtime_error(result.stderr)
+    elif result.stderr:
+        sys.stderr.write(result.stderr)
     return result.returncode
+
+
+def _report_runtime_error(stderr: str) -> None:
+    """Turn a Rust panic dump into a one-line Ago runtime error."""
+    msg = None
+    lines = stderr.split("\n")
+    for i, line in enumerate(lines):
+        if "panicked at" in line:
+            # The human message is on the following line(s).
+            msg = "\n".join(lines[i + 1 :]).strip()
+            # Drop the trailing "note: run with RUST_BACKTRACE..." hint.
+            msg = msg.split("\nnote:")[0].strip()
+            break
+    if not msg:
+        # Not a panic we recognize; pass the original through.
+        sys.stderr.write(stderr)
+        return
+    print_error(f"runtime error: {msg}")
 
 
 def run_fmt(argv) -> int:
@@ -393,10 +600,10 @@ def main():
         print_warning(f"file does not have .ago extension: {file_path}")
 
     # Read source
-    source = read_source(file_path)
+    source, user_code, prelude_offset = read_source(file_path)
 
     # Parse and semantic check
-    ast, semantics = parse_source(source, file_path)
+    ast, semantics = parse_source(source, file_path, user_code, prelude_offset)
 
     # Handle --ast
     if args.ast:
@@ -405,9 +612,11 @@ def main():
 
     # Report semantic errors
     if semantics.errors:
-        print_error(f"found {len(semantics.errors)} error(s) in {file_path}")
-        for error in semantics.errors:
-            print(f"  {c('→', Colors.RED)} {error}", file=sys.stderr)
+        _report_semantic_errors(
+            semantics.errors, source, file_path, user_code, prelude_offset
+        )
+        n = len(semantics.errors)
+        print_error(f"found {n} error(s) in {file_path}")
         sys.exit(1)
 
     # Handle --check

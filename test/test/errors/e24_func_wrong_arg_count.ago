@@ -1,0 +1,4 @@
+des adda(xa, ya) {
+    redeo xa + ya
+}
+adda(1)

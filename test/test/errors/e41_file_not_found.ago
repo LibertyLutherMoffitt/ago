@@ -1,0 +1,2 @@
+fu := apertu("does_not_exist.txt")
+dici(fu["contentes"])

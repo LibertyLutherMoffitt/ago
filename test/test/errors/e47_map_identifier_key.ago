@@ -1,0 +1,2 @@
+mu := {keya: 1}
+dici(mu["keya"].es())

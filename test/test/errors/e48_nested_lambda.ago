@@ -1,0 +1,3 @@
+makeo := des {des {id + 1}}
+addo := makeo()
+dici(addo(5).es())

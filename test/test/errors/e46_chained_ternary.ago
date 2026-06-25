@@ -1,0 +1,3 @@
+xa := 1
+yes := xa == 0 ? "zero" : xa == 1 ? "one" : "many"
+dici(yes)

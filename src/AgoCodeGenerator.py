@@ -1733,7 +1733,9 @@ class AgoCodeGenerator:
                 self._note_stem(nm, facts)
                 if in_lambda:
                     facts["in_lambda"].add(nm)
-        for v in d.values():
+        for k, v in d.items():
+            if k == "parseinfo":
+                continue  # never recurse into TatSu's parseinfo payload
             self._collect_native_facts(v, child_in_lambda, facts, seen)
 
     def _analyze_native_ints(self, scope_nodes: Any, exclude: set = None) -> set:
