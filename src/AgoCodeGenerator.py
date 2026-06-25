@@ -268,12 +268,14 @@ class AgoCodeGenerator:
         # Block-wrapped lambdas with captures: { let x = x.clone(); Rc::new(move |...|) as AgoLambda }
         if expr.startswith("{ ") and "as AgoLambda }" in expr:
             return expr
-        
-        # Check if this is a lambda parameter - clone it instead of referencing
-        lambda_params = getattr(self, "_lambda_params", set())
-        if expr in lambda_params:
+
+        # Lambda parameters and lambda-valued variables (names ending in 'o')
+        # are AgoLambda (an Rc), passed by value with a cheap clone rather than
+        # by reference. This makes a lambda stored in a variable behave exactly
+        # like an inline lambda when passed to a function.
+        if self._is_lambda_expr(expr):
             return f"{expr}.clone()"
-        
+
         # If expression ends with .clone(), remove it and add &
         if expr.endswith(".clone()"):
             return f"&{expr[:-8]}"
