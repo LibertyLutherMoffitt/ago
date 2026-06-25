@@ -464,3 +464,13 @@ des celerorduum(luum, xo) {
     si la <= I { redeo luum }
     redeo _quickuum(luum, 0, la - I, xo)
 }
+
+# linerum - Input from stdin into a list of strings as lines
+des linerum() {
+    redeo apertu("/dev/stdin").contentes.finderum("\n")
+}
+
+# numeruum - Input from stdin into a 2d list of ints
+des numeruum() {
+    redeo linerum().mutatuum(des { ides.finderum(" ").mutataem(des {ida}) })
+}
