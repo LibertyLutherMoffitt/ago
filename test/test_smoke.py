@@ -51,16 +51,25 @@ class TestCodegenStructure:
         rust = _gen("xa := 42\ndici(xes)")
         assert "AgoType::Int(42)" in rust
 
-    def test_lambda_var_through_user_fn_is_cloned_not_borrowed(self):
-        # Regression: a lambda variable passed into a function must be cloned,
-        # never wrapped in `&` (which would emit `&xo` / `&ido`).
+    def test_lambda_is_first_class_agotype(self):
+        # Lambdas are ordinary first-class AgoType values: a function holding a
+        # lambda takes it as `&AgoType` (like any value), calls it via
+        # `call_lambda`, and an inline lambda is passed by reference exactly like
+        # a lambda stored in a variable.
         rust = _gen(
             "des applica(xo, vium) { redeo xo(vium) }\n"
             "des indira(luum, xo) { redeo applica(xo, luum[0]) }\n"
             "[5,2,8].indira(des (xium) { xium + 1 }).es().dici()"
         )
-        assert "applica(xo.clone()," in rust
-        assert "&xo" not in rust
+        # Lambda parameter is a plain reference, invoked with call_lambda.
+        assert "xo: &AgoType" in rust
+        assert "xo.call_lambda(" in rust
+        # A lambda param forwarded to another function is passed by reference,
+        # not cloned by value.
+        assert "applica(xo," in rust
+        assert "xo.clone()" not in rust
+        # An inline lambda literal is a first-class AgoType::Lambda value.
+        assert "&AgoType::Lambda(Rc::new(" in rust
 
     def test_native_int_loop_unboxed(self):
         # Typed-unboxing: a scalar int accumulator over a range loop should emit
@@ -129,14 +138,36 @@ class TestCodegenStructure:
         )
         assert "helpera(&id, &basea)" in rust
 
+    def test_first_class_lambda_shapes(self):
+        # A function returning a lambda returns a plain AgoType (the lambda is an
+        # AgoType::Lambda value), and a nested lambda compiles as a value too.
+        rust = _gen(
+            "des makero() { redeo des { id + 1 } }\n"
+            "addo := makero()\n"
+            "addo(5).es().dici()"
+        )
+        # No special AgoLambda return type — everything is AgoType now.
+        assert "-> AgoType {" in rust
+        assert "-> AgoLambda" not in rust
+        # The returned lambda is an AgoType::Lambda value, and calling the
+        # variable goes through call_lambda.
+        assert "AgoType::Lambda(Rc::new(" in rust
+        assert "addo.call_lambda(" in rust
+
     def test_is_lambda_expr_helper(self):
+        # _is_lambda_expr now recognizes only inline lambda *literals*
+        # (AgoType::Lambda(...)); lambda *variables* are ordinary AgoType values
+        # and need no special handling.
         g = AgoCodeGenerator()
         g.declared_vars = {"xo", "luum"}
         g._lambda_params = {"yo"}
-        assert g._is_lambda_expr("Rc::new(|args: &[AgoType]| -> AgoType { x }) as AgoLambda")
-        assert g._is_lambda_expr("{ let a = a.clone(); Rc::new(move |args| x) as AgoLambda }")
-        assert g._is_lambda_expr("xo")
-        assert g._is_lambda_expr("yo")
+        assert g._is_lambda_expr(
+            "AgoType::Lambda(Rc::new(|args: &[AgoType]| -> AgoType { x }) as AgoLambda)"
+        )
+        assert g._is_lambda_expr(
+            "{ let a = a.clone(); AgoType::Lambda(Rc::new(move |args| x) as AgoLambda) }"
+        )
+        assert not g._is_lambda_expr("xo")
         assert not g._is_lambda_expr("luum")
         assert not g._is_lambda_expr("AgoType::Int(1)")
 

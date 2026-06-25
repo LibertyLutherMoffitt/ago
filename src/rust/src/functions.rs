@@ -70,6 +70,7 @@ pub fn species(val: &AgoType) -> AgoType {
         AgoType::Struct(_) => "Struct",
         AgoType::ListAny(_) => "ListAny",
         AgoType::Range(_) => "Range",
+        AgoType::Lambda(_) => "Lambda",
         AgoType::Null => "Null",
     };
     AgoType::String(type_name.to_string())

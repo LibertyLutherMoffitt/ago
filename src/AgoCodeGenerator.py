@@ -188,23 +188,18 @@ class AgoCodeGenerator:
 
     def _is_lambda_expr(self, expr: str) -> bool:
         """
-        Return True if `expr` evaluates to a lambda (AgoLambda), which must be
-        passed by value rather than by reference.
+        Return True if `expr` is a freshly-constructed lambda value, i.e. an
+        `AgoType::Lambda(...)` literal (either bare or wrapped in a capture
+        block `{ let c = c.clone(); AgoType::Lambda(...) }`).
 
-        Covers three shapes:
-        - Bare lambdas:      Rc::new(__lambda_N) as AgoLambda / Rc::new(|...|) as AgoLambda
-        - Captured lambdas:  { let x = x.clone(); Rc::new(move |...|) as AgoLambda }
-        - Lambda variables/params (names ending in 'o', e.g. `xo`)
+        Lambdas are now ordinary first-class `AgoType` values, so this is only
+        used to recognize an inline lambda *literal* (which is already owned and
+        does not need cloning); lambda *variables* are handled like any other
+        variable.
         """
-        if expr.startswith("Rc::new(") and " as AgoLambda" in expr:
+        if expr.startswith("AgoType::Lambda("):
             return True
-        if expr.startswith("{ ") and "as AgoLambda }" in expr:
-            return True
-        # Lambda parameters and declared lambda variables end in 'o'.
-        lambda_params = getattr(self, "_lambda_params", set())
-        if expr in lambda_params:
-            return True
-        if len(expr) > 1 and expr.endswith("o") and expr in self.declared_vars:
+        if expr.startswith("{ ") and "AgoType::Lambda(" in expr and expr.endswith("}"):
             return True
         return False
 
@@ -225,25 +220,19 @@ class AgoCodeGenerator:
         """
         # Skip if already looks owned
         if (
-            expr.startswith("AgoType::") or  # Literal
+            expr.startswith("AgoType::") or  # Literal (incl. AgoType::Lambda(...))
             expr.startswith("(match ") or     # Our optimization match
             expr.startswith("(if ") or        # Conditional expression
             expr.endswith(")") or             # Function call or grouping
             ".clone()" in expr                # Already cloned
         ):
             return expr
-        
-        # Lambda expressions are Rc<dyn Fn>, can be cloned
-        # A bare lambda looks like: Rc::new(__lambda_N) as AgoLambda
-        if (
-            expr.startswith("Rc::new(") and " as AgoLambda" in expr
-        ):
+
+        # Capture-block lambda literal: { let c = c.clone(); AgoType::Lambda(...) }
+        # already evaluates to an owned value.
+        if expr.startswith("{ ") and "AgoType::Lambda(" in expr and expr.endswith("}"):
             return expr
-        
-        # Block-wrapped lambdas with captures: { let x = x.clone(); Rc::new(move |...|) as AgoLambda }
-        if expr.startswith("{ ") and "as AgoLambda }" in expr:
-            return expr
-        
+
         # Check if this is a reference parameter - needs cloning
         ref_params = getattr(self, "_ref_params", set())
         if expr in ref_params:
@@ -255,27 +244,14 @@ class AgoCodeGenerator:
 
     def _make_ref(self, expr: str) -> str:
         """
-        Convert an expression to a reference for passing to stdlib functions.
-        
-        Removes unnecessary .clone() calls since we're just borrowing.
-        Does NOT add & to lambdas (they're passed by value, with .clone() if needed).
+        Convert an expression to a reference for passing to a function.
+
+        Removes unnecessary .clone() calls since we're just borrowing. Lambdas
+        are now ordinary `AgoType` values, so an inline lambda literal is passed
+        by reference (`&AgoType::Lambda(...)`) exactly like any other literal;
+        a lambda stored in a variable is passed `&var` like any variable. This
+        makes an inline lambda and a lambda-in-a-variable behave identically.
         """
-        # Don't add & to lambda expressions - they're passed by value
-        # A bare lambda looks like: Rc::new(__lambda_N) as AgoLambda
-        if expr.startswith("Rc::new(") and " as AgoLambda" in expr:
-            return expr
-        
-        # Block-wrapped lambdas with captures: { let x = x.clone(); Rc::new(move |...|) as AgoLambda }
-        if expr.startswith("{ ") and "as AgoLambda }" in expr:
-            return expr
-
-        # Lambda parameters and lambda-valued variables (names ending in 'o')
-        # are AgoLambda (an Rc), passed by value with a cheap clone rather than
-        # by reference. This makes a lambda stored in a variable behave exactly
-        # like an inline lambda when passed to a function.
-        if self._is_lambda_expr(expr):
-            return f"{expr}.clone()"
-
         # If expression ends with .clone(), remove it and add &
         if expr.endswith(".clone()"):
             return f"&{expr[:-8]}"
@@ -943,33 +919,17 @@ class AgoCodeGenerator:
         params = self._parse_params(d.get("params"))
         body = d.get("body")
         
-        # Identify lambda parameters (end in 'o')
-        lambda_params = set()
-        non_lambda_params = set()
-        for name in params:
-            if len(name) > 1 and name.endswith("o"):
-                lambda_params.add(name)
-            else:
-                non_lambda_params.add(name)
-        
-        # Find which non-lambda params are mutated in the body
-        mutated_params = self._find_mutated_vars(body, non_lambda_params)
-        
-        # Generate parameter string:
-        # - Lambda params: AgoLambda (by value, can't be referenced)
-        # - All other params: &AgoType (passed by reference)
-        param_parts = []
-        for name in params:
-            if name in lambda_params:
-                param_parts.append(f"{name}: AgoLambda")
-            else:
-                # All non-lambda params are passed by reference
-                param_parts.append(f"{name}: &AgoType")
+        # Every parameter is passed by reference as `&AgoType`. Lambdas are now
+        # ordinary first-class AgoType values, so they need no special-casing:
+        # a parameter that holds a function is just an &AgoType like any other.
+        mutated_params = self._find_mutated_vars(body, set(params))
+
+        param_parts = [f"{name}: &AgoType" for name in params]
         param_str = ", ".join(param_parts)
 
-        # Check if this function returns a lambda
-        returns_lambda = self._function_returns_lambda(body)
-        return_type = "AgoLambda" if returns_lambda else "AgoType"
+        # Every function returns a plain AgoType (a returned lambda is just an
+        # AgoType::Lambda value).
+        return_type = "AgoType"
 
         # Emit function signature
         self.emit_raw("")
@@ -988,17 +948,13 @@ class AgoCodeGenerator:
         old_declared = self.declared_vars.copy()
         old_lambda_params = getattr(self, "_lambda_params", set()).copy()
         old_ref_params = getattr(self, "_ref_params", set()).copy()
-        
-        self._lambda_params = lambda_params
+
+        self._lambda_params = set()
         # Track which params are still references (not cloned)
-        self._ref_params = non_lambda_params - mutated_params
-        
+        self._ref_params = set(params) - mutated_params
+
         for p in params:
             self.declared_vars.add(p)
-
-        # Track if current function returns lambda (for use in return generation)
-        old_returns_lambda = getattr(self, "_current_func_returns_lambda", False)
-        self._current_func_returns_lambda = returns_lambda
 
         # Identify native (unboxed) int locals within this function body.
         # Parameters are never native (they arrive as &AgoType / cloned AgoType).
@@ -1009,9 +965,8 @@ class AgoCodeGenerator:
         if body:
             self._process_block(body)
 
-        # Default return if no explicit return (only for non-lambda returning functions)
-        if not returns_lambda:
-            self.emit("AgoType::Null")
+        # Default trailing return if control falls off the end.
+        self.emit("AgoType::Null")
 
         self.indent_level -= 1
         self.emit_raw("}")
@@ -1020,7 +975,6 @@ class AgoCodeGenerator:
         self.declared_vars = old_declared
         self._lambda_params = old_lambda_params
         self._ref_params = old_ref_params
-        self._current_func_returns_lambda = old_returns_lambda
         self._native_ints = old_native
 
     def _parse_params(self, params_node: Any) -> list[str]:
@@ -2526,9 +2480,10 @@ class AgoCodeGenerator:
                 
                 args = [recv_expr] + args
 
-            # Check if this is a lambda variable (ends with 'o' and is a declared var)
+            # Calling a value held in a variable: it's a first-class function
+            # value (AgoType::Lambda). `call_lambda` extracts and invokes it,
+            # panicking with a clear message if the value isn't callable.
             if func_name in self.declared_vars:
-                # Lambda call - pass args as slice
                 # Clone args that are loop iterators (they'd be moved into the array otherwise)
                 loop_iters = getattr(self, "_loop_iterators", set())
                 cloned_args = []
@@ -2536,9 +2491,9 @@ class AgoCodeGenerator:
                     if arg in loop_iters:
                         cloned_args.append(f"{arg}.clone()")
                     else:
-                        cloned_args.append(arg)
+                        cloned_args.append(self._ensure_owned(arg))
                 args_str = ", ".join(cloned_args)
-                return f"{func_name}(&[{args_str}])"
+                return f"{func_name}.call_lambda(&[{args_str}])"
 
             # Check for stem-based function call (e.g., aae() to call aa() and cast to float)
             actual_func_name = func_name
@@ -2575,13 +2530,6 @@ class AgoCodeGenerator:
                             ref_args.append(f"&mut {arg}")
                         else:
                             ref_args.append(arg)
-                    elif self._is_lambda_expr(arg):
-                        # Lambdas (AgoLambda) are passed by value, never by reference.
-                        # A bare lambda is moved as-is; a lambda variable/param is cloned.
-                        if arg.startswith("Rc::new(") or arg.startswith("{ "):
-                            ref_args.append(arg)
-                        else:
-                            ref_args.append(f"{arg}.clone()")
                     elif not arg.startswith("&"):
                         ref_args.append(f"&{arg}")
                     else:
@@ -3307,17 +3255,17 @@ class AgoCodeGenerator:
         self._ref_params = old_ref_params
         self._native_ints = old_native_ints
         
-        # Build the inline move closure
-        # Format: { let cap = cap.clone(); Rc::new(move |args: &[AgoType]| -> AgoType { body }) as AgoLambda }
+        # Build the inline move closure, wrapped as a first-class AgoType value.
+        # Format: { let cap = cap.clone(); AgoType::Lambda(Rc::new(move |args| -> AgoType { body }) as AgoLambda) }
         body_code = " ".join(line.strip() for line in body_lines)
-        
+
         if captured:
             # Clone captured variables before the closure
             clone_stmts = " ".join(f"let {var} = {var}.clone();" for var in sorted(captured))
-            return f"{{ {clone_stmts} Rc::new(move |args: &[AgoType]| -> AgoType {{ {body_code} }}) as AgoLambda }}"
+            return f"{{ {clone_stmts} AgoType::Lambda(Rc::new(move |args: &[AgoType]| -> AgoType {{ {body_code} }}) as AgoLambda) }}"
         else:
             # No captures - simple closure
-            return f"Rc::new(|args: &[AgoType]| -> AgoType {{ {body_code} }}) as AgoLambda"
+            return f"AgoType::Lambda(Rc::new(|args: &[AgoType]| -> AgoType {{ {body_code} }}) as AgoLambda)"
 
     def _roman_to_int(self, roman: str) -> int:
         """Convert Roman numeral to integer."""

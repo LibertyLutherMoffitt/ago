@@ -4,7 +4,11 @@ use std::rc::Rc;
 
 // This enum is the heart of the stdlib. Every variable, parameter, and
 // return value in the transpiled Ago code will be of this type.
-#[derive(Debug, Clone, PartialEq)] // Add derive for common traits for easier debugging and testing
+//
+// Debug and PartialEq are implemented by hand (below) rather than derived,
+// because the Lambda variant holds an `Rc<dyn Fn>` which is neither Debug nor
+// PartialEq. Clone is still derived (Rc is Clone).
+#[derive(Clone)]
 pub enum AgoType {
     Int(i128), // Updated to i128 as per clarification
     Float(f64),
@@ -21,7 +25,52 @@ pub enum AgoType {
     Struct(Rc<RefCell<HashMap<String, AgoType>>>),
     ListAny(Vec<AgoType>), // For lists of mixed types
     Range(AgoRange),
+    // A first-class function value (lambda or a function reference). Like a map,
+    // it is reference-counted and shared on clone; equality is by identity.
+    Lambda(AgoLambda),
     Null, // Representing Ago's 'inanis'
+}
+
+impl std::fmt::Debug for AgoType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AgoType::Int(v) => write!(f, "Int({:?})", v),
+            AgoType::Float(v) => write!(f, "Float({:?})", v),
+            AgoType::Bool(v) => write!(f, "Bool({:?})", v),
+            AgoType::String(v) => write!(f, "String({:?})", v),
+            AgoType::IntList(v) => write!(f, "IntList({:?})", v),
+            AgoType::FloatList(v) => write!(f, "FloatList({:?})", v),
+            AgoType::BoolList(v) => write!(f, "BoolList({:?})", v),
+            AgoType::StringList(v) => write!(f, "StringList({:?})", v),
+            AgoType::Struct(v) => write!(f, "Struct({:?})", v.borrow()),
+            AgoType::ListAny(v) => write!(f, "ListAny({:?})", v),
+            AgoType::Range(v) => write!(f, "Range({:?})", v),
+            AgoType::Lambda(_) => write!(f, "Lambda(<fn>)"),
+            AgoType::Null => write!(f, "Null"),
+        }
+    }
+}
+
+impl PartialEq for AgoType {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (AgoType::Int(a), AgoType::Int(b)) => a == b,
+            (AgoType::Float(a), AgoType::Float(b)) => a == b,
+            (AgoType::Bool(a), AgoType::Bool(b)) => a == b,
+            (AgoType::String(a), AgoType::String(b)) => a == b,
+            (AgoType::IntList(a), AgoType::IntList(b)) => a == b,
+            (AgoType::FloatList(a), AgoType::FloatList(b)) => a == b,
+            (AgoType::BoolList(a), AgoType::BoolList(b)) => a == b,
+            (AgoType::StringList(a), AgoType::StringList(b)) => a == b,
+            (AgoType::Struct(a), AgoType::Struct(b)) => *a.borrow() == *b.borrow(),
+            (AgoType::ListAny(a), AgoType::ListAny(b)) => a == b,
+            (AgoType::Range(a), AgoType::Range(b)) => a == b,
+            // Lambdas have no structural equality; compare by identity.
+            (AgoType::Lambda(a), AgoType::Lambda(b)) => Rc::ptr_eq(a, b),
+            (AgoType::Null, AgoType::Null) => true,
+            _ => false,
+        }
+    }
 }
 
 impl AgoType {
@@ -41,9 +90,22 @@ impl AgoType {
                 AgoType::new_struct(copied)
             }
             AgoType::ListAny(v) => AgoType::ListAny(v.iter().map(|x| x.deep_copy()).collect()),
-            // Scalars and the homogeneous list variants contain no shared cells,
-            // so a normal clone is already a deep copy.
+            // Scalars, the homogeneous list variants and lambdas contain no
+            // shared mutable cells, so a normal clone is already a deep copy.
             other => other.clone(),
+        }
+    }
+
+    /// Invoke this value as a function. Panics with a clear message if it is not
+    /// a lambda / function value (the semantic checker rejects most such cases,
+    /// but a dynamically-typed `inanis` could still reach here).
+    pub fn call_lambda(&self, args: &[AgoType]) -> AgoType {
+        match self {
+            AgoType::Lambda(f) => f(args),
+            other => panic!(
+                "value of type {} is not callable (not a function)",
+                other.type_name()
+            ),
         }
     }
 
@@ -62,6 +124,7 @@ impl AgoType {
             AgoType::Struct(_) => "Struct",
             AgoType::ListAny(_) => "ListAny",
             AgoType::Range(_) => "Range",
+            AgoType::Lambda(_) => "Lambda",
             AgoType::Null => "Null (inanis)",
         }
     }

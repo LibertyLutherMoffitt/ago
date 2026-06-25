@@ -433,6 +433,7 @@ pub fn validate_list_type(list: &AgoType, expected_elem: &str) -> AgoType {
                 AgoType::ListAny(_) => "list_any",
                 AgoType::Struct(_) => "struct",
                 AgoType::Range(_) => "range",
+                AgoType::Lambda(_) => "lambda",
                 AgoType::Null => "null",
             };
 
