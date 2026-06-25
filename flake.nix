@@ -280,6 +280,60 @@ MAN
           '';
         };
 
+        # Neovim plugin bundling tree-sitter parser, queries, LSP config, and stem colors.
+        packages.vim-ago = pkgs.stdenv.mkDerivation {
+          pname = "vim-ago";
+          inherit version;
+          src = ./.;
+          dontBuild = true;
+          installPhase = ''
+            mkdir -p $out/parser $out/queries/ago $out/lua $out/ftdetect $out/ftplugin $out/plugin
+            
+            # Parser
+            ln -s ${self'.packages.tree-sitter-ago}/parser/ago.so $out/parser/ago.so
+            
+            # Queries
+            cp -r tree-sitter-ago/queries/* $out/queries/ago/
+            
+            # Lua module
+            cp editors/nvim/ago-stem-colors.lua $out/lua/ago-stem-colors.lua
+            
+            # Filetype detection
+            cat > $out/ftdetect/ago.lua <<'EOF'
+            vim.filetype.add({ extension = { ago = "ago" } })
+            EOF
+            
+            # Filetype plugin (LSP and format on save)
+            cat > $out/ftplugin/ago.lua <<EOF
+            local bufname = vim.api.nvim_buf_get_name(0)
+            local root = vim.fs.root(0, {".git", "flake.nix"}) or vim.fs.dirname(bufname)
+            vim.lsp.start({
+              name = "ago-lsp",
+              cmd = { "${self'.packages.ago-lsp}/bin/ago-lsp" },
+              root_dir = root,
+            })
+            
+            vim.api.nvim_create_autocmd("BufWritePre", {
+              buffer = vim.api.nvim_get_current_buf(),
+              callback = function() vim.lsp.buf.format() end,
+            })
+            EOF
+            
+            # Global setup
+            cat > $out/plugin/ago.lua <<'EOF'
+            local has_parsers, parsers = pcall(require, "nvim-treesitter.parsers")
+            if has_parsers then
+              local configs = parsers.get_parser_configs()
+              if not configs.ago then
+                configs.ago = { install_info = { url = "none" }, filetype = "ago" }
+              end
+            end
+            
+            require("ago-stem-colors").setup()
+            EOF
+          '';
+        };
+
         # Development shell
         devShells.default = pkgs.mkShell {
           packages = [
