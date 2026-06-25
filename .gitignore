@@ -16,6 +16,7 @@ target/
 # IDE/Editor settings
 .vscode/
 .idea/
+.direnv
 
 # =============================================================================
 # Python
