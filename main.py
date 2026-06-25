@@ -395,6 +395,8 @@ def _report_semantic_errors(errors, source, file_path, user_code, prelude_offset
         if line0 < 0:
             line0 = 0
         suggestion = getattr(err, "suggestion", None)
+        if suggestion:
+            suggestion = f"did you mean '{suggestion}'?"
         sys.stderr.write(
             render_diagnostic(
                 filename=str(file_path),
@@ -458,17 +460,24 @@ def compile_rust(
     )
 
     if result.returncode != 0:
-        print_error("compilation failed")
-        # Filter out common warnings for cleaner output
-        stderr = result.stderr
-        if not verbose:
-            lines = stderr.split("\n")
-            error_lines = [
-                line for line in lines if "error" in line.lower() or "->" in line
-            ]
-            if error_lines:
-                stderr = "\n".join(error_lines[:20])  # Limit output
-        print(stderr, file=sys.stderr)
+        # Reaching the Rust compiler means parsing and the semantic checks both
+        # passed, so this is almost always an unsupported construct or a codegen
+        # bug rather than a mistake the user can see in their own source. Show a
+        # clear message and keep the raw rustc output behind --verbose, since its
+        # file paths point at generated Rust / the prelude, not the .ago file.
+        if verbose:
+            print_error("compilation of generated Rust failed")
+            print(result.stderr, file=sys.stderr)
+        else:
+            summary = _summarize_rustc_error(result.stderr)
+            print_error("internal error: could not compile this program")
+            if summary:
+                print(f"  {summary}", file=sys.stderr)
+            print(
+                "  this is likely an unsupported construct or a compiler bug; "
+                "re-run with --verbose for details",
+                file=sys.stderr,
+            )
         sys.exit(1)
 
     # Copy/link to output path
@@ -480,6 +489,19 @@ def compile_rust(
         shutil.copy2(exe_path, output_path)
 
     return output_path
+
+
+def _summarize_rustc_error(stderr: str) -> str:
+    """Pull the first concrete rustc error message out of a cargo build dump,
+    dropping the source-location lines that point at generated Rust."""
+    for line in stderr.split("\n"):
+        line = line.strip()
+        if line.startswith("error[") or line.startswith("error:"):
+            # Skip cargo's generic "could not compile ... due to" tail.
+            if "could not compile" in line or "previous error" in line:
+                continue
+            return line
+    return ""
 
 
 def run_binary(exe_path: Path) -> int:

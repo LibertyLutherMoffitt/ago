@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 from src.AgoSymbolTable import Symbol, SymbolTable, SymbolTableError
+from src.AgoCodeGenerator import get_suffix_and_stem
+from src.AgoErrors import closest as _closest
 
 # --- Type System Constants ---
 
@@ -57,6 +59,7 @@ class SemanticError:
     line: Optional[int] = None
     col: Optional[int] = None
     node: Any = None
+    suggestion: Optional[str] = None
 
     def __str__(self) -> str:
         location = ""
@@ -64,7 +67,8 @@ class SemanticError:
             location = f"(line {self.line}, col {self.col}) "
         elif self.line is not None:
             location = f"(line {self.line}) "
-        return f"{location}{self.message}"
+        hint = f" (did you mean '{self.suggestion}'?)" if self.suggestion else ""
+        return f"{location}{self.message}{hint}"
 
 
 # --- Helper Functions ---
@@ -279,10 +283,43 @@ class AgoSemanticChecker:
 
     # --- Error Reporting ---
 
-    def report_error(self, message: str, node: Any = None) -> None:
-        """Record a semantic error."""
+    def report_error(
+        self, message: str, node: Any = None, suggestion: Optional[str] = None
+    ) -> None:
+        """Record a semantic error, with an optional 'did you mean' suggestion."""
         line, col = get_node_location(node) if node else (None, None)
-        self.errors.append(SemanticError(message, line, col, node))
+        self.errors.append(SemanticError(message, line, col, node, suggestion))
+
+    def _suggest_name(self, name: str) -> Optional[str]:
+        """Nearest known identifier (variable, function, or builtin) to `name`,
+        for 'did you mean ...?' hints on undefined / misspelled references.
+
+        Matches on stems too, so a typo'd ending (``valuee`` for ``valuum``) or
+        a misspelled stem (``dicii`` for ``dici``) both resolve. The returned
+        suggestion keeps the ending the user typed when only the stem differs,
+        so it stays usable as a drop-in fix."""
+        candidates = set(self.sym_table.get_all_visible_symbols().keys())
+        if not candidates:
+            return None
+        # Tighten the edit-distance budget for short names so we don't suggest
+        # noise (e.g. 'xes' -> 'get'); only longer typos get the looser radius.
+        max_dist = 1 if len(name) <= 4 else 2
+        # Exact-name match first (covers builtins and same-ending variables).
+        best = _closest(name, candidates, max_dist)
+        if best is not None:
+            return best
+        # Fall back to stem matching so a wrong ending still suggests the var.
+        _, want_stem = get_suffix_and_stem(name)
+        if not want_stem or len(want_stem) < 2:
+            return None
+        stem_map: dict[str, str] = {}
+        for cand in candidates:
+            _, cstem = get_suffix_and_stem(cand)
+            if cstem:
+                stem_map.setdefault(cstem, cand)
+        stem_dist = 1 if len(want_stem) <= 4 else 2
+        hit = _closest(want_stem, list(stem_map.keys()), stem_dist)
+        return stem_map.get(hit) if hit else None
 
     def has_errors(self) -> bool:
         return len(self.errors) > 0
@@ -319,7 +356,11 @@ class AgoSemanticChecker:
         """Look up a symbol, reporting error if not found."""
         sym = self.sym_table.get_symbol(name)
         if sym is None:
-            self.report_error(f"Use of undeclared identifier '{name}'", node)
+            self.report_error(
+                f"Use of undeclared identifier '{name}'",
+                node,
+                suggestion=self._suggest_name(name),
+            )
         return sym
 
     def declare_symbol(self, symbol: Symbol, node: Any = None) -> bool:
@@ -461,7 +502,11 @@ class AgoSemanticChecker:
                         )
                         return "unknown"
 
-            self.report_error(f"Variable '{name}' not defined.", node)
+            self.report_error(
+                f"Variable '{name}' not defined.",
+                node,
+                suggestion=self._suggest_name(name),
+            )
             return "unknown"
 
         # Parenthesized expression
@@ -2276,7 +2321,9 @@ class AgoSemanticChecker:
                         )
                     else:
                         self.report_error(
-                            f"Use of undeclared identifier '{func_name}'", call_node
+                            f"Use of undeclared identifier '{func_name}'",
+                            call_node,
+                            suggestion=self._suggest_name(func_name),
                         )
                 elif sym.category == "func":
                     # For method chains, recv becomes the first argument
@@ -2332,7 +2379,9 @@ class AgoSemanticChecker:
                         )
                     else:
                         self.report_error(
-                            f"Use of undeclared identifier '{func_name}'", parent_node
+                            f"Use of undeclared identifier '{func_name}'",
+                            parent_node,
+                            suggestion=self._suggest_name(func_name),
                         )
                 elif sym.category == "func":
                     # Validate arguments

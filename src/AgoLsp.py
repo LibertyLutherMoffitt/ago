@@ -498,6 +498,90 @@ def completion(ls: LanguageServer, params: lsp.CompletionParams):
     return lsp.CompletionList(is_incomplete=False, items=list(items.values()))
 
 
+def _function_spans(lines: list[str]) -> list[tuple[int, int, str]]:
+    """(start_line, end_line, name) for every named ``des`` function body block.
+
+    Brace matching skips strings and comments so that the spans reflect real
+    nesting. Used to scope go-to-definition: a variable referenced inside a
+    function should resolve to the same-stem definition in the *nearest
+    enclosing* function, not the globally-earliest one in some other function.
+    """
+    spans: list[tuple[int, int, str]] = []
+    stack: list[dict] = []          # open braces, tagged with a function name
+    pending: str | None = None      # function name awaiting its opening brace
+    for ln, text in enumerate(lines):
+        m = _FAST_FUNC_RE.match(text)
+        if m:
+            pending = m.group(1)
+        i, n = 0, len(text)
+        while i < n:
+            c = text[i]
+            if c == "#":
+                break
+            if c == '"':
+                i += 1
+                while i < n and text[i] != '"':
+                    if text[i] == "\\":
+                        i += 1
+                    i += 1
+                i += 1
+                continue
+            if c == "{":
+                stack.append({"name": pending, "start": ln})
+                pending = None
+            elif c == "}":
+                if stack:
+                    top = stack.pop()
+                    if top["name"]:
+                        spans.append((top["start"], ln, top["name"]))
+            i += 1
+    # Close any blocks left open by incomplete/being-edited code.
+    while stack:
+        top = stack.pop()
+        if top["name"]:
+            spans.append((top["start"], len(lines) - 1, top["name"]))
+    return spans
+
+
+def _innermost_scope(spans: list[tuple[int, int, str]], line: int):
+    """The deepest function span containing ``line``, or None for top level."""
+    best = None
+    for s, e, name in spans:
+        if s <= line <= e and (best is None or (s >= best[0] and e <= best[1])):
+            best = (s, e, name)
+    return best
+
+
+def _select_definition(candidates: list[dict], spans, cursor_line: int) -> dict:
+    """Choose the same-stem definition nearest to the cursor by scope.
+
+    Walks outward from the cursor's enclosing function to top level; the first
+    scope that owns a matching definition wins. Within that scope the most
+    recent definition at or before the cursor is preferred (falling back to the
+    earliest one declared later in the same scope, e.g. for forward references).
+    """
+    containing = [s for s in spans if s[0] <= cursor_line <= s[1]]
+    containing.sort(key=lambda s: (s[0], -s[1]), reverse=True)  # innermost first
+    chain = containing + [None]  # None == top-level scope
+
+    for d in candidates:
+        d["_scope"] = _innermost_scope(spans, d["line"])
+
+    for scope in chain:
+        key = None if scope is None else (scope[0], scope[1])
+        in_scope = [
+            d for d in candidates
+            if (d["_scope"][:2] if d["_scope"] else None) == key
+        ]
+        if in_scope:
+            before = [d for d in in_scope if d["line"] <= cursor_line]
+            if before:
+                return max(before, key=lambda d: d["line"])
+            return min(in_scope, key=lambda d: d["line"])
+
+    return min(candidates, key=lambda d: d["line"])
+
+
 def _name_range(lines: list[str], line: int, name: str) -> lsp.Range:
     col = lines[line].find(name) if 0 <= line < len(lines) else -1
     if col < 0:
@@ -522,9 +606,11 @@ def definition(ls: LanguageServer, params: lsp.DefinitionParams):
 
     # 1) Stem-aware match in the current file: the variable resolves regardless
     #    of the ending under the cursor (xes -> the `xa := ...` that defined it).
+    #    When several functions declare the same stem, prefer the definition in
+    #    the nearest enclosing function scope rather than the earliest globally.
     candidates = [d for d in collect_definitions(doc.source) if d["stem"] == target_stem]
     if candidates:
-        best = min(candidates, key=lambda d: d["line"])
+        best = _select_definition(candidates, _function_spans(lines), pos.line)
         return lsp.Location(
             uri=params.text_document.uri,
             range=_name_range(lines, best["line"], best["name"]),

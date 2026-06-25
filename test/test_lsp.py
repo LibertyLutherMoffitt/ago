@@ -58,6 +58,31 @@ def test_goto_definition_is_stem_aware():
     assert min(cands, key=lambda d: d["line"])["line"] == 0
 
 
+def test_goto_definition_prefers_enclosing_function_scope():
+    # `xa` is declared at top level and re-declared in two functions. A
+    # reference inside `bari` must resolve to bari's own `xa`, not the
+    # earlier top-level or fooi declaration.
+    from src.AgoLsp import _function_spans, _select_definition
+
+    src = (
+        "xa := 1\n"            # line 0  (top-level)
+        "des fooi(ya) {\n"     # line 1
+        "    xa := 10\n"       # line 2  (fooi's xa)
+        "    redeo xa\n"       # line 3
+        "}\n"                  # line 4
+        "des bari(za) {\n"     # line 5
+        "    xa := 20\n"       # line 6  (bari's xa)
+        "    redeo xa + za\n"  # line 7
+        "}\n"
+    )
+    spans = _function_spans(src.split("\n"))
+    cands = [d for d in collect_definitions(src) if d["stem"] == "x"]
+
+    assert _select_definition([dict(d) for d in cands], spans, 7)["line"] == 6
+    assert _select_definition([dict(d) for d in cands], spans, 3)["line"] == 2
+    assert _select_definition([dict(d) for d in cands], spans, 0)["line"] == 0
+
+
 def test_prelude_functions_indexed_by_stem():
     pf = prelude_functions()
     names = {f["name"] for f in pf}
