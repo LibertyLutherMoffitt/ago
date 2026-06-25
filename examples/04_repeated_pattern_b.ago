@@ -1,0 +1,35 @@
+numuum := apertu("./b.txt").contentes.finderum(",").mutatuum(des {spoliares(ides).finderum("-")})
+
+ca := 0 # total
+pro numium in numuum {
+    re := numium[0].a()..numium[I].a() # range
+
+    pro ra in re { # number in a range
+        ses := res
+        pro ia in II..serum.a() { # how many reps of the pattern
+            si (serum.a() % ia).am() { # is it actually divisible by the length
+                pergo
+            }
+            xerum := []
+            pro ja in 0.<ia { # split the string into ia bits adding them to xerum
+                ssa := ja * serum.a() / ia
+                eea := (ja+I) * serum.a() / ia
+                xerum = xerum.appenduum(ses[ssa.<eea])
+            }
+            flagam := verum
+            pro yes in xerum { # check to see if xerum substrings are =
+                si yes != xerum[0] {
+                    flagam = falsus
+                    pergo
+                }
+            }
+
+            si flagam { # if they are equal
+                ca = ca + ra
+                frio
+            }
+        }
+    }
+}
+
+ces.dici()

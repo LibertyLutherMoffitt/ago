@@ -1,0 +1,54 @@
+# AoC 2024 Day 5 - Print Queue
+# Part 1: sum middle page of correctly-ordered updates.
+# Part 2: sum middle page of fixed (originally-incorrect) updates.
+
+des orderedam(upaem, rulesuum) {
+    pro ruleaem in rulesuum {
+        pxium := invena(upaem, ruleaem[0])
+        pyium := invena(upaem, ruleaem[1])
+        si pxium != inanis et pyium != inanis {
+            si pxium > pyium {
+                redeo falsus
+            }
+        }
+    }
+    redeo verum
+}
+
+# How many pages in the update this page must come before.
+des precedea(pagea, upaem, rulesuum) {
+    ca := 0
+    pro qa in upaem {
+        pro ruleaem in rulesuum {
+            si ruleaem[0] == pagea et ruleaem[1] == qa {
+                ca = ca + 1
+                frio
+            }
+        }
+    }
+    redeo ca
+}
+
+# Reorder an update by precedence rank (descending).
+des fixuum(upaem, rulesuum) {
+    keyeduum := upaem.mutatuum(des { [precedea(id, upaem, rulesuum), id] })
+    sorteduum := keyeduum.genorduum(des { 0 - id[0] })
+    redeo sorteduum.mutatuum(des { id[1] })
+}
+
+sectionsuum := apertu("in.txt").contentes.findomnuum("\n").finduum("")
+rulesuum := sectionsuum[0].mutatuum(des { id.findaem("|") })
+updatesuum := sectionsuum[1].mutatuum(des { id.findaem(",") })
+
+part1a := 0
+part2a := 0
+pro upaem in updatesuum {
+    si orderedam(upaem, rulesuum) {
+        part1a = part1a + upaem[upaem.a() / 2]
+    } aluid {
+        fixeduum := fixuum(upaem, rulesuum)
+        part2a = part2a + fixeduum[fixeduum.a() / 2]
+    }
+}
+part1a.es().dici()
+part2a.es().dici()

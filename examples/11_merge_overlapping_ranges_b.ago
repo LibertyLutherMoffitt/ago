@@ -1,0 +1,22 @@
+ranguum := apertu("./a.txt").contentes.findomnuum("\n").finduum("")[0].mutatuum(des{id.findaem("-")})
+
+flagam := verum
+dum flagam {
+    ranguum = ranguum.liquum(des{id != inanis})
+    flagam = falsus
+    pro ia in range {
+        pro ja in range {
+            si ia == ja vel ranguum[ia] == inanis vel ranguum[ja] == inanis { pergo }
+            si (ranguum[ia][0] <= ranguum[ja][0] et ranguum[ja][0] <= ranguum[ia][1]) vel (ranguum[ia][1] >= ranguum[ja][1] et ranguum[ja][1] >= ranguum[ia][0]) {
+                ranguum[ja] = [mina([ranguum[ia][0], ranguum[ja][0]]), maxa([ranguum[ia][1], ranguum[ja][1]])]
+                ranguum[ia] = inanis
+                flagam = verum
+                frio
+            }
+        }
+    }
+}
+
+ranges.dici()
+
+ranguum.mutatuum(des{id[1]-id[0]+I}).sumes().dici()

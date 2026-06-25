@@ -1,0 +1,84 @@
+# AoC 2024 Day 6 - Guard Gallivant
+# Part 1: distinct cells the guard visits before leaving.
+# Part 2: number of single obstruction placements that trap the guard in a loop.
+# Directions 0..3 = up, right, down, left.
+
+des findstartuum(griduum) {
+    pro ia in 0.<griduum.a() {
+        pro ja in 0.<griduum[0].a() {
+            si griduum[ia][ja] == "^" {
+                redeo [ia, ja]
+            }
+        }
+    }
+    redeo [0 - 1, 0 - 1]
+}
+
+# Returns verum if the guard loops on this grid, falsus if it exits.
+des loopsam(griduum, sra, sca, draem, dcaem) {
+    rowsa := griduum.a()
+    colsa := griduum[0].a()
+    ra := sra
+    ca := sca
+    da := 0
+    seenu := {}
+    dum ra >= 0 et ra < rowsa et ca >= 0 et ca < colsa {
+        keyes := ra.es() + "," + ca.es() + "," + da.es()
+        si keyes in seenu {
+            redeo verum
+        }
+        seenu[keyes] = 1
+        nra := ra + draem[da]
+        nca := ca + dcaem[da]
+        si nra >= 0 et nra < rowsa et nca >= 0 et nca < colsa et griduum[nra][nca] == "#" {
+            da = (da + 1) % 4
+        } aluid {
+            ra = nra
+            ca = nca
+        }
+    }
+    redeo falsus
+}
+
+griduum := apertu("in.txt").contentes.finderum("\n").mutatuum(des { iderum })
+rowsa := griduum.a()
+colsa := griduum[0].a()
+draem := [0 - 1, 0, 1, 0]
+dcaem := [0, 1, 0, 0 - 1]
+
+starta := findstartuum(griduum)
+sra := starta[0]
+sca := starta[1]
+
+# Part 1: walk and record visited cells.
+ra := sra
+ca := sca
+da := 0
+visitedu := {}
+dum ra >= 0 et ra < rowsa et ca >= 0 et ca < colsa {
+    visitedu[ra.es() + "," + ca.es()] = 1
+    nra := ra + draem[da]
+    nca := ca + dcaem[da]
+    si nra >= 0 et nra < rowsa et nca >= 0 et nca < colsa et griduum[nra][nca] == "#" {
+        da = (da + 1) % 4
+    } aluid {
+        ra = nra
+        ca = nca
+    }
+}
+visitedu.erum().a().es().dici()
+
+# Part 2: try an obstruction on every free cell, count those that cause a loop.
+part2a := 0
+pro ia in 0.<rowsa {
+    pro ja in 0.<colsa {
+        si griduum[ia][ja] == "." {
+            griduum[ia][ja] = "#"
+            si loopsam(griduum, sra, sca, draem, dcaem) {
+                part2a = part2a + 1
+            }
+            griduum[ia][ja] = "."
+        }
+    }
+}
+part2a.es().dici()

@@ -1,7 +1,7 @@
 //! Integration tests for the ago_stdlib crate.
 
 use ago_stdlib::collections::{get, inseri, removium, set};
-use ago_stdlib::functions::{aequalam, species};
+use ago_stdlib::functions::{aequalam, exemplium, species};
 use ago_stdlib::operators::{
     add, and, bitwise_and, bitwise_or, bitwise_xor, contains, divide, elvis, greater_equal,
     greater_than, less_equal, less_than, modulo, multiply, not, or, slice, sliceto, subtract,
@@ -16,7 +16,7 @@ fn sample_struct() -> AgoType {
     let mut map = HashMap::new();
     map.insert("a".to_string(), AgoType::Int(1));
     map.insert("b".to_string(), AgoType::String("hello".to_string()));
-    AgoType::Struct(map)
+    AgoType::new_struct(map)
 }
 
 fn sample_any_list() -> AgoType {
@@ -64,7 +64,7 @@ fn test_species() {
         AgoType::String("StringList".to_string())
     );
     assert_eq!(
-        species(&AgoType::Struct(HashMap::new())),
+        species(&AgoType::new_struct(HashMap::new())),
         AgoType::String("Struct".to_string())
     );
     assert_eq!(
@@ -76,7 +76,8 @@ fn test_species() {
         species(&AgoType::Range(AgoRange {
             start: 1,
             end: 5,
-            inclusive: true
+            inclusive: true,
+            step: 1,
         })),
         AgoType::String("Range".to_string())
     );
@@ -161,7 +162,7 @@ fn test_as_type_container_conversions() {
         AgoType::Bool(true)
     );
     assert_eq!(
-        AgoType::Struct(HashMap::new()).as_type(TargetType::Bool),
+        AgoType::new_struct(HashMap::new()).as_type(TargetType::Bool),
         AgoType::Bool(false)
     );
 
@@ -245,9 +246,12 @@ fn test_get_list_out_of_bounds() {
 }
 
 #[test]
-#[should_panic]
-fn test_get_struct_key_not_found() {
-    get(&sample_struct(), &AgoType::String("z".to_string()));
+fn test_get_struct_key_not_found_returns_null() {
+    // A missing key yields inanis (Null), not a panic.
+    assert_eq!(
+        get(&sample_struct(), &AgoType::String("z".to_string())),
+        AgoType::Null
+    );
 }
 
 #[test]
@@ -269,7 +273,7 @@ fn test_get_wrong_index_type_for_list() {
 fn test_set() {
     // List
     let mut list = AgoType::IntList(vec![10, 20, 30]);
-    set(&mut list, &AgoType::Int(1), AgoType::Int(99));
+    set(&mut list, &AgoType::Int(1), &AgoType::Int(99));
     assert_eq!(list, AgoType::IntList(vec![10, 99, 30]));
 
     // Struct (update existing)
@@ -277,7 +281,7 @@ fn test_set() {
     set(
         &mut s1,
         &AgoType::String("b".to_string()),
-        AgoType::String("world".to_string()),
+        &AgoType::String("world".to_string()),
     );
     assert_eq!(
         get(&s1, &AgoType::String("b".to_string())),
@@ -289,7 +293,7 @@ fn test_set() {
     set(
         &mut s2,
         &AgoType::String("c".to_string()),
-        AgoType::Int(100),
+        &AgoType::Int(100),
     );
     assert_eq!(
         get(&s2, &AgoType::String("c".to_string())),
@@ -301,7 +305,7 @@ fn test_set() {
 #[should_panic]
 fn test_set_list_wrong_value_type() {
     let mut list = AgoType::IntList(vec![10]);
-    set(&mut list, &AgoType::Int(0), AgoType::Float(1.0));
+    set(&mut list, &AgoType::Int(0), &AgoType::Float(1.0));
 }
 
 #[test]
@@ -354,8 +358,8 @@ fn test_removium() {
     let removed_struct = removium(&mut s, &AgoType::String("a".to_string()));
     assert_eq!(removed_struct, AgoType::Int(1));
     if let AgoType::Struct(map) = s {
-        assert!(!map.contains_key("a"));
-        assert!(map.contains_key("b"));
+        assert!(!map.borrow().contains_key("a"));
+        assert!(map.borrow().contains_key("b"));
     } else {
         panic!("Expected a struct");
     }
@@ -366,6 +370,80 @@ fn test_removium() {
 fn test_removium_struct_key_not_found() {
     let mut s = sample_struct();
     removium(&mut s, &AgoType::String("z".to_string()));
+}
+
+#[test]
+fn test_map_is_reference_type() {
+    // Cloning a map shares it (Python object semantics): a mutation through one
+    // handle is visible through the other.
+    let mut original = sample_struct();
+    let mut alias = original.clone();
+    set(
+        &mut alias,
+        &AgoType::String("c".to_string()),
+        &AgoType::Int(3),
+    );
+    assert_eq!(
+        get(&original, &AgoType::String("c".to_string())),
+        AgoType::Int(3)
+    );
+    // Mutating through the original is likewise visible through the alias.
+    set(
+        &mut original,
+        &AgoType::String("d".to_string()),
+        &AgoType::Int(4),
+    );
+    assert_eq!(
+        get(&alias, &AgoType::String("d".to_string())),
+        AgoType::Int(4)
+    );
+}
+
+#[test]
+fn test_exemplium_deep_copies_maps() {
+    let mut original = sample_struct();
+    let mut copy = exemplium(&original);
+    // Mutating the copy must not touch the original.
+    set(
+        &mut copy,
+        &AgoType::String("c".to_string()),
+        &AgoType::Int(3),
+    );
+    assert_eq!(
+        get(&original, &AgoType::String("c".to_string())),
+        AgoType::Null
+    );
+    // ...and vice-versa.
+    set(
+        &mut original,
+        &AgoType::String("d".to_string()),
+        &AgoType::Int(4),
+    );
+    assert_eq!(
+        get(&copy, &AgoType::String("d".to_string())),
+        AgoType::Null
+    );
+}
+
+#[test]
+fn test_exemplium_deep_copies_nested_maps_in_lists() {
+    // A list holding a map: the list copies by value, but the inner map is a
+    // shared reference, so only a deep copy fully detaches it.
+    let inner = sample_struct();
+    let list = AgoType::ListAny(vec![inner.clone()]);
+    let copy = exemplium(&list);
+    let copied_inner = get(&copy, &AgoType::Int(0));
+    let mut copied_inner_mut = copied_inner;
+    set(
+        &mut copied_inner_mut,
+        &AgoType::String("c".to_string()),
+        &AgoType::Int(99),
+    );
+    // The original inner map is untouched.
+    assert_eq!(
+        get(&inner, &AgoType::String("c".to_string())),
+        AgoType::Null
+    );
 }
 
 #[test]
@@ -671,7 +749,8 @@ fn test_slice_operator_creation() {
         AgoType::Range(AgoRange {
             start: 1,
             end: 5,
-            inclusive: true
+            inclusive: true,
+            step: 1,
         })
     );
 
@@ -681,7 +760,8 @@ fn test_slice_operator_creation() {
         AgoType::Range(AgoRange {
             start: 5,
             end: 1,
-            inclusive: true
+            inclusive: true,
+            step: 1,
         })
     );
 }
@@ -694,7 +774,8 @@ fn test_sliceto_operator_creation() {
         AgoType::Range(AgoRange {
             start: 1,
             end: 5,
-            inclusive: false
+            inclusive: false,
+            step: 1,
         })
     );
 
@@ -704,7 +785,8 @@ fn test_sliceto_operator_creation() {
         AgoType::Range(AgoRange {
             start: 5,
             end: 1,
-            inclusive: false
+            inclusive: false,
+            step: 1,
         })
     );
 }
@@ -727,6 +809,7 @@ fn test_range_as_type_to_string() {
         start: 1,
         end: 5,
         inclusive: true,
+        step: 1,
     });
     assert_eq!(
         inclusive_range.as_type(TargetType::String),
@@ -737,6 +820,7 @@ fn test_range_as_type_to_string() {
         start: 1,
         end: 5,
         inclusive: false,
+        step: 1,
     });
     assert_eq!(
         exclusive_range.as_type(TargetType::String),
@@ -751,6 +835,7 @@ fn test_range_as_type_to_bool() {
         start: 1,
         end: 5,
         inclusive: true,
+        step: 1,
     });
     assert_eq!(
         inclusive_valid.as_type(TargetType::Bool),
@@ -761,6 +846,7 @@ fn test_range_as_type_to_bool() {
         start: 1,
         end: 5,
         inclusive: false,
+        step: 1,
     });
     assert_eq!(
         exclusive_valid.as_type(TargetType::Bool),
@@ -771,37 +857,42 @@ fn test_range_as_type_to_bool() {
         start: 5,
         end: 5,
         inclusive: true,
+        step: 1,
     });
     assert_eq!(
         single_point_inclusive.as_type(TargetType::Bool),
         AgoType::Bool(true)
     );
 
-    // Invalid ranges (start > end or start == end for exclusive)
-    let inclusive_invalid = AgoType::Range(AgoRange {
+    // Descending ranges (start > end) are non-empty: they count down.
+    let inclusive_descending = AgoType::Range(AgoRange {
         start: 5,
         end: 1,
         inclusive: true,
+        step: 1,
     });
     assert_eq!(
-        inclusive_invalid.as_type(TargetType::Bool),
-        AgoType::Bool(false)
+        inclusive_descending.as_type(TargetType::Bool),
+        AgoType::Bool(true)
     );
 
-    let exclusive_invalid = AgoType::Range(AgoRange {
+    let exclusive_descending = AgoType::Range(AgoRange {
         start: 5,
         end: 1,
         inclusive: false,
+        step: 1,
     });
     assert_eq!(
-        exclusive_invalid.as_type(TargetType::Bool),
-        AgoType::Bool(false)
+        exclusive_descending.as_type(TargetType::Bool),
+        AgoType::Bool(true)
     );
 
+    // Only an exclusive range with start == end is truly empty.
     let exclusive_empty = AgoType::Range(AgoRange {
         start: 5,
         end: 5,
         inclusive: false,
+        step: 1,
     });
     assert_eq!(
         exclusive_empty.as_type(TargetType::Bool),
@@ -816,6 +907,7 @@ fn test_range_as_type_to_intlist() {
         start: 1,
         end: 5,
         inclusive: true,
+        step: 1,
     });
     assert_eq!(
         inclusive_range.as_type(TargetType::IntList),
@@ -826,6 +918,7 @@ fn test_range_as_type_to_intlist() {
         start: 5,
         end: 5,
         inclusive: true,
+        step: 1,
     });
     assert_eq!(
         single_point_inclusive.as_type(TargetType::IntList),
@@ -836,6 +929,7 @@ fn test_range_as_type_to_intlist() {
         start: -2,
         end: 2,
         inclusive: true,
+        step: 1,
     });
     assert_eq!(
         inclusive_negative.as_type(TargetType::IntList),
@@ -847,6 +941,7 @@ fn test_range_as_type_to_intlist() {
         start: 1,
         end: 5,
         inclusive: false,
+        step: 1,
     });
     assert_eq!(
         exclusive_range.as_type(TargetType::IntList),
@@ -857,6 +952,7 @@ fn test_range_as_type_to_intlist() {
         start: 5,
         end: 5,
         inclusive: false,
+        step: 1,
     });
     assert_eq!(
         exclusive_empty.as_type(TargetType::IntList),
@@ -867,51 +963,68 @@ fn test_range_as_type_to_intlist() {
         start: -2,
         end: 2,
         inclusive: false,
+        step: 1,
     });
     assert_eq!(
         exclusive_negative.as_type(TargetType::IntList),
         AgoType::IntList(vec![-2, -1, 0, 1])
     );
 
-    // Invalid ranges (start > end)
-    let inclusive_invalid = AgoType::Range(AgoRange {
+    // Descending ranges (start > end) materialize counting down.
+    let inclusive_descending = AgoType::Range(AgoRange {
         start: 5,
         end: 1,
         inclusive: true,
+        step: 1,
     });
     assert_eq!(
-        inclusive_invalid.as_type(TargetType::IntList),
-        AgoType::IntList(vec![])
+        inclusive_descending.as_type(TargetType::IntList),
+        AgoType::IntList(vec![5, 4, 3, 2, 1])
     );
 
-    let exclusive_invalid = AgoType::Range(AgoRange {
+    let exclusive_descending = AgoType::Range(AgoRange {
         start: 5,
         end: 1,
         inclusive: false,
+        step: 1,
     });
     assert_eq!(
-        exclusive_invalid.as_type(TargetType::IntList),
-        AgoType::IntList(vec![])
+        exclusive_descending.as_type(TargetType::IntList),
+        AgoType::IntList(vec![5, 4, 3, 2])
+    );
+
+    // Stepped range materializes with the given step.
+    let stepped = AgoType::Range(AgoRange {
+        start: 0,
+        end: 10,
+        inclusive: false,
+        step: 3,
+    });
+    assert_eq!(
+        stepped.as_type(TargetType::IntList),
+        AgoType::IntList(vec![0, 3, 6, 9])
     );
 }
 
 #[test]
 fn test_list_as_type_to_range() {
-    // Non-empty list
+    // Non-empty list -> exclusive 0..len (the list's valid indices)
     let list = AgoType::IntList(vec![10, 20, 30]); // length 3
     let expected_range = AgoType::Range(AgoRange {
         start: 0,
-        end: 2,
-        inclusive: true,
+        end: 3,
+        inclusive: false,
+        step: 1,
     });
     assert_eq!(list.as_type(TargetType::Range), expected_range);
 
-    // Empty list
+    // Empty list -> empty range 0..0
     let empty_list = AgoType::StringList(vec![]); // length 0
     let expected_empty_range = AgoType::Range(AgoRange {
         start: 0,
-        end: -1,
-        inclusive: true,
+        end: 0,
+        inclusive: false,
+        step: 1,
     });
     assert_eq!(empty_list.as_type(TargetType::Range), expected_empty_range);
 }
@@ -925,3 +1038,49 @@ fn test_list_as_type_to_range() {
 // Note: Testing `exeo` is not feasible in a standard test suite
 // because it terminates the test process itself. It would require
 // running a test in a separate process and checking its exit code.
+
+// --- Diagnostic / error-handling tests ---
+
+#[test]
+fn test_type_name_reports_variant() {
+    assert_eq!(AgoType::Int(1).type_name(), "Int");
+    assert_eq!(AgoType::String("x".to_string()).type_name(), "String");
+    assert_eq!(AgoType::Null.type_name(), "Null (inanis)");
+}
+
+#[test]
+fn test_binop_type_error_includes_types_and_values() {
+    let msg = ago_stdlib::operators::binop_type_error("<", &AgoType::Int(1), &AgoType::Null);
+    assert!(msg.contains("`<`"), "should name the operator: {msg}");
+    assert!(msg.contains("Int"), "should name left type: {msg}");
+    assert!(msg.contains("Null"), "should name right type: {msg}");
+    assert!(msg.contains("Int(1)"), "should show the value: {msg}");
+}
+
+#[test]
+fn test_binop_type_error_hints_on_null() {
+    let msg = ago_stdlib::operators::binop_type_error("<", &AgoType::Int(1), &AgoType::Null);
+    assert!(
+        msg.contains("hint:"),
+        "a Null operand should produce a debugging hint: {msg}"
+    );
+}
+
+#[test]
+fn test_binop_type_error_no_hint_without_null() {
+    let msg = ago_stdlib::operators::binop_type_error(
+        "<",
+        &AgoType::Int(1),
+        &AgoType::Bool(true),
+    );
+    assert!(
+        !msg.contains("hint:"),
+        "no Null operand means no hint: {msg}"
+    );
+}
+
+#[test]
+#[should_panic(expected = "Cannot perform")]
+fn test_comparison_panics_with_descriptive_message() {
+    let _ = less_than(&AgoType::Int(1), &AgoType::Null);
+}

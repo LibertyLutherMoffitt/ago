@@ -1,0 +1,114 @@
+# AoC 2024 Day 9 - Disk Fragmenter
+# Part 1: compact block-by-block (move rightmost block into leftmost gap).
+# Part 2: move whole files (highest id first) into the leftmost gap that fits.
+
+des buildblocksuum(cerum) {
+    buum := []
+    fileida := 0
+    isfileam := verum
+    pro dies in cerum {
+        lena := dies.a()
+        si isfileam {
+            pro ka in 0.<lena {
+                buum = buum.appenduum(fileida)
+            }
+            fileida = fileida + 1
+        } aluid {
+            pro ka in 0.<lena {
+                buum = buum.appenduum(0 - 1)
+            }
+        }
+        isfileam = non isfileam
+    }
+    redeo buum
+}
+
+des buildfilesuum(cerum) {
+    fuum := []
+    fileida := 0
+    isfileam := verum
+    posa := 0
+    pro dies in cerum {
+        lena := dies.a()
+        si isfileam {
+            fuum = fuum.appenduum([fileida, posa, lena])
+            fileida = fileida + 1
+        }
+        posa = posa + lena
+        isfileam = non isfileam
+    }
+    redeo fuum
+}
+
+# Leftmost free run of length >= needa that starts before limita; else -1.
+des findfreespana(buum, needa, limita) {
+    ia := 0
+    dum ia < limita {
+        si buum[ia] == (0 - 1) {
+            runa := 0
+            ja := ia
+            dum ja < buum.a() et buum[ja] == (0 - 1) {
+                runa = runa + 1
+                ja = ja + 1
+            }
+            si runa >= needa {
+                redeo ia
+            }
+            ia = ja
+        } aluid {
+            ia = ia + 1
+        }
+    }
+    redeo 0 - 1
+}
+
+des checksuma(buum) {
+    sa := 0
+    pro ia in 0.<buum.a() {
+        si buum[ia] != (0 - 1) {
+            sa = sa + ia * buum[ia]
+        }
+    }
+    redeo sa
+}
+
+cerum := apertu("in.txt").contentes.spoliares().erum()
+
+# Part 1
+b1uum := buildblocksuum(cerum)
+lefta := 0
+righta := b1uum.a() - 1
+dum lefta < righta {
+    si b1uum[lefta] != (0 - 1) {
+        lefta = lefta + 1
+        pergo
+    }
+    si b1uum[righta] == (0 - 1) {
+        righta = righta - 1
+        pergo
+    }
+    b1uum[lefta] = b1uum[righta]
+    b1uum[righta] = 0 - 1
+    lefta = lefta + 1
+    righta = righta - 1
+}
+checksuma(b1uum).es().dici()
+
+# Part 2
+b2uum := buildblocksuum(cerum)
+filesuum := buildfilesuum(cerum)
+nfa := filesuum.a()
+pro ka in 0.<nfa {
+    fuum := filesuum[nfa - 1 - ka]
+    fida := fuum[0]
+    fstarta := fuum[1]
+    flena := fuum[2]
+    posa := findfreespana(b2uum, flena, fstarta)
+    si posa >= 0 {
+        pro ma in 0.<flena {
+            b2uum[posa + ma] = fida
+            b2uum[fstarta + ma] = 0 - 1
+        }
+    }
+}
+checksuma(b2uum).es().dici()

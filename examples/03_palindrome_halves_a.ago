@@ -1,0 +1,34 @@
+des finderum(les, ses) {
+    rerum := []
+    ba := 0
+    ea := 0
+    dum ea < lerum.a() {
+        si ses == les[ea] {
+            si ba < ea {
+                rerum.inseri(rerum.a(), les[ba.<ea])
+            }
+            ba = ea + 1
+        }
+        ea = ea + 1
+    }
+    si ba < ea {
+        rerum.inseri(rerum.a(), les[ba.<ea])
+    }
+    redeo rerum
+}
+
+numuum := apertu("./a.txt").contentes.finderum(",").mutatuum(des {spoliares(ides).finderum("-")})
+
+ca := 0
+pro numium in numuum {
+    re := numium[0].a()..numium[1].a()
+
+    pro ra in re {
+        ses := res
+        yes := ses[0.<(serum.a()/2)]
+        xes := ses[serum.a()/2.<serum.a()]
+        ca = ca + (yes == xes ? ra : 0)
+    }
+}
+
+ces.dici()

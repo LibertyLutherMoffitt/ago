@@ -1,0 +1,43 @@
+# AoC 2024 Day 7 - Bridge Repair
+# Part 1: sum of targets reachable with + and * (left to right).
+# Part 2: also allow concatenation (||).
+
+des achievablam(targeta, nuaem, idxa, acca, withcatam) {
+    si idxa == nuaem.a() {
+        redeo acca == targeta
+    }
+    si acca > targeta {
+        redeo falsus
+    }
+    na := nuaem[idxa]
+    si achievablam(targeta, nuaem, idxa + 1, acca + na, withcatam) {
+        redeo verum
+    }
+    si achievablam(targeta, nuaem, idxa + 1, acca * na, withcatam) {
+        redeo verum
+    }
+    si withcatam {
+        cata := (acca.es() + na.es()).a()
+        si achievablam(targeta, nuaem, idxa + 1, cata, withcatam) {
+            redeo verum
+        }
+    }
+    redeo falsus
+}
+
+lineserum := apertu("in.txt").contentes.finderum("\n")
+part1a := 0
+part2a := 0
+pro lies in lineserum {
+    halverum := lies.finderum(":")
+    targeta := halverum[0].a()
+    nuaem := halverum[1].findaem(" ")
+    si achievablam(targeta, nuaem, 1, nuaem[0], falsus) {
+        part1a = part1a + targeta
+    }
+    si achievablam(targeta, nuaem, 1, nuaem[0], verum) {
+        part2a = part2a + targeta
+    }
+}
+part1a.es().dici()
+part2a.es().dici()

@@ -1,0 +1,4 @@
+# compiled binaries and scratch
+**/program
+**/dbg*
+2024/**/*.rs

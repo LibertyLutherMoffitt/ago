@@ -1,13 +1,52 @@
 use crate::types::{AgoRange, AgoType};
 
-/// Helper to compute slice bounds from a range
+/// Length of an indexable collection, if it has one (for negative-index math).
+#[inline]
+fn index_len(iter: &AgoType) -> Option<usize> {
+    match iter {
+        AgoType::IntList(l) => Some(l.len()),
+        AgoType::FloatList(l) => Some(l.len()),
+        AgoType::BoolList(l) => Some(l.len()),
+        AgoType::StringList(l) => Some(l.len()),
+        AgoType::ListAny(l) => Some(l.len()),
+        AgoType::String(s) => Some(s.chars().count()),
+        _ => None,
+    }
+}
+
+/// Python-style negative indexing: a negative integer index counts from the end
+/// of the collection (`-1` is the last element). Returns the key unchanged for
+/// non-negative ints, non-int keys, or non-indexable collections. Out-of-range
+/// negatives stay negative and fall through to the usual out-of-bounds panic.
+#[inline]
+fn norm_index(iter: &AgoType, n: &AgoType) -> AgoType {
+    if let AgoType::Int(i) = n {
+        if *i < 0 {
+            if let Some(len) = index_len(iter) {
+                return AgoType::Int(len as i128 + *i);
+            }
+        }
+    }
+    n.clone()
+}
+
+/// Helper to compute slice bounds from a range, supporting negative bounds
+/// (counted from the end, Python-style).
 #[inline]
 fn range_bounds(range: &AgoRange, len: usize) -> (usize, usize) {
-    let start = range.start.max(0) as usize;
+    let norm = |v: i128| -> i128 {
+        if v < 0 {
+            len as i128 + v
+        } else {
+            v
+        }
+    };
+    let start = norm(range.start).max(0).min(len as i128) as usize;
+    let end_raw = norm(range.end);
     let end = if range.inclusive {
-        (range.end + 1).min(len as i128) as usize
+        (end_raw + 1).clamp(0, len as i128) as usize
     } else {
-        range.end.min(len as i128) as usize
+        end_raw.clamp(0, len as i128) as usize
     };
     (start.min(len), end.min(len))
 }
@@ -15,6 +54,8 @@ fn range_bounds(range: &AgoRange, len: usize) -> (usize, usize) {
 /// Gets a value from an indexable AgoType. Panics on error.
 #[inline]
 pub fn get(iter: &AgoType, n: &AgoType) -> AgoType {
+    let n_owned = norm_index(iter, n);
+    let n = &n_owned;
     match (iter, n) {
         // --- List Access by Index ---
         (AgoType::IntList(list), AgoType::Int(index)) => {
@@ -87,10 +128,12 @@ pub fn get(iter: &AgoType, n: &AgoType) -> AgoType {
         }
 
         // --- Struct Access ---
-        (AgoType::Struct(map), AgoType::String(key)) => map
-            .get(key)
-            .map(|val| val.clone())
-            .expect(&format!("Key not found: {}", key)),
+        // A missing key yields inanis (Null) rather than panicking, matching
+        // invena's "not found -> inanis" convention and enabling default/get
+        // and set-membership idioms without a separate `in` check.
+        (AgoType::Struct(map), AgoType::String(key)) => {
+            map.borrow().get(key).cloned().unwrap_or(AgoType::Null)
+        }
 
         // --- Error Cases ---
         (AgoType::Struct(_), other) => panic!("Struct key must be a String, but got {:?}", other),
@@ -111,6 +154,8 @@ pub fn get(iter: &AgoType, n: &AgoType) -> AgoType {
 
 /// Sets a value in a mutable, indexable AgoType. Panics on error.
 pub fn set(iter: &mut AgoType, n: &AgoType, value: &AgoType) {
+    let n_owned = norm_index(iter, n);
+    let n = &n_owned;
     match (iter, n) {
         // --- List Mutation ---
         (AgoType::IntList(list), AgoType::Int(index)) => {
@@ -194,7 +239,7 @@ pub fn set(iter: &mut AgoType, n: &AgoType, value: &AgoType) {
 
         // --- Struct Mutation ---
         (AgoType::Struct(map), AgoType::String(key)) => {
-            map.insert(key.clone(), value.clone());
+            map.borrow_mut().insert(key.clone(), value.clone());
         }
 
         // --- Error Cases ---
@@ -217,6 +262,8 @@ pub fn set(iter: &mut AgoType, n: &AgoType, value: &AgoType) {
 /// Name ends in -i (returns null/inanis)
 #[inline]
 pub fn inseri(coll: &mut AgoType, key: &AgoType, value: &AgoType) {
+    let key_owned = norm_index(coll, key);
+    let key = &key_owned;
     match (coll, key) {
         // --- List Insertion ---
         (AgoType::IntList(list), AgoType::Int(index)) => {
@@ -258,7 +305,7 @@ pub fn inseri(coll: &mut AgoType, key: &AgoType, value: &AgoType) {
 
         // --- Struct Insertion (same as set) ---
         (AgoType::Struct(map), AgoType::String(key)) => {
-            map.insert(key.clone(), value.clone());
+            map.borrow_mut().insert(key.clone(), value.clone());
         }
 
         // --- Error Cases ---
@@ -280,6 +327,8 @@ pub fn inseri(coll: &mut AgoType, key: &AgoType, value: &AgoType) {
 /// Removes a value from an indexable AgoType and returns it. Panics on error.
 /// Name ends in -ium (returns Any)
 pub fn removium(coll: &mut AgoType, key: &AgoType) -> AgoType {
+    let key_owned = norm_index(coll, key);
+    let key = &key_owned;
     match (coll, key) {
         // --- List Removal ---
         (AgoType::IntList(list), AgoType::Int(index)) => {
@@ -305,7 +354,8 @@ pub fn removium(coll: &mut AgoType, key: &AgoType) -> AgoType {
 
         // --- Struct Removal ---
         (AgoType::Struct(map), AgoType::String(key)) => {
-            map.remove(key).expect(&format!("Key not found: {}", key))
+            let removed = map.borrow_mut().remove(key);
+            removed.expect(&format!("Key not found: {}", key))
         }
 
         // --- Error Cases ---
@@ -321,6 +371,48 @@ pub fn removium(coll: &mut AgoType, key: &AgoType) -> AgoType {
             panic!("Index must be an Int, but got {:?}", other)
         }
         (other, _) => panic!("Cannot call 'removium' on type {:?}", other),
+    }
+}
+
+/// Keys of a struct as a sorted string list (sorted for deterministic output).
+/// Name ends in -erum (returns string list).
+pub fn claverum(coll: &AgoType) -> AgoType {
+    match coll {
+        AgoType::Struct(m) => {
+            let mut keys: Vec<String> = m.borrow().keys().cloned().collect();
+            keys.sort();
+            AgoType::StringList(keys)
+        }
+        _ => panic!("claverum expects a Struct, got {:?}", coll),
+    }
+}
+
+/// Values of a struct as a list, ordered by sorted key for determinism.
+/// Name ends in -uum (returns list_any).
+pub fn valuum(coll: &AgoType) -> AgoType {
+    match coll {
+        AgoType::Struct(m) => {
+            let m = m.borrow();
+            let mut keys: Vec<&String> = m.keys().collect();
+            keys.sort();
+            AgoType::ListAny(keys.into_iter().map(|k| m[k].clone()).collect())
+        }
+        _ => panic!("valuum expects a Struct, got {:?}", coll),
+    }
+}
+
+/// Merge two structs into a new struct; keys in `b` override keys in `a`.
+/// Name ends in -u (returns struct).
+pub fn misceu(a: &AgoType, b: &AgoType) -> AgoType {
+    match (a, b) {
+        (AgoType::Struct(ma), AgoType::Struct(mb)) => {
+            let mut out = ma.borrow().clone();
+            for (k, v) in mb.borrow().iter() {
+                out.insert(k.clone(), v.clone());
+            }
+            AgoType::new_struct(out)
+        }
+        _ => panic!("misceu expects two Structs, got {:?} and {:?}", a, b),
     }
 }
 

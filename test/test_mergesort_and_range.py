@@ -2,74 +2,8 @@
 Tests for merge sort (genorduum) and range-to-list casting with indexing.
 """
 
-import subprocess
-import tempfile
-from pathlib import Path
-
-from src.AgoParser import AgoParser
-from src.AgoSemanticChecker import AgoSemanticChecker
-from src.AgoCodeGenerator import generate
-
-# Paths
-SCRIPT_DIR = Path(__file__).parent.parent.resolve()
-STDLIB_DIR = SCRIPT_DIR / "src" / "rust"
-PRELUDE_FILE = SCRIPT_DIR / "stdlib" / "prelude.ago"
-
-
-def compile_and_run(ago_source: str, include_prelude: bool = False) -> str:
-    """Compile Ago source to Rust and run it, returning stdout."""
-    # Optionally prepend the prelude
-    if include_prelude and PRELUDE_FILE.exists():
-        prelude = PRELUDE_FILE.read_text() + "\n"
-        ago_source = prelude + ago_source
-
-    # Parse and check
-    parser = AgoParser()
-    semantics = AgoSemanticChecker()
-    ast = parser.parse(ago_source + "\n", semantics=semantics)
-
-    if semantics.errors:
-        raise ValueError(f"Semantic errors: {semantics.errors}")
-
-    # Generate Rust
-    rust_code = generate(ast)
-
-    # Use a unique temp directory for this test
-    with tempfile.TemporaryDirectory(prefix="ago_test_") as tmpdir:
-        output_dir = Path(tmpdir)
-        src_dir = output_dir / "src"
-        src_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Write main.rs
-        main_rs = src_dir / "main.rs"
-        main_rs.write_text(rust_code)
-        
-        # Write Cargo.toml pointing to the stdlib
-        cargo_toml = output_dir / "Cargo.toml"
-        cargo_toml.write_text(f'''[package]
-name = "ago_program"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-ago_stdlib = {{ path = "{STDLIB_DIR}" }}
-''')
-
-        # Compile
-        result = subprocess.run(
-            ["cargo", "build", "--release"],
-            cwd=output_dir,
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            raise RuntimeError(f"Compilation failed:\n{result.stderr}")
-
-        # Run
-        exe_path = output_dir / "target" / "release" / "ago_program"
-        result = subprocess.run([str(exe_path)], capture_output=True, text=True)
-
-        return result.stdout
+# Shared build helper (one cached cargo target dir for the whole suite).
+from ago_build import compile_and_run, STDLIB_DIR, PRELUDE_FILE, SCRIPT_DIR
 
 
 # =============================================================================

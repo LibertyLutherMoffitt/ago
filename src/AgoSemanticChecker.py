@@ -238,6 +238,10 @@ class AgoSemanticChecker:
 
             # Type inspection
             ("species", "string", ["Any"]),  # returns type name as string
+            # Character <-> code point
+            ("ordina", "int", ["string"]),  # char -> Unicode code point
+            ("literes", "string", ["int"]),  # code point -> single-char string
+            ("exemplium", "Any", ["Any"]),  # deep copy (preserves input type)
             # File operations
             ("apertu", "struct", ["string"]),  # opens file, returns struct
             ("scribi", "null", ["string", "string"]),  # writes 2nd argument to file named 1st argument
@@ -247,7 +251,12 @@ class AgoSemanticChecker:
             # Comparison
             ("aequalam", "bool", ["Any", "Any"]),  # equality check
             # Collection operations
-            ("claverum", "string_list", ["struct"]),  # get struct keys
+            ("claverum", "string_list", ["struct"]),  # get struct keys (sorted)
+            ("valuum", "list_any", ["struct"]),  # get struct values (by sorted key)
+            ("misceu", "struct", ["struct", "struct"]),  # merge two structs
+            # Regular expressions
+            ("congruam", "bool", ["string", "string"]),  # does pattern match text?
+            ("congruum", "list_any", ["string", "string"]),  # all matches (with groups)
             # Collection access/mutation
             ("get", "Any", ["Any", "Any"]),
             ("set", "null", ["Any", "Any", "Any"]),
@@ -803,6 +812,11 @@ class AgoSemanticChecker:
                     # Look up function
                     sym = self.sym_table.get_symbol(func_name_str)
                     if sym and sym.category == "func" and sym.return_type:
+                        # The receiver becomes the first argument: validate arity
+                        # and receiver/argument types against the function's signature.
+                        self._validate_method_chain_call(
+                            call_d, sym, current_type, parent_node
+                        )
                         current_type = sym.return_type
                     else:
                         # Check for stem-based function resolution
@@ -1421,6 +1435,14 @@ class AgoSemanticChecker:
             return result_type_for_arithmetic(left_type, right_type)
 
         if op in ("..", ".<"):
+            # A stepped range is written `a..b..s`: the left operand is itself a
+            # range and the right is the int step (range .. int -> range).
+            if left_type == "range":
+                if right_type != "int" and right_type not in ("Any", "unknown"):
+                    self.report_error(
+                        f"Range step after '{op}' must be int, got '{right_type}'", d
+                    )
+                return "range"
             if left_type != "int" and left_type not in ("Any", "unknown"):
                 self.report_error(
                     f"Left operand of '{op}' must be int, got '{left_type}'", d
@@ -1597,6 +1619,11 @@ class AgoSemanticChecker:
             self._handle_while(d["while_stmt"])
         elif "cond" in d and "body" in d and "iterator" not in d:
             self._handle_while(stmt)
+        # Match statement
+        elif "match_stmt" in d:
+            self._handle_match(d["match_stmt"])
+        elif "scrut" in d:
+            self._handle_match(stmt)
         # For statement
         elif "for_stmt" in d:
             self._handle_for(d["for_stmt"])
@@ -1883,6 +1910,50 @@ class AgoSemanticChecker:
     def _handle_declaration(self, ast):
         """Handle variable declaration: name := value"""
         d = to_dict(ast)
+
+        # Destructuring declaration: `a, b := expr` binds list elements.
+        extra = d.get("extra_names")
+        if extra:
+            names = [str(d["name"])]
+            if not isinstance(extra, (list, tuple)):
+                extra = [extra]
+
+            def extract_name(e):
+                if isinstance(e, str):
+                    return e if e != "," else None
+                if isinstance(e, (list, tuple)):
+                    for x in e:
+                        nm = extract_name(x)
+                        if nm:
+                            return nm
+                    return None
+                ed = to_dict(e)
+                if isinstance(ed, dict) and ed.get("extra"):
+                    return str(ed.get("extra"))
+                return None
+
+            for e in extra:
+                nm = extract_name(e)
+                if nm:
+                    names.append(nm)
+            self.infer_expr_type(d.get("value"))  # walk RHS for its own checks
+            for nm in names:
+                t = self.require_type_from_name(nm, ast)
+                nstem = get_stem(nm)
+                if nstem:
+                    current = self.sym_table.scopes.get(
+                        self.sym_table.current_scope, {}
+                    )
+                    for ex in list(current.keys()):
+                        if (
+                            current[ex].category == "var"
+                            and get_stem(ex) == nstem
+                            and ex != nm
+                        ):
+                            self.sym_table.remove_symbol_from_current_scope(ex)
+                self.declare_symbol(Symbol(name=nm, type_t=t, category="var"), ast)
+            return
+
         var_name = str(d["name"])
         expected_type = self.require_type_from_name(var_name, ast)
         value = d.get("value")
@@ -2039,6 +2110,48 @@ class AgoSemanticChecker:
         self.sym_table.decrement_scope()
         self.loop_depth -= 1
 
+    def _collect_match_arms(self, d):
+        """Flatten a match statement's first/rest arms (skipping newline noise)."""
+        def find_arm(x):
+            if x is None or isinstance(x, str):
+                return None
+            if isinstance(x, (list, tuple)):
+                for y in x:
+                    r = find_arm(y)
+                    if r is not None:
+                        return r
+                return None
+            xd = to_dict(x)
+            if isinstance(xd, dict) and "body" in xd and (
+                "pattern" in xd or "default" in xd
+            ):
+                return x
+            return None
+
+        arms = []
+        first = d.get("first")
+        if first is not None:
+            arms.append(first)
+        rest = d.get("rest")
+        if rest:
+            for item in rest:
+                a = find_arm(item)
+                if a is not None:
+                    arms.append(a)
+        return arms
+
+    def _handle_match(self, ast):
+        """Handle a `discerne` (match) statement."""
+        d = to_dict(ast)
+        self.infer_expr_type(d.get("scrut"))
+        for arm in self._collect_match_arms(d):
+            ad = to_dict(arm)
+            if ad.get("pattern") is not None and ad.get("default") is None:
+                self.infer_expr_type(ad.get("pattern"))
+            self.sym_table.increment_scope()
+            self._process_block(ad.get("body"))
+            self.sym_table.decrement_scope()
+
     def _handle_for(self, ast):
         """Handle for loop."""
         d = to_dict(ast)
@@ -2047,6 +2160,7 @@ class AgoSemanticChecker:
         if iterable_type not in LIST_TYPES and iterable_type not in (
             "string",
             "range",
+            "struct",
             "Any",
             "unknown",
         ):
@@ -2055,34 +2169,54 @@ class AgoSemanticChecker:
             )
 
         if iterable_type in LIST_TYPES:
-            iterator_type = get_element_type(iterable_type)
+            element_type = get_element_type(iterable_type)
         elif iterable_type == "string":
-            iterator_type = "string"
+            element_type = "string"
         elif iterable_type == "range":
-            iterator_type = "int"
+            element_type = "int"
         else:
-            iterator_type = "Any"
+            element_type = "Any"
 
         iterator_name = self._extract_identifier(d.get("iterator"))
-        if iterator_name:
-            expected_type = self.require_type_from_name(iterator_name, ast)
-            if expected_type != "unknown" and iterator_type != "Any":
-                # For loops require a stricter type match than assignment.
-                # The loop variable type must match the iterable's element type.
-                if iterator_type != expected_type:
-                    self.report_error(
-                        f"Type mismatch in for loop iterator '{iterator_name}': expected '{expected_type}', got '{iterator_type}'",
-                        ast,
-                    )
+        iterator2_name = self._extract_identifier(d.get("iterator2"))
 
         self.loop_depth += 1
         self.sym_table.increment_scope()
 
-        if iterator_name:
-            iter_symbol = Symbol(
-                name=iterator_name, type_t=iterator_type, category="var"
+        if iterator2_name:
+            # Dual binding: `pro a, b in iterable`.
+            #   sequences -> (index: int, element)
+            #   maps      -> (key: string, value: Any)
+            if iterable_type == "struct":
+                first_type, second_type = "string", "Any"
+            else:
+                first_type, second_type = "int", element_type
+            if iterator_name:
+                self.declare_symbol(
+                    Symbol(name=iterator_name, type_t=first_type, category="var"), ast
+                )
+            self.declare_symbol(
+                Symbol(name=iterator2_name, type_t=second_type, category="var"), ast
             )
-            self.declare_symbol(iter_symbol, ast)
+        else:
+            # Single binding. A map yields its keys (strings).
+            iterator_type = "string" if iterable_type == "struct" else element_type
+            if iterator_name:
+                expected_type = self.require_type_from_name(iterator_name, ast)
+                if (
+                    expected_type not in ("unknown", "Any")
+                    and iterator_type != "Any"
+                    and iterable_type not in ("struct", "Any", "unknown")
+                ):
+                    # For loops require a stricter type match than assignment.
+                    if iterator_type != expected_type:
+                        self.report_error(
+                            f"Type mismatch in for loop iterator '{iterator_name}': expected '{expected_type}', got '{iterator_type}'",
+                            ast,
+                        )
+                self.declare_symbol(
+                    Symbol(name=iterator_name, type_t=iterator_type, category="var"), ast
+                )
 
         self._process_block(d.get("body"))
 

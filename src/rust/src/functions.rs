@@ -47,7 +47,7 @@ pub fn apertu(val: &AgoType) -> AgoType {
                 map.insert("filenames".to_string(), AgoType::String(path.clone()));
                 map.insert("contentes".to_string(), AgoType::String(content));
                 map.insert("filesizea".to_string(), AgoType::Int(filesize));
-                AgoType::Struct(map)
+                AgoType::new_struct(map)
             }
             Err(e) => panic!("Failed to open file '{}': {}", path, e),
         },
@@ -89,4 +89,36 @@ pub fn exei(code: &AgoType) -> AgoType {
 /// Name ends in -am (returns bool)
 pub fn aequalam(left: &AgoType, right: &AgoType) -> AgoType {
     AgoType::Bool(left == right)
+}
+
+/// Deep copy of a value ("exemplum" -> a copy). Because maps are reference
+/// types, a plain assignment shares them; `exemplium` returns a fully
+/// independent value (recursively copying maps, including maps nested inside
+/// lists). Name ends in -ium (returns any, since it preserves the input type).
+pub fn exemplium(val: &AgoType) -> AgoType {
+    val.deep_copy()
+}
+
+/// Unicode code point of the first character of a string ("ordo" -> ordinal).
+/// Name ends in -a (returns int). Empty string yields inanis.
+pub fn ordina(val: &AgoType) -> AgoType {
+    match val {
+        AgoType::String(s) => match s.chars().next() {
+            Some(c) => AgoType::Int(c as AgoInt),
+            None => AgoType::Null,
+        },
+        _ => panic!("ordina expects a String, got {:?}", val),
+    }
+}
+
+/// The single-character string for a Unicode code point ("litera" -> letter).
+/// Name ends in -es (returns string). An invalid code point yields inanis.
+pub fn literes(val: &AgoType) -> AgoType {
+    match val {
+        AgoType::Int(n) => match u32::try_from(*n).ok().and_then(char::from_u32) {
+            Some(c) => AgoType::String(c.to_string()),
+            None => AgoType::Null,
+        },
+        _ => panic!("literes expects an Int code point, got {:?}", val),
+    }
 }

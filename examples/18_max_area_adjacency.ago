@@ -1,0 +1,10 @@
+des area(aaem, baem) { redeo ((aaem[0] - baem[0]).abba() + 1) * ((aaem[1] - baem[1]).abba() + 1) }
+
+boxuum := apertu("b").contentes.finderum("\n").mutatuum(des{id.findaem(",")})
+adjuum := []
+pro aa in boxe {
+    pro ba in 0.<aa {
+        adjuum.inseri(adja, [ba+0, aa+0, area(boxuum[aa], boxuum[ba])])
+   }
+}
+adjuum.genorduum(des{-idaem[2]})[0][2].es().dici()

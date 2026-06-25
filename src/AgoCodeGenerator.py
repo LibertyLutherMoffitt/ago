@@ -47,7 +47,14 @@ STDLIB_FUNCTIONS = {
     "audies",
     "exei",
     "aequalam",
+    "ordina",
+    "literes",
+    "exemplium",
     "claverum",
+    "valuum",
+    "misceu",
+    "congruam",
+    "congruum",
     "add",
     "subtract",
     "multiply",
@@ -74,6 +81,7 @@ STDLIB_FUNCTIONS = {
     "inseri",
     "removium",
     "into_iter",
+    "into_pairs",
 }
 
 # Stdlib functions that mutate their first argument (need &mut)
@@ -131,6 +139,8 @@ class AgoCodeGenerator:
         self.lambda_counter = 0
         # Counter for temp variables
         self.temp_counter = 0
+        # Native (unboxed) integer locals in the current scope (typed-unboxing).
+        self._native_ints: set[str] = set()
 
     def _optimize_cast_chain(self, result: str, new_target: str) -> str:
         """
@@ -153,9 +163,16 @@ class AgoCodeGenerator:
         if new_target == "Int" and result.endswith(stringlist_cast):
             # Extract the base expression before the StringList cast
             base_expr = result[:-len(stringlist_cast)]
+            # Match on a single reference. If base_expr is already a reference
+            # (a ref parameter or an explicit &expr), adding another `&` would
+            # make the scrutinee `&&AgoType`, so the catch-all `v.clone()` would
+            # clone a double reference (rustc's suspicious_double_ref_op warning).
+            ref_params = getattr(self, "_ref_params", set())
+            already_ref = base_expr.startswith("&") or base_expr in ref_params
+            scrutinee = base_expr if already_ref else f"&{base_expr}"
             # Emit optimized code that checks if it's a String and short-circuits
             return (
-                f"(match &{base_expr} {{ "
+                f"(match {scrutinee} {{ "
                 f"AgoType::String(s) => AgoType::Int(s.chars().count() as i128), "
                 f"v => v.clone().as_type(TargetType::StringList).as_type(TargetType::Int) }})"
             )
@@ -168,6 +185,28 @@ class AgoCodeGenerator:
         count = self.temp_counter
         self.temp_counter += 1
         return count
+
+    def _is_lambda_expr(self, expr: str) -> bool:
+        """
+        Return True if `expr` evaluates to a lambda (AgoLambda), which must be
+        passed by value rather than by reference.
+
+        Covers three shapes:
+        - Bare lambdas:      Rc::new(__lambda_N) as AgoLambda / Rc::new(|...|) as AgoLambda
+        - Captured lambdas:  { let x = x.clone(); Rc::new(move |...|) as AgoLambda }
+        - Lambda variables/params (names ending in 'o', e.g. `xo`)
+        """
+        if expr.startswith("Rc::new(") and " as AgoLambda" in expr:
+            return True
+        if expr.startswith("{ ") and "as AgoLambda }" in expr:
+            return True
+        # Lambda parameters and declared lambda variables end in 'o'.
+        lambda_params = getattr(self, "_lambda_params", set())
+        if expr in lambda_params:
+            return True
+        if len(expr) > 1 and expr.endswith("o") and expr in self.declared_vars:
+            return True
+        return False
 
     def _ensure_owned(self, expr: str) -> str:
         """
@@ -273,8 +312,13 @@ class AgoCodeGenerator:
         
         Note: as_type() takes &self, so we don't need to clone before casting.
         """
+        # Native (unboxed) int locals: render their boxed form in every ordinary
+        # context. The unboxed bare name is only emitted by _native_int_expr.
+        if name in self._native_ints:
+            return f"AgoType::Int({name})"
+
         clone_suffix = ".clone()" if need_owned else ""
-        
+
         # Direct reference to declared variable
         if name in self.declared_vars:
             return f"{name}{clone_suffix}"
@@ -334,8 +378,14 @@ class AgoCodeGenerator:
         self.emit_raw("fn main() {")
         self.indent_level += 1
 
+        # Identify native (unboxed) int locals in the top-level scope.
+        old_native = self._native_ints
+        self._native_ints = self._analyze_native_ints(ast)
+
         # Process the AST
         self._process_principio(ast)
+
+        self._native_ints = old_native
 
         self.indent_level -= 1
         self.emit_raw("}")
@@ -614,8 +664,9 @@ class AgoCodeGenerator:
         self.emit_raw("    and, or, not, bitwise_and, bitwise_or, bitwise_xor,")
         self.emit_raw("    slice, sliceto, contains, elvis,")
         self.emit_raw("    unary_minus, unary_plus,")
-        self.emit_raw("    get, set, inseri, removium, validate_list_type, into_iter,")
-        self.emit_raw("    dici, apertu, species, exei, aequalam, scribi, audies")
+        self.emit_raw("    get, set, inseri, removium, validate_list_type, into_iter, into_pairs,")
+        self.emit_raw("    claverum, valuum, misceu, congruam, congruum,")
+        self.emit_raw("    dici, apertu, species, exei, aequalam, scribi, audies, ordina, literes, exemplium")
         self.emit_raw("};")
         self.emit_raw("use std::collections::HashMap;")
         self.emit_raw("use std::rc::Rc;")
@@ -947,6 +998,11 @@ class AgoCodeGenerator:
         old_returns_lambda = getattr(self, "_current_func_returns_lambda", False)
         self._current_func_returns_lambda = returns_lambda
 
+        # Identify native (unboxed) int locals within this function body.
+        # Parameters are never native (they arrive as &AgoType / cloned AgoType).
+        old_native = self._native_ints
+        self._native_ints = self._analyze_native_ints(body, exclude=set(params))
+
         # Process body
         if body:
             self._process_block(body)
@@ -963,6 +1019,7 @@ class AgoCodeGenerator:
         self._lambda_params = old_lambda_params
         self._ref_params = old_ref_params
         self._current_func_returns_lambda = old_returns_lambda
+        self._native_ints = old_native
 
     def _parse_params(self, params_node: Any) -> list[str]:
         """Parse parameter list into variable names."""
@@ -1079,6 +1136,11 @@ class AgoCodeGenerator:
             self._generate_while(d["while_stmt"])
         elif "cond" in d and "body" in d and "iterator" not in d:
             self._generate_while(stmt)
+        # Match statement
+        elif "match_stmt" in d:
+            self._generate_match(d["match_stmt"])
+        elif "scrut" in d:
+            self._generate_match(stmt)
         # For statement
         elif "for_stmt" in d:
             self._generate_for(d["for_stmt"])
@@ -1101,11 +1163,80 @@ class AgoCodeGenerator:
                 if "return_stmt" in inner_d:
                     self._generate_return(inner)
 
+    _LIST_ELEM_TYPES = {"aem": "int", "arum": "float", "as": "bool", "erum": "string"}
+
+    def _declare_one(self, var_name: str, expr: str) -> None:
+        """Emit `let mut var_name = expr;`, dropping any same-stem binding first
+        and applying typed-list runtime validation. `expr` must be owned."""
+        new_suffix, new_stem = get_suffix_and_stem(var_name)
+        if new_stem:
+            for existing_var in list(self.declared_vars):
+                _, existing_stem = get_suffix_and_stem(existing_var)
+                if existing_stem == new_stem and existing_var != var_name:
+                    self.declared_vars.discard(existing_var)
+        if new_suffix in self._LIST_ELEM_TYPES:
+            expr = f'validate_list_type({self._make_ref(expr)}, "{self._LIST_ELEM_TYPES[new_suffix]}")'
+        self.emit(f"let mut {var_name} = {expr};")
+        self.declared_vars.add(var_name)
+
+    @staticmethod
+    def _extra_name(e: Any) -> Optional[str]:
+        """Pull the identifier out of one `extra_names` entry, which parses as a
+        `[",", name]` pair (but tolerate dict/str shapes too)."""
+        if isinstance(e, str):
+            return e if e != "," else None
+        if isinstance(e, (list, tuple)):
+            for x in e:
+                nm = AgoCodeGenerator._extra_name(x)
+                if nm:
+                    return nm
+            return None
+        ed = to_dict(e)
+        if isinstance(ed, dict):
+            v = ed.get("extra")
+            return str(v) if v else None
+        return None
+
+    def _destructure_names(self, d: dict) -> list:
+        """Target names for a (possibly destructuring) declaration: [name, *extra]."""
+        names = [str(d["name"])]
+        extra = d.get("extra_names")
+        if extra:
+            if not isinstance(extra, (list, tuple)):
+                extra = [extra]
+            for e in extra:
+                nm = self._extra_name(e)
+                if nm:
+                    names.append(nm)
+        return names
+
     def _generate_declaration(self, stmt: Any) -> None:
         """Generate variable declaration."""
         d = to_dict(stmt)
+
+        # Destructuring: `a, b := expr` unpacks a list into multiple bindings.
+        extra = d.get("extra_names")
+        if extra:
+            names = self._destructure_names(d)
+            rhs = self._ensure_owned(self._generate_expr(d.get("value")))
+            tmp = f"__dest_{self._get_temp_counter()}"
+            self.emit(f"let {tmp} = {rhs};")
+            for i, nm in enumerate(names):
+                self._declare_one(nm, f"get(&{tmp}, &AgoType::Int({i}))")
+            return
+
         var_name = str(d["name"])
         value = d.get("value")
+
+        # Native (unboxed) int local: emit `let mut x: i128 = <native>;`.
+        if var_name in self._native_ints:
+            native = self._native_int_expr(value, self._native_ints)
+            if native is not None:
+                self.emit(f"let mut {var_name}: i128 = {native};")
+                self.declared_vars.add(var_name)
+                return
+            # Analysis said native but RHS isn't: stay consistent, fall back to boxed.
+            self._native_ints.discard(var_name)
 
         # First, generate the RHS expression (before removing old variables with same stem)
         # This allows `xarum := xarum` to work - RHS refers to existing `xas` variable
@@ -1140,15 +1271,39 @@ class AgoCodeGenerator:
         self.emit(f"let mut {var_name} = {expr};")
         self.declared_vars.add(var_name)
 
+    _AUG_FUNC = {"+": "add", "-": "subtract", "*": "multiply", "/": "divide", "%": "modulo"}
+
+    def _reassign_op(self, d: dict) -> Optional[str]:
+        """Return the augmented operator ('+', '-', ...) for a compound assignment,
+        or None for a plain '=' reassignment."""
+        op = d.get("op")
+        if isinstance(op, (list, tuple)):
+            op = op[0] if op else None
+        op = str(op) if op is not None else "="
+        if len(op) == 2 and op.endswith("=") and op[0] in self._AUG_FUNC:
+            return op[0]
+        return None
+
     def _generate_reassignment(self, stmt: Any) -> None:
         """Generate variable reassignment."""
         d = to_dict(stmt)
         var_name = str(d["target"])
         value = d.get("value")
         index = d.get("index")
-        
+        aug = self._reassign_op(d)
+
         # index is now always a list (possibly empty)
         has_index = index and isinstance(index, (list, tuple)) and len(index) > 0
+
+        # Native (unboxed) int local reassignment: `x = <native>;`.
+        if var_name in self._native_ints and not has_index:
+            native = self._native_int_expr(value, self._native_ints)
+            if native is not None:
+                if aug:
+                    self.emit(f"{var_name} = ({var_name} {aug} {native});")
+                else:
+                    self.emit(f"{var_name} = {native};")
+                return
 
         expr = self._generate_expr(value)
         # Reassignment needs an owned value
@@ -1159,23 +1314,31 @@ class AgoCodeGenerator:
             # Evaluate RHS first to avoid borrow conflicts when RHS references var
             temp_val = f"__temp_{self._get_temp_counter()}"
             self.emit(f"let {temp_val} = {expr};")
-            
+
             if len(index) == 1:
-                # Single index: var[idx] = value
+                # Single index: var[idx] (op)= value
                 idx_expr = self._generate_indexing(index[0])
-                self.emit(f"set(&mut {var_name}, {self._make_ref(idx_expr)}, &{temp_val});")
+                if aug:
+                    func = self._AUG_FUNC[aug]
+                    idx_t = f"__idx_{self._get_temp_counter()}"
+                    self.emit(f"let {idx_t} = {self._ensure_owned(idx_expr)};")
+                    self.emit(
+                        f"let {temp_val} = {func}(&get(&{var_name}, &{idx_t}), &{temp_val});"
+                    )
+                    self.emit(f"set(&mut {var_name}, &{idx_t}, &{temp_val});")
+                else:
+                    self.emit(f"set(&mut {var_name}, {self._make_ref(idx_expr)}, &{temp_val});")
             else:
-                # Multiple indices: var[idx1][idx2]... = value
+                # Multiple indices: var[idx1][idx2]... (op)= value
                 # Strategy: get each nested container, modify innermost, set back up the chain
                 # Example: griduum[1][1] = -1
                 #   let inner = get(&griduum, &1).clone();
-                #   let mut inner = inner;
                 #   set(&mut inner, &1, &-1);
                 #   set(&mut griduum, &1, &inner);
-                
+
                 # Generate index expressions
                 idx_exprs = [self._generate_indexing(idx) for idx in index]
-                
+
                 # Get nested containers (all but the last index)
                 temp_vars = []
                 current = var_name
@@ -1184,16 +1347,25 @@ class AgoCodeGenerator:
                     self.emit(f"let mut {temp_container} = get(&{current}, &{idx_expr}).clone();")
                     temp_vars.append((temp_container, idx_expr, current))
                     current = temp_container
-                
-                # Set the innermost value
+
+                # Set the innermost value (optionally augmented)
                 last_idx = idx_exprs[-1]
+                if aug:
+                    func = self._AUG_FUNC[aug]
+                    self.emit(
+                        f"let {temp_val} = {func}(&get(&{current}, &{last_idx}), &{temp_val});"
+                    )
                 self.emit(f"set(&mut {current}, &{last_idx}, &{temp_val});")
-                
+
                 # Set back up the chain (in reverse order)
                 for temp_container, idx_expr, parent in reversed(temp_vars):
                     self.emit(f"set(&mut {parent}, &{idx_expr}, &{temp_container});")
         else:
-            self.emit(f"{var_name} = {expr};")
+            if aug:
+                func = self._AUG_FUNC[aug]
+                self.emit(f"{var_name} = {func}(&{var_name}, {self._make_ref(expr)});")
+            else:
+                self.emit(f"{var_name} = {expr};")
 
     def _generate_indexing(self, index_node: Any) -> str:
         """Generate index expression."""
@@ -1298,13 +1470,406 @@ class AgoCodeGenerator:
         self.indent_level -= 1
         self.emit("}")
 
+    def _collect_match_arms(self, d: dict) -> list:
+        """Flatten a match statement's first/rest arms (skipping newline noise)."""
+        def find_arm(x):
+            if x is None or isinstance(x, str):
+                return None
+            if isinstance(x, (list, tuple)):
+                for y in x:
+                    r = find_arm(y)
+                    if r is not None:
+                        return r
+                return None
+            xd = to_dict(x)
+            if isinstance(xd, dict) and "body" in xd and (
+                "pattern" in xd or "default" in xd
+            ):
+                return x
+            return None
+
+        arms = []
+        first = d.get("first")
+        if first is not None:
+            arms.append(first)
+        rest = d.get("rest")
+        if rest:
+            for item in rest:
+                a = find_arm(item)
+                if a is not None:
+                    arms.append(a)
+        return arms
+
+    def _generate_match(self, stmt: Any) -> None:
+        """Generate a `discerne` (match) statement: a value-equality multi-way
+        branch with an optional `aluid` default arm."""
+        d = to_dict(stmt)
+        scrut = self._ensure_owned(self._generate_expr(d.get("scrut")))
+        tmp = f"__scrut_{self._get_temp_counter()}"
+        self.emit(f"let {tmp} = {scrut};")
+
+        value_arms = []
+        default_body = None
+        for arm in self._collect_match_arms(d):
+            ad = to_dict(arm)
+            if ad.get("pattern") is None or ad.get("default") is not None:
+                default_body = ad.get("body")
+            else:
+                value_arms.append(ad)
+
+        if not value_arms:
+            if default_body is not None:
+                self.emit("{")
+                self.indent_level += 1
+                self._process_block(default_body)
+                self.indent_level -= 1
+                self.emit("}")
+            return
+
+        for i, ad in enumerate(value_arms):
+            pat = self._generate_expr(ad.get("pattern"))
+            cond = (
+                f"matches!(aequalam({self._make_ref(tmp)}, {self._make_ref(pat)}), "
+                "AgoType::Bool(true))"
+            )
+            kw = "if" if i == 0 else "} else if"
+            self.emit(f"{kw} {cond} {{")
+            self.indent_level += 1
+            self._process_block(ad.get("body"))
+            self.indent_level -= 1
+        if default_body is not None:
+            self.emit("} else {")
+            self.indent_level += 1
+            self._process_block(default_body)
+            self.indent_level -= 1
+        self.emit("}")
+
+    # ---- Typed-unboxing: native integer locals (stage 1) ----
+    #
+    # The AgoType enum boxes every value, so a hot arithmetic loop pays enum
+    # tag-dispatch on every op and never keeps the accumulator in a register
+    # (~18x slower than native in microbenchmarks). When the suffix/usage proves
+    # a local is a plain int that never needs its boxed form except at clear
+    # boundaries, we emit a native `i128` local and unbox the arithmetic.
+    #
+    # Safety model: a native local renders as `AgoType::Int(name)` everywhere via
+    # _generate_variable_ref (so every existing consumer keeps working), and the
+    # unboxed bare `name` is emitted ONLY inside _native_int_expr (assignment
+    # RHS and loop bounds). If analysis ever under-boxes, the result is a loud
+    # rustc type error, never silent miscompilation.
+
+    _INT_SUFFIX = "a"
+
+    def _unwrap_expr(self, node: Any) -> Any:
+        """Strip value/paren wrappers and singleton lists to the inner expr."""
+        seen = 0
+        while node is not None and seen < 50:
+            seen += 1
+            if isinstance(node, (list, tuple)):
+                meaningful = [x for x in node if x is not None and x not in (",", "[", "]", "{", "}", "\n")]
+                if len(meaningful) == 1:
+                    node = meaningful[0]
+                    continue
+                return node
+            d = to_dict(node) if not isinstance(node, str) else None
+            if isinstance(d, dict):
+                if "value" in d and d.get("value") is not None and "op" not in d:
+                    node = d["value"]
+                    continue
+                # postfix wrapper with no indexing/method ops -> its base primary
+                if "base" in d and not d.get("ops"):
+                    node = d["base"]
+                    continue
+                if d.get("paren") is not None:
+                    paren = d["paren"]
+                    if isinstance(paren, (list, tuple)) and len(paren) >= 2:
+                        node = paren[1]
+                        continue
+                    node = paren
+                    continue
+            return node
+        return node
+
+    def _is_range_node(self, node: Any) -> bool:
+        d = self._unwrap_expr(node)
+        if isinstance(d, str):
+            return False
+        d = to_dict(d)
+        return isinstance(d, dict) and d.get("op") in ("..", ".<") and d.get("left") is not None
+
+    def _parse_range(self, node: Any):
+        """Decompose a range node into (lo_node, hi_node, inclusive, step_node).
+
+        A stepped range is written `a..b..s` (or `a.<b..s`): it parses as an outer
+        `..` whose left operand is itself a range, so we unwrap that to recover the
+        real bounds + inclusivity and treat the outer right operand as the step.
+        Returns None if not a range. step_node is None for unstepped ranges.
+        """
+        d = to_dict(self._unwrap_expr(node))
+        if not isinstance(d, dict) or d.get("op") not in ("..", ".<"):
+            return None
+        left, right = d.get("left"), d.get("right")
+        inner = to_dict(self._unwrap_expr(left))
+        if isinstance(inner, dict) and inner.get("op") in ("..", ".<"):
+            return (
+                inner.get("left"),
+                inner.get("right"),
+                inner.get("op") == "..",
+                right,
+            )
+        return (left, right, d.get("op") == "..", None)
+
+    def _native_int_expr(self, node: Any, native_set: set) -> Optional[str]:
+        """Return native i128 Rust for `node` if it is a pure integer expression
+        over int literals and names in `native_set`; otherwise None."""
+        node = self._unwrap_expr(node)
+        if node is None:
+            return None
+        if isinstance(node, str):
+            return node if node in native_set else None
+        d = to_dict(node)
+        if not isinstance(d, dict):
+            return None
+        if d.get("int") is not None:
+            return f"{d['int']}i128"
+        if d.get("roman") is not None:
+            return f"{self._roman_to_int(d['roman'])}i128"
+        if d.get("id") is not None:
+            nm = str(d["id"])
+            return nm if nm in native_set else None
+        op = d.get("op")
+        if op is not None and d.get("left") is not None and d.get("right") is not None:
+            if op in ("+", "-", "*", "/", "%"):
+                l = self._native_int_expr(d.get("left"), native_set)
+                r = self._native_int_expr(d.get("right"), native_set)
+                if l is not None and r is not None:
+                    return f"({l} {op} {r})"
+            return None
+        if op is not None and d.get("right") is not None and d.get("left") is None:
+            r = self._native_int_expr(d.get("right"), native_set)
+            if r is None:
+                return None
+            if op == "-":
+                return f"(-{r})"
+            if op == "+":
+                return f"({r})"
+        return None
+
+    def _native_loop_bound(self, node: Any, native_set: set) -> str:
+        """Native i128 for a for-loop bound; unbox at runtime if not statically native."""
+        nat = self._native_int_expr(node, native_set)
+        if nat is not None:
+            return nat
+        return f"({self._generate_expr(node)}).as_int()"
+
+    def _note_stem(self, name: str, facts: dict) -> None:
+        suf, stem = get_suffix_and_stem(name)
+        if stem is not None:
+            facts["stems_by_suffix"].setdefault(stem, set()).add(suf)
+
+    def _collect_native_facts(self, node: Any, in_lambda: bool, facts: dict, seen: set) -> None:
+        if node is None or isinstance(node, str):
+            return
+        nid = id(node)
+        if nid in seen:
+            return
+        seen.add(nid)
+        if isinstance(node, (list, tuple)):
+            for it in node:
+                self._collect_native_facts(it, in_lambda, facts, seen)
+            return
+        d = to_dict(node)
+        if not isinstance(d, dict):
+            return
+        # nested function declaration: separate scope, skip entirely
+        if "name" in d and "body" in d and "params" in d:
+            return
+        # A lambda has a body but none of the statement-structural keys that also
+        # carry a "body"/block (for: iterator/iterable, while/if: cond/then,
+        # method: name). Without this guard a for-loop body looks like a lambda.
+        is_lambda = (
+            "body" in d
+            and "name" not in d
+            and "iterator" not in d
+            and "iterable" not in d
+            and "cond" not in d
+            and "then" not in d
+        )
+        child_in_lambda = in_lambda or is_lambda
+        # declaration (name := value)
+        if "name" in d and "value" in d and "params" not in d and "body" not in d:
+            nm = str(d["name"])
+            facts["decls"].setdefault(nm, []).append(d.get("value"))
+            self._note_stem(nm, facts)
+        # reassignment (target = value)
+        if "target" in d and "value" in d:
+            tgt = str(d["target"])
+            idx = d.get("index")
+            if idx and isinstance(idx, (list, tuple)) and len(idx) > 0:
+                facts["indexed_targets"].add(tgt)
+            else:
+                facts["decls"].setdefault(tgt, []).append(d.get("value"))
+            self._note_stem(tgt, facts)
+        # for loop
+        if "iterator" in d and "iterable" in d:
+            it = self._extract_identifier(d.get("iterator"))
+            it2 = self._extract_identifier(d.get("iterator2"))
+            if it:
+                if it2:
+                    # Dual binding (`pro a, b in ...`): both vars are boxed
+                    # AgoType bindings, never native int counters.
+                    facts["loop_other_iters"].add(it)
+                    facts["loop_other_iters"].add(it2)
+                    self._note_stem(it2, facts)
+                elif self._is_range_node(d.get("iterable")):
+                    facts["loop_range_iters"].add(it)
+                else:
+                    facts["loop_other_iters"].add(it)
+                self._note_stem(it, facts)
+        # identifier reference
+        if d.get("id") is not None:
+            nm = str(d["id"])
+            if nm != "id":
+                self._note_stem(nm, facts)
+                if in_lambda:
+                    facts["in_lambda"].add(nm)
+        for v in d.values():
+            self._collect_native_facts(v, child_in_lambda, facts, seen)
+
+    def _analyze_native_ints(self, scope_nodes: Any, exclude: set = None) -> set:
+        """Identify int-suffixed locals in this scope safe to emit as native i128.
+
+        `exclude` names (e.g. function parameters) are never native: parameters
+        arrive as &AgoType (or a cloned AgoType when mutated), not i128.
+        """
+        exclude = exclude or set()
+        facts = {
+            "decls": {},
+            "indexed_targets": set(),
+            "loop_range_iters": set(),
+            "loop_other_iters": set(),
+            "stems_by_suffix": {},
+            "in_lambda": set(),
+        }
+        self._collect_native_facts(scope_nodes, False, facts, set())
+
+        ref_params = getattr(self, "_ref_params", set())
+
+        def is_int_name(n: str) -> bool:
+            suf, stem = get_suffix_and_stem(n)
+            return suf == self._INT_SUFFIX and stem is not None
+
+        candidates = set()
+        for name in facts["decls"]:
+            if is_int_name(name):
+                candidates.add(name)
+        for name in facts["loop_range_iters"]:
+            if is_int_name(name):
+                candidates.add(name)
+
+        def stem_clashes(name: str) -> bool:
+            suf, stem = get_suffix_and_stem(name)
+            return any(s != suf for s in facts["stems_by_suffix"].get(stem, set()))
+
+        candidates = {
+            n for n in candidates
+            if n not in ref_params
+            and n not in exclude
+            and n not in facts["indexed_targets"]
+            and n not in facts["in_lambda"]
+            and n not in facts["loop_other_iters"]
+            and not stem_clashes(n)
+        }
+
+        # Fixpoint: drop any candidate whose assignment RHS isn't native-evaluable.
+        changed = True
+        while changed:
+            changed = False
+            for name in list(candidates):
+                rhss = facts["decls"].get(name, [])
+                if not all(self._native_int_expr(r, candidates) is not None for r in rhss):
+                    candidates.discard(name)
+                    changed = True
+        return candidates
+
     def _generate_for(self, stmt: Any) -> None:
         """Generate for loop."""
         d = to_dict(stmt)
 
         iterator = self._extract_identifier(d.get("iterator"))
+        iterator2 = self._extract_identifier(d.get("iterator2"))
         iterable = d.get("iterable")
-        iterable_expr = self._generate_expr(iterable)
+
+        if not hasattr(self, "_loop_iterators"):
+            self._loop_iterators = set()
+
+        # Dual binding: `pro a, b in iterable` -> (index, value) for sequences,
+        # (key, value) for maps. Always boxed (no native-int specialization).
+        if iterator2:
+            iterable_expr = self._generate_expr(iterable)
+            loop_vars = [iterator, iterator2]
+            shadowed_vars = []
+            for lv in loop_vars:
+                _, lv_stem = get_suffix_and_stem(lv)
+                if lv_stem:
+                    for existing_var in list(self.declared_vars):
+                        _, existing_stem = get_suffix_and_stem(existing_var)
+                        if existing_stem == lv_stem and existing_var not in loop_vars:
+                            shadowed_vars.append(existing_var)
+                            self.declared_vars.discard(existing_var)
+            self.emit(f"for ({iterator}, {iterator2}) in into_pairs(&{iterable_expr}) {{")
+            self.indent_level += 1
+            for lv in loop_vars:
+                self.declared_vars.add(lv)
+                self._loop_iterators.add(lv)
+            self._process_block(d.get("body"))
+            for lv in loop_vars:
+                self._loop_iterators.discard(lv)
+            self.indent_level -= 1
+            self.emit("}")
+            for lv in loop_vars:
+                self.declared_vars.discard(lv)
+            for var in shadowed_vars:
+                self.declared_vars.add(var)
+            return
+
+        # Generate everything that reads the iterable BEFORE removing shadowed
+        # variables: the iterator can share a stem with a variable the iterable
+        # refers to (e.g. `pro lium in luum[1..la]`), and removing it early would
+        # break that variable's cast resolution.
+        # Native (unboxed i128) range loop. To stay correct for descending and
+        # stepped ranges while keeping the counter in a register, we iterate a
+        # 0..count index and compute the loop variable as lo + inc*k. The
+        # optimizer folds the unit-ascending case (`0 + 1*k`) back to plain k.
+        pre_body = None
+        if iterator in self._native_ints and self._is_range_node(iterable):
+            lo_node, hi_node, inclusive, step_node = self._parse_range(iterable)
+            lo = self._native_loop_bound(lo_node, self._native_ints)
+            hi = self._native_loop_bound(hi_node, self._native_ints)
+            n = self._get_temp_counter()
+            lo_v, hi_v, st_v, inc_v, cnt_v, k_v = (
+                f"__lo{n}", f"__hi{n}", f"__st{n}", f"__inc{n}", f"__cnt{n}", f"__k{n}",
+            )
+            self.emit(f"let {lo_v}: i128 = {lo};")
+            self.emit(f"let {hi_v}: i128 = {hi};")
+            if step_node is not None:
+                st = self._native_loop_bound(step_node, self._native_ints)
+                self.emit(f"let {st_v}: i128 = ({st}).abs().max(1);")
+            else:
+                self.emit(f"let {st_v}: i128 = 1;")
+            self.emit(
+                f"let {inc_v}: i128 = if {hi_v} >= {lo_v} {{ {st_v} }} else {{ -{st_v} }};"
+            )
+            incl = "true" if inclusive else "false"
+            self.emit(
+                f"let {cnt_v}: i128 = {{ let __span = ({hi_v} - {lo_v}).abs(); "
+                f"if {incl} {{ __span / {st_v} + 1 }} else {{ (__span + {st_v} - 1) / {st_v} }} }};"
+            )
+            header = f"for {k_v} in 0..{cnt_v} {{"
+            pre_body = f"let {iterator}: i128 = {lo_v} + {inc_v} * {k_v};"
+        else:
+            iterable_expr = self._generate_expr(iterable)
+            header = f"for {iterator} in into_iter(&{iterable_expr}) {{"
 
         # In Ago, only one variable per stem can exist at a time.
         # Save and remove variables with the same stem as the iterator.
@@ -1317,15 +1882,17 @@ class AgoCodeGenerator:
                     shadowed_vars.append(existing_var)
                     self.declared_vars.discard(existing_var)
 
-        self.emit(f"for {iterator} in into_iter(&{iterable_expr}) {{")
+        self.emit(header)
         self.indent_level += 1
         self.declared_vars.add(iterator)
-        
+        if pre_body is not None:
+            self.emit(pre_body)
+
         # Track this as a loop iterator (needs cloning when passed to lambdas)
         if not hasattr(self, "_loop_iterators"):
             self._loop_iterators = set()
         self._loop_iterators.add(iterator)
-        
+
         self._process_block(d.get("body"))
         
         # Remove from loop iterators
@@ -1556,6 +2123,23 @@ class AgoCodeGenerator:
     def _generate_unary_op(self, d: dict) -> str:
         """Generate unary operation."""
         op = d.get("op")
+
+        # Constant-fold a sign applied directly to a numeric literal so that
+        # `-5` / `-2.5` become real negative literals (cleaner output, and they
+        # read as literals to the native-int and range analyses) rather than a
+        # runtime unary_minus() call.
+        if op in ("-", "+"):
+            inner = self._unwrap_expr(d.get("right"))
+            inner_d = to_dict(inner) if inner is not None and not isinstance(inner, str) else None
+            if isinstance(inner_d, dict):
+                sign = "-" if op == "-" else ""
+                if inner_d.get("int") is not None:
+                    return f"AgoType::Int({sign}{inner_d['int']})"
+                if inner_d.get("float") is not None:
+                    return f"AgoType::Float({sign}{inner_d['float']})"
+                if inner_d.get("roman") is not None:
+                    return f"AgoType::Int({sign}{self._roman_to_int(inner_d['roman'])})"
+
         right = self._generate_expr(d.get("right"))
         right_ref = self._make_ref(right)
 
@@ -1987,6 +2571,13 @@ class AgoCodeGenerator:
                             ref_args.append(f"&mut {arg}")
                         else:
                             ref_args.append(arg)
+                    elif self._is_lambda_expr(arg):
+                        # Lambdas (AgoLambda) are passed by value, never by reference.
+                        # A bare lambda is moved as-is; a lambda variable/param is cloned.
+                        if arg.startswith("Rc::new(") or arg.startswith("{ "):
+                            ref_args.append(arg)
+                        else:
+                            ref_args.append(f"{arg}.clone()")
                     elif not arg.startswith("&"):
                         ref_args.append(f"&{arg}")
                     else:
@@ -2540,7 +3131,11 @@ class AgoCodeGenerator:
         if not items:
             return "AgoType::ListAny(vec![])"
 
-        items_str = ", ".join(items)
+        # The vec! owns its elements, so each must be an owned AgoType. Bare
+        # variables and reference parameters (e.g. a function param used as a
+        # list element) come through as borrows and need cloning; literals and
+        # call results are already owned and pass through unchanged.
+        items_str = ", ".join(self._ensure_owned(it) for it in items)
         return f"AgoType::ListAny(vec![{items_str}])"
 
     def _generate_struct(self, struct_node: Any) -> str:
@@ -2590,8 +3185,8 @@ class AgoCodeGenerator:
 
         if pairs:
             pairs_str = ", ".join(pairs)
-            return f"AgoType::Struct(HashMap::from([{pairs_str}]))"
-        return "AgoType::Struct(HashMap::new())"
+            return f"AgoType::new_struct(HashMap::from([{pairs_str}]))"
+        return "AgoType::new_struct(HashMap::new())"
 
     def _find_captured_vars(self, body: Any, local_vars: set) -> set:
         """Find variables used in lambda body that aren't locally declared.
@@ -2662,7 +3257,19 @@ class AgoCodeGenerator:
         old_indent = self.indent_level
         old_declared = self.declared_vars.copy()
         old_in_lambda = getattr(self, "_in_id_lambda", False)
-        
+        old_ref_params = getattr(self, "_ref_params", set())
+        # Lambda bodies aren't analyzed for native ints; treat all as boxed.
+        old_native_ints = self._native_ints
+        self._native_ints = set()
+
+        # Captured variables are cloned into the closure (`let x = x.clone();`),
+        # so inside the lambda body they are owned values, not references — even
+        # if they were reference parameters in the enclosing function. Drop them
+        # from _ref_params so calls/list-elements clone/borrow them correctly
+        # (otherwise a captured ref param is passed to a user function without
+        # the required `&`).
+        self._ref_params = old_ref_params - captured
+
         # Set up for lambda body generation
         self.output_lines = []
         self.indent_level = 0
@@ -2693,6 +3300,8 @@ class AgoCodeGenerator:
         self.indent_level = old_indent
         self.declared_vars = old_declared
         self._in_id_lambda = old_in_lambda
+        self._ref_params = old_ref_params
+        self._native_ints = old_native_ints
         
         # Build the inline move closure
         # Format: { let cap = cap.clone(); Rc::new(move |args: &[AgoType]| -> AgoType { body }) as AgoLambda }

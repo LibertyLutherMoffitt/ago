@@ -2,6 +2,37 @@ use crate::types::{AgoRange, AgoType};
 
 // --- Operator Functions ---
 
+/// Builds a descriptive panic message for a binary operator that received
+/// operands of unsupported types.
+///
+/// Reports the operator, both operand types, and their values. When one side is
+/// `Null`, it appends a targeted hint: a stray `Null` (inanis) almost always
+/// traces back to an out-of-bounds index, a missing map key, or a lambda
+/// invoked with fewer arguments than it declared (extra params come through as
+/// `Null`). Surfacing that here turns an opaque backtrace into an actionable one.
+#[cold]
+#[inline(never)]
+pub fn binop_type_error(op: &str, left: &AgoType, right: &AgoType) -> String {
+    let mut msg = format!(
+        "Cannot perform `{}` on {} and {} (values: {:?} and {:?})",
+        op,
+        left.type_name(),
+        right.type_name(),
+        left,
+        right,
+    );
+    if matches!(left, AgoType::Null) || matches!(right, AgoType::Null) {
+        msg.push_str(
+            "\n  hint: a Null (inanis) operand usually means one of:\n\
+             \x20         - an out-of-bounds list/string index\n\
+             \x20         - a missing map key\n\
+             \x20         - a lambda called with fewer arguments than it declares \
+             (e.g. passing a 2-arg comparator where a 1-arg key function is expected)",
+        );
+    }
+    msg
+}
+
 macro_rules! numeric_op {
     ($name:ident, $op:tt) => {
         #[inline]
@@ -11,7 +42,7 @@ macro_rules! numeric_op {
                 (AgoType::Float(a), AgoType::Int(b)) => AgoType::Float(a $op (*b as f64)),
                 (AgoType::Int(a), AgoType::Float(b)) => AgoType::Float((*a as f64) $op b),
                 (AgoType::Int(a), AgoType::Int(b)) => AgoType::Int(a $op b),
-                _ => panic!("Cannot perform numeric operation on {:?} and {:?}", left, right),
+                _ => panic!("{}", binop_type_error(stringify!($op), left, right)),
             }
         }
     };
@@ -22,7 +53,7 @@ macro_rules! bitwise_op {
         pub fn $name(left: &AgoType, right: &AgoType) -> AgoType {
             match (left, right) {
                 (AgoType::Int(a), AgoType::Int(b)) => AgoType::Int(a $op b),
-                _ => panic!("Cannot perform bitwise operation on {:?} and {:?}", left, right),
+                _ => panic!("{}", binop_type_error(stringify!($op), left, right)),
             }
         }
     };
@@ -38,7 +69,7 @@ macro_rules! comparison_op {
                 (AgoType::Int(a), AgoType::Float(b)) => &(*a as f64) $op b,
                 (AgoType::Int(a), AgoType::Int(b)) => a $op b,
                 (AgoType::String(a), AgoType::String(b)) => a $op b,
-                _ => panic!("Cannot perform comparison on {:?} and {:?}", left, right),
+                _ => panic!("{}", binop_type_error(stringify!($op), left, right)),
             };
             AgoType::Bool(result)
         }
@@ -46,12 +77,22 @@ macro_rules! comparison_op {
 }
 
 /// Implements the '..' operator for inclusive ranges.
+///
+/// Applied to an existing range and an int (`a..b..s`), it sets the step of that
+/// range rather than building a new one — this is how stepped ranges are written.
 pub fn slice(left: &AgoType, right: &AgoType) -> AgoType {
     match (left, right) {
         (AgoType::Int(start), AgoType::Int(end)) => AgoType::Range(AgoRange {
             start: *start,
             end: *end,
             inclusive: true,
+            step: 1,
+        }),
+        (AgoType::Range(r), AgoType::Int(step)) => AgoType::Range(AgoRange {
+            start: r.start,
+            end: r.end,
+            inclusive: r.inclusive,
+            step: (*step).abs().max(1),
         }),
         _ => panic!(
             "Range operators can only be used with integers, but got {:?} and {:?}",
@@ -67,6 +108,13 @@ pub fn sliceto(left: &AgoType, right: &AgoType) -> AgoType {
             start: *start,
             end: *end,
             inclusive: false,
+            step: 1,
+        }),
+        (AgoType::Range(r), AgoType::Int(step)) => AgoType::Range(AgoRange {
+            start: r.start,
+            end: r.end,
+            inclusive: r.inclusive,
+            step: (*step).abs().max(1),
         }),
         _ => panic!(
             "Range operators can only be used with integers, but got {:?} and {:?}",
@@ -115,7 +163,7 @@ pub fn add(left: &AgoType, right: &AgoType) -> AgoType {
             AgoType::ListAny(new_list)
         }
 
-        _ => panic!("Cannot add {:?} and {:?}", left, right),
+        _ => panic!("{}", binop_type_error("+", left, right)),
     }
 }
 
@@ -137,7 +185,7 @@ bitwise_op!(bitwise_xor, ^);
 pub fn and(left: &AgoType, right: &AgoType) -> AgoType {
     match (left, right) {
         (AgoType::Bool(a), AgoType::Bool(b)) => AgoType::Bool(*a && *b),
-        _ => panic!("Cannot perform logical 'and' on {:?} and {:?}", left, right),
+        _ => panic!("{}", binop_type_error("et (and)", left, right)),
     }
 }
 
@@ -145,7 +193,7 @@ pub fn and(left: &AgoType, right: &AgoType) -> AgoType {
 pub fn or(left: &AgoType, right: &AgoType) -> AgoType {
     match (left, right) {
         (AgoType::Bool(a), AgoType::Bool(b)) => AgoType::Bool(*a || *b),
-        _ => panic!("Cannot perform logical 'or' on {:?} and {:?}", left, right),
+        _ => panic!("{}", binop_type_error("vel (or)", left, right)),
     }
 }
 
@@ -186,7 +234,7 @@ pub fn contains(haystack: &AgoType, needle: &AgoType) -> AgoType {
         }
         AgoType::Struct(h) => {
             if let AgoType::String(n) = needle {
-                h.contains_key(n)
+                h.borrow().contains_key(n)
             } else {
                 panic!(
                     "Struct keys must be Strings, cannot search for {:?}",

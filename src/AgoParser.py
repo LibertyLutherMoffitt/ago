@@ -20,6 +20,7 @@ from tatsu.parsing import tatsumasu
 from tatsu.parsing import leftrec, nomemo, isname
 from tatsu.infos import ParserConfig
 from tatsu.util import re, generic_main
+from tatsu.exceptions import FailedLeftRecursion
 
 
 KEYWORDS: set[str] = {
@@ -43,6 +44,7 @@ KEYWORDS: set[str] = {
     'des',
     'in',
     'inporto',
+    'discerne',
 }
 
 
@@ -84,6 +86,49 @@ class AgoParser(Parser):
         config = config.replace(**settings)
 
         super().__init__(config=config)
+
+    # --- Parser performance: O(1) clearing of left-recursion error memos ---
+    #
+    # tatsu's left-recursion algorithm calls _clear_recursion_errors() on every
+    # iteration of its seed-growing loop, and the stock implementation scans the
+    # ENTIRE (monotonically growing) memo cache to drop FailedLeftRecursion
+    # entries. With the left-recursive precedence rules (pa/pb) invoked once per
+    # expression in a program, that is O(n^2) in program size: parsing the
+    # ~470-line prelude took ~19s.
+    #
+    # FailedLeftRecursion sentinels only ever enter self._memos via _memoize, so
+    # we track exactly those keys in a side set and clear just them. This keeps
+    # the grammar and produced AST byte-for-byte identical (verified against a
+    # golden corpus); it is purely a speed fix. The set is always a *superset*
+    # of the live sentinel keys (the cut-based position prune may drop some from
+    # _memos behind our back), so popping with a default is safe and complete.
+
+    def _clear_memoization_caches(self):
+        super()._clear_memoization_caches()
+        self._leftrec_keys = set()
+
+    def _memoize(self, key, memo):
+        result = super()._memoize(key, memo)
+        # Mirror what super() actually stored (it only writes when memoization
+        # is enabled and the rule is memoizable).
+        if self._memos.get(key) is memo:
+            if isinstance(memo, FailedLeftRecursion):
+                self._leftrec_keys.add(key)
+            else:
+                self._leftrec_keys.discard(key)
+        return result
+
+    def _forget(self, key):
+        super()._forget(key)
+        self._leftrec_keys.discard(key)
+
+    def _clear_recursion_errors(self):
+        if not self._leftrec_keys:
+            return
+        memos = self._memos
+        for key in self._leftrec_keys:
+            memos.pop(key, None)
+        self._leftrec_keys.clear()
 
     @tatsumasu()
     def _principio_(self):
@@ -141,6 +186,9 @@ class AgoParser(Parser):
                 self._while_stmt_()
                 self.name_last_node('while_stmt')
             with self._option():
+                self._match_stmt_()
+                self.name_last_node('match_stmt')
+            with self._option():
                 self._call_stmt_()
                 self.name_last_node('call')
             with self._option():
@@ -158,10 +206,11 @@ class AgoParser(Parser):
                 self.name_last_node('return_stmt')
             self._error(
                 'expecting one of: '
-                "'frio' 'omitto' 'pergo' 'redeo' <BREAK>"
-                '<CONTINUE> <FOR> <IF> <PASS> <RETURN>'
-                '<WHILE> <call_stmt> <declaration_stmt>'
-                '<for_stmt> <identifier> <if_stmt> <item>'
+                "'discerne' 'frio' 'omitto' 'pergo' 'redeo'"
+                '<BREAK> <CONTINUE> <FOR> <IF> <MATCH> <PASS>'
+                '<RETURN> <WHILE> <call_stmt>'
+                '<declaration_stmt> <for_stmt> <identifier>'
+                '<if_stmt> <item> <match_stmt>'
                 '<reassignment_stmt> <while_stmt>'
             )
 
@@ -226,6 +275,9 @@ class AgoParser(Parser):
                 self._while_stmt_()
                 self.name_last_node('while_stmt')
             with self._option():
+                self._match_stmt_()
+                self.name_last_node('match_stmt')
+            with self._option():
                 with self._group():
                     self._RETURN_()
                     self._expression_()
@@ -269,10 +321,18 @@ class AgoParser(Parser):
     def _declaration_stmt_(self):
         self._identifier_()
         self.name_last_node('name')
+
+        def block0():
+            self._COMMA_()
+            self._identifier_()
+            self.name_last_node('extra')
+            self._define(['extra'], [])
+        self._closure(block0)
+        self.name_last_node('extra_names')
         self._ASSIGNMENT_OP_()
         self._expression_()
         self.name_last_node('value')
-        self._define(['name', 'value'], [])
+        self._define(['extra_names', 'name', 'value'], [])
 
     @tatsumasu()
     def _reassignment_stmt_(self):
@@ -283,10 +343,28 @@ class AgoParser(Parser):
             self._indexing_()
         self._closure(block0)
         self.name_last_node('index')
-        self._REASSIGNMENT_OP_()
+        with self._group():
+            with self._choice():
+                with self._option():
+                    self._PLUSEQ_()
+                with self._option():
+                    self._MINUSEQ_()
+                with self._option():
+                    self._TIMESEQ_()
+                with self._option():
+                    self._DIVEQ_()
+                with self._option():
+                    self._MODEQ_()
+                with self._option():
+                    self._REASSIGNMENT_OP_()
+                self._error(
+                    'expecting one of: '
+                    "'+=' '-=' '*=' '/=' '%=' '='"
+                )
+        self.name_last_node('op')
         self._expression_()
         self.name_last_node('value')
-        self._define(['index', 'target', 'value'], [])
+        self._define(['index', 'op', 'target', 'value'], [])
 
     @tatsumasu()
     def _indexing_(self):
@@ -359,6 +437,47 @@ class AgoParser(Parser):
         self._define(['first', 'rest'], [])
 
     @tatsumasu()
+    def _match_stmt_(self):
+        self._MATCH_()
+        self._expression_()
+        self.name_last_node('scrut')
+        self._LBRACE_()
+        with self._optional():
+            self._nl_()
+        self._match_arm_()
+        self.name_last_node('first')
+
+        def block0():
+
+            def block1():
+                self._nl_()
+            self._positive_closure(block1)
+            self._match_arm_()
+        self._closure(block0)
+        self.name_last_node('rest')
+        with self._optional():
+            self._nl_()
+        self._RBRACE_()
+        self._define(['first', 'rest', 'scrut'], [])
+
+    @tatsumasu()
+    def _match_arm_(self):
+        with self._choice():
+            with self._option():
+                self._ELSE_()
+                self.name_last_node('default')
+                self._block_()
+                self.name_last_node('body')
+                self._define(['body', 'default'], [])
+            with self._option():
+                self._expression_()
+                self.name_last_node('pattern')
+                self._block_()
+                self.name_last_node('body')
+                self._define(['body', 'pattern'], [])
+            self._error('expecting a match arm: pattern { ... } or aluid { ... }')
+
+    @tatsumasu()
     def _while_stmt_(self):
         self._WHILE_()
         self._expression_()
@@ -372,12 +491,16 @@ class AgoParser(Parser):
         self._FOR_()
         self._identifier_()
         self.name_last_node('iterator')
+        with self._optional():
+            self._COMMA_()
+            self._identifier_()
+            self.name_last_node('iterator2')
         self._IN_()
         self._expression_()
         self.name_last_node('iterable')
         self._block_()
         self.name_last_node('body')
-        self._define(['body', 'iterable', 'iterator'], [])
+        self._define(['body', 'iterable', 'iterator', 'iterator2'], [])
 
     @tatsumasu()
     def _call_stmt_(self):
@@ -829,7 +952,14 @@ class AgoParser(Parser):
     def _nl_(self):
 
         def block0():
-            self._CR_()
+            with self._choice():
+                with self._option():
+                    self._CR_()
+                with self._option():
+                    self._SEMICOLON_()
+                self._error(
+                    'expecting one of: <CR> <SEMICOLON>'
+                )
         self._positive_closure(block0)
 
     @tatsumasu()
@@ -950,6 +1080,26 @@ class AgoParser(Parser):
         self._token('=')
 
     @tatsumasu()
+    def _PLUSEQ_(self):
+        self._token('+=')
+
+    @tatsumasu()
+    def _MINUSEQ_(self):
+        self._token('-=')
+
+    @tatsumasu()
+    def _TIMESEQ_(self):
+        self._token('*=')
+
+    @tatsumasu()
+    def _DIVEQ_(self):
+        self._token('/=')
+
+    @tatsumasu()
+    def _MODEQ_(self):
+        self._token('%=')
+
+    @tatsumasu()
     def _ELSE_(self):
         self._token('aluid')
 
@@ -1024,6 +1174,10 @@ class AgoParser(Parser):
     @tatsumasu()
     def _IMPORT_(self):
         self._token('inporto')
+
+    @tatsumasu()
+    def _MATCH_(self):
+        self._token('discerne')
 
     @tatsumasu()
     def _COMMA_(self):

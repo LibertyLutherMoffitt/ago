@@ -1,0 +1,3 @@
+inputuum := apertu("./a.txt").contentes.findomnuum("\n").finduum("")
+ranguum := inputuum[0].mutatuum(des{id.findaem("-")})
+inputuum[1].aem().mutatuum(des{ ranguum.ullam(des (rnium){ rnium[0] <= id et id <= rnium[1]}).a() }).suma().es().dici()

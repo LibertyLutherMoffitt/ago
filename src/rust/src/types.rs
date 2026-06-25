@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -13,10 +14,57 @@ pub enum AgoType {
     FloatList(Vec<f64>),
     BoolList(Vec<bool>),
     StringList(Vec<String>),
-    Struct(HashMap<String, AgoType>),
+    // A map is Ago's one reference type: it is shared (Rc) and mutable in place
+    // (RefCell), so passing a map into a function and mutating it is visible to
+    // the caller (Python object / call-by-sharing semantics). Cloning an
+    // AgoType::Struct shares the same map; use `exemplium` for a deep copy.
+    Struct(Rc<RefCell<HashMap<String, AgoType>>>),
     ListAny(Vec<AgoType>), // For lists of mixed types
     Range(AgoRange),
     Null, // Representing Ago's 'inanis'
+}
+
+impl AgoType {
+    /// Build a map value from a plain HashMap, wrapping it in the shared,
+    /// interior-mutable cell that gives maps their reference semantics.
+    pub fn new_struct(map: HashMap<String, AgoType>) -> AgoType {
+        AgoType::Struct(Rc::new(RefCell::new(map)))
+    }
+
+    /// Recursively deep-copy a value. For maps (and maps nested inside lists)
+    /// this allocates fresh, independent cells rather than sharing them.
+    pub fn deep_copy(&self) -> AgoType {
+        match self {
+            AgoType::Struct(m) => {
+                let copied: HashMap<String, AgoType> =
+                    m.borrow().iter().map(|(k, v)| (k.clone(), v.deep_copy())).collect();
+                AgoType::new_struct(copied)
+            }
+            AgoType::ListAny(v) => AgoType::ListAny(v.iter().map(|x| x.deep_copy()).collect()),
+            // Scalars and the homogeneous list variants contain no shared cells,
+            // so a normal clone is already a deep copy.
+            other => other.clone(),
+        }
+    }
+
+    /// Human-readable name of this value's variant, for diagnostics.
+    /// Mirrors the names reported by the `species` builtin.
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            AgoType::Int(_) => "Int",
+            AgoType::Float(_) => "Float",
+            AgoType::Bool(_) => "Bool",
+            AgoType::String(_) => "String",
+            AgoType::IntList(_) => "IntList",
+            AgoType::FloatList(_) => "FloatList",
+            AgoType::BoolList(_) => "BoolList",
+            AgoType::StringList(_) => "StringList",
+            AgoType::Struct(_) => "Struct",
+            AgoType::ListAny(_) => "ListAny",
+            AgoType::Range(_) => "Range",
+            AgoType::Null => "Null (inanis)",
+        }
+    }
 }
 
 // Type aliases for clarity
@@ -38,6 +86,35 @@ pub struct AgoRange {
     pub start: AgoInt,
     pub end: AgoInt,
     pub inclusive: bool,
+    /// Iteration step magnitude (always >= 1). Direction is inferred from
+    /// start/end at iteration time, so a descending range (`start > end`)
+    /// counts down. Defaults to 1.
+    pub step: AgoInt,
+}
+
+impl AgoRange {
+    /// Number of elements this range yields when iterated.
+    #[inline]
+    pub fn count(&self) -> AgoInt {
+        let s = self.step.max(1);
+        let span = (self.end - self.start).abs();
+        if self.inclusive {
+            span / s + 1
+        } else {
+            (span + s - 1) / s
+        }
+    }
+
+    /// Signed increment applied per step (negative for descending ranges).
+    #[inline]
+    pub fn increment(&self) -> AgoInt {
+        let s = self.step.max(1);
+        if self.end >= self.start {
+            s
+        } else {
+            -s
+        }
+    }
 }
 
 // An enum to represent the target type for casting

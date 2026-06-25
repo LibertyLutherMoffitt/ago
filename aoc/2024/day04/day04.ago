@@ -1,0 +1,57 @@
+# AoC 2024 Day 4 - Ceres Search
+# Part 1: count "XMAS" in all 8 directions.
+# Part 2: count X-MAS (two "MAS" crossing in an X).
+
+des inboundsam(ia, ja, rowsa, colsa) {
+    redeo ia >= 0 et ia < rowsa et ja >= 0 et ja < colsa
+}
+
+griduum := apertu("in.txt").contentes.finderum("\n").mutatuum(des { iderum })
+rowsa := griduum.a()
+colsa := griduum[0].a()
+
+worderum := ["X", "M", "A", "S"]
+diruum := [[0, 1], [0, 0 - 1], [1, 0], [0 - 1, 0], [1, 1], [1, 0 - 1], [0 - 1, 1], [0 - 1, 0 - 1]]
+
+count1a := 0
+pro ia in 0.<rowsa {
+    pro ja in 0.<colsa {
+        pro da in diruum {
+            okam := verum
+            pro ka in 0.<4 {
+                nia := ia + da[0] * ka
+                nja := ja + da[1] * ka
+                si non inboundsam(nia, nja, rowsa, colsa) {
+                    okam = falsus
+                    frio
+                }
+                si griduum[nia][nja] != worderum[ka] {
+                    okam = falsus
+                    frio
+                }
+            }
+            si okam {
+                count1a = count1a + 1
+            }
+        }
+    }
+}
+count1a.es().dici()
+
+count2a := 0
+pro ia in 1.<(rowsa - 1) {
+    pro ja in 1.<(colsa - 1) {
+        si griduum[ia][ja] == "A" {
+            tles := griduum[ia - 1][ja - 1]
+            bres := griduum[ia + 1][ja + 1]
+            tres := griduum[ia - 1][ja + 1]
+            bles := griduum[ia + 1][ja - 1]
+            d1am := (tles == "M" et bres == "S") vel (tles == "S" et bres == "M")
+            d2am := (tres == "M" et bles == "S") vel (tres == "S" et bles == "M")
+            si d1am et d2am {
+                count2a = count2a + 1
+            }
+        }
+    }
+}
+count2a.es().dici()

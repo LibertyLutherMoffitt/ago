@@ -1,0 +1,30 @@
+# Demonstrates passing an inline lambda into a higher-order function.
+# NOTE: genorduum/_conuum live in the prelude now; this file is kept as a
+# record of the inline-lambda call style (`des (aium, bium){ ... }`).
+tuum := [1,6,4,2,6,-9,-4,2,1,4,6,89,9,6,4,2,112,3456,78,7654,2,3,456]
+
+des _conuum(auum, buum, xo) {
+    ruum := []
+    aia := 0
+    bia := 0
+    dum aia < aa et bia < ba {
+        si xo(auum[aia], buum[bia]) {
+            ruum = ruum.appenduum(auum[aia])
+            aia = aia + 1
+        } aluid {
+            ruum = ruum.appenduum(buum[bia])
+            bia = bia + 1
+        }
+    }
+    pro aea in auum[aia.<aa] { ruum = ruum.appenduum(aea) }
+    pro bea in buum[bia.<ba] { ruum = ruum.appenduum(bea) }
+    redeo ruum
+}
+
+des genorduum(luum, xo) {
+    si la <= 1 { redeo luum }
+    redeo _conuum(luum[0.<la/2], luum[la/2.<la], xo)
+}
+
+
+tuum.genorduum(des (aium, bium){ aium < bium}).es().dici()

@@ -1,0 +1,62 @@
+# AoC 2024 Day 3 - Mull It Over
+# Scan corrupted memory for mul(X,Y); part 2 honours do()/don't() toggles.
+# (No regex in Ago, so we scan char by char.)
+
+des matcham(cuum, posa, paterum) {
+    pro ka in 0.<paterum.a() {
+        si posa + ka >= cuum.a() { redeo falsus }
+        si cuum[posa+ka] != paterum[ka] { redeo falsus }
+    }
+    redeo verum
+}
+
+# Read a run of digits at posa; returns [value, newpos], value = -1 if none.
+des readnumuum(cuum, posa) {
+    ses := ""
+    pa := posa
+    dum pa < cuum.a() et digitam(cuum[pa]) {
+        ses = ses + cuum[pa]
+        pa = pa + 1
+    }
+    si ses == "" { redeo [0 - 1, posa] }
+    redeo [ses.a(), pa]
+}
+
+cuum := apertu("in.txt").contentes.erum()
+na := cuum.a()
+
+total1a := 0
+total2a := 0
+enabledam := verum
+ia := 0
+dum ia < na {
+    si matcham(cuum, ia, "do()".erum()) {
+        enabledam = verum
+        ia = ia + 4
+        pergo
+    }
+    si matcham(cuum, ia, "don't()".erum()) {
+        enabledam = falsus
+        ia = ia + 7
+        pergo
+    }
+    si matcham(cuum, ia, "mul(".erum()) {
+        r1uum := readnumuum(cuum, ia + 4)
+        ja := r1uum[1]
+        si r1uum[0] >= 0 et ja < na et cuum[ja] == "," {
+            r2uum := readnumuum(cuum, ja + 1)
+            ka := r2uum[1]
+            si r2uum[0] >= 0 et ka < na et cuum[ka] == ")" {
+                proda := r1uum[0] * r2uum[0]
+                total1a = total1a + proda
+                si enabledam { total2a = total2a + proda }
+                ia = ka + 1
+                pergo
+            }
+        }
+    }
+    ia = ia + 1
+}
+
+total1a.es().dici()
+total2a.es().dici()

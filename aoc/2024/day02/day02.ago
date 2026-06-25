@@ -1,0 +1,35 @@
+# AoC 2024 Day 2 - Red-Nosed Reports
+# Part 1: count reports that are all-increasing or all-decreasing with adjacent
+#         differences in [1,3].
+# Part 2: also safe if removing a single level makes the report safe.
+
+des safeam(luum) {
+    increasingam := verum
+    decreasingam := verum
+    okam := verum
+    pro ia in 0.<(luum.a()-1) {
+        da := luum[ia+1] - luum[ia]
+        absa := da >= 0 ? da : 0 - da
+        si absa < 1 vel absa > 3 { okam = falsus }
+        si da < 0 { increasingam = falsus }
+        si da > 0 { decreasingam = falsus }
+    }
+    redeo okam et (increasingam vel decreasingam)
+}
+
+des safedampam(luum) {
+    si safeam(luum) { redeo verum }
+    pro ia in 0.<luum.a() {
+        reduum := []
+        pro ja in 0.<luum.a() {
+            si ja != ia { reduum = reduum.appenduum(luum[ja]) }
+        }
+        si safeam(reduum) { redeo verum }
+    }
+    redeo falsus
+}
+
+reportsuum := apertu("in.txt").contentes.finderum("\n").mutatuum(des { id.finderum(" ").mutatuum(des { ida }) })
+
+reportsuum.liquum(des { safeam(id) }).a().es().dici()
+reportsuum.liquum(des { safedampam(id) }).a().es().dici()

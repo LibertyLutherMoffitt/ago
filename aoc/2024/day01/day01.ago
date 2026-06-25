@@ -1,0 +1,26 @@
+# AoC 2024 Day 1 - Historian Hysteria
+# Part 1: sort both columns, sum of absolute differences.
+# Part 2: similarity score = sum of left[i] * count(left[i] in right).
+
+pairsuum := apertu("in.txt").contentes.finderum("\n").mutatuum(des { id.finderum(" ") })
+
+leftuum := pairsuum.mutatuum(des { id[0].a() })
+rightuum := pairsuum.mutatuum(des { id[1].a() })
+
+# Part 1
+sleftuum := leftuum.genorduum(des { id })
+srightuum := rightuum.genorduum(des { id })
+totala := 0
+pro ia in 0.<sleftuum.a() {
+    da := sleftuum[ia] - srightuum[ia]
+    totala = totala + (da >= 0 ? da : 0 - da)
+}
+totala.es().dici()
+
+# Part 2
+sima := 0
+pro la in leftuum {
+    counta := rightuum.liquum(des { id == la }).a()
+    sima = sima + la * counta
+}
+sima.es().dici()

@@ -1,0 +1,50 @@
+# AoC 2024 Day 8 - Resonant Collinearity
+# Part 1: antinodes where one antenna is twice as far as another (same freq).
+# Part 2: every grid point collinear with >=2 same-freq antennas.
+
+griduum := apertu("in.txt").contentes.finderum("\n").mutatuum(des { iderum })
+rowsa := griduum.a()
+colsa := griduum[0].a()
+
+antuum := []
+pro ia in 0.<rowsa {
+    pro ja in 0.<colsa {
+        ces := griduum[ia][ja]
+        si ces != "." {
+            antuum = antuum.appenduum([ia, ja, ces])
+        }
+    }
+}
+
+anti1u := {}
+anti2u := {}
+pro ia in 0.<antuum.a() {
+    pro ja in 0.<antuum.a() {
+        si ia != ja {
+            auum := antuum[ia]
+            buum := antuum[ja]
+            si auum[2] == buum[2] {
+                dra := auum[0] - buum[0]
+                dca := auum[1] - buum[1]
+
+                # Part 1: single antinode beyond auum.
+                pra := auum[0] + dra
+                pca := auum[1] + dca
+                si pra >= 0 et pra < rowsa et pca >= 0 et pca < colsa {
+                    anti1u[pra.es() + "," + pca.es()] = 1
+                }
+
+                # Part 2: step from auum by the delta until off-grid.
+                ra := auum[0]
+                ca := auum[1]
+                dum ra >= 0 et ra < rowsa et ca >= 0 et ca < colsa {
+                    anti2u[ra.es() + "," + ca.es()] = 1
+                    ra = ra + dra
+                    ca = ca + dca
+                }
+            }
+        }
+    }
+}
+anti1u.erum().a().es().dici()
+anti2u.erum().a().es().dici()

@@ -44,6 +44,7 @@ fn test_iter_range_inclusive() {
         start: 1,
         end: 3,
         inclusive: true,
+        step: 1,
     });
     let mut iter = into_iter(&range);
     assert_eq!(iter.next(), Some(AgoType::Int(1)));
@@ -58,6 +59,7 @@ fn test_iter_range_exclusive() {
         start: 1,
         end: 3,
         inclusive: false,
+        step: 1,
     });
     let mut iter = into_iter(&range);
     assert_eq!(iter.next(), Some(AgoType::Int(1)));
@@ -67,23 +69,59 @@ fn test_iter_range_exclusive() {
 
 #[test]
 fn test_iter_range_empty() {
-    // Inclusive empty
-    let range1 = AgoType::Range(AgoRange {
-        start: 5,
-        end: 1,
-        inclusive: true,
-    });
-    let mut iter1 = into_iter(&range1);
-    assert_eq!(iter1.next(), None);
-
-    // Exclusive empty
+    // Exclusive with start == end is empty.
     let range2 = AgoType::Range(AgoRange {
         start: 5,
         end: 5,
         inclusive: false,
+        step: 1,
     });
     let mut iter2 = into_iter(&range2);
     assert_eq!(iter2.next(), None);
+}
+
+#[test]
+fn test_iter_range_descending() {
+    // A descending inclusive range counts down (Python range(5, 0, -1) shape).
+    let range = AgoType::Range(AgoRange {
+        start: 5,
+        end: 1,
+        inclusive: true,
+        step: 1,
+    });
+    let got: Vec<AgoType> = into_iter(&range).collect();
+    assert_eq!(
+        got,
+        vec![
+            AgoType::Int(5),
+            AgoType::Int(4),
+            AgoType::Int(3),
+            AgoType::Int(2),
+            AgoType::Int(1),
+        ]
+    );
+}
+
+#[test]
+fn test_iter_range_stepped() {
+    // Stepped exclusive range: 0, 2, 4, 6, 8.
+    let range = AgoType::Range(AgoRange {
+        start: 0,
+        end: 10,
+        inclusive: false,
+        step: 2,
+    });
+    let got: Vec<AgoType> = into_iter(&range).collect();
+    assert_eq!(
+        got,
+        vec![
+            AgoType::Int(0),
+            AgoType::Int(2),
+            AgoType::Int(4),
+            AgoType::Int(6),
+            AgoType::Int(8),
+        ]
+    );
 }
 
 #[test]

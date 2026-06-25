@@ -1,0 +1,6 @@
+des yes(lerum, ia, preva) {
+    si ia == -1 { redeo "" }
+    aa := invena(laem[preva.<la-ia], maxa(laem[preva.<la-ia])) + preva
+    redeo lerum[aa] + lerum.yes(ia-I, aa+I)
+}
+apertu("./b.txt").contentes.finderum("\n").mutataem(des {iderum.ya(XI, 0)}).sumes().dici()

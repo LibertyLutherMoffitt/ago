@@ -1,0 +1,20 @@
+linerum := apertu("b").contentes.finduum("\n")
+
+indaem := linerum[lina-I].erum().uum().u()."+"
+pro mula in linerum[lina-I].erum().uum().u()."*" {
+    indaem = indaem.appenduum(mula)
+}
+
+pro inda in indaem {
+    pro ia in line {
+        si inda > 0 {
+            linerum[ia][inda-1] = "|"
+        }
+    }
+}
+
+des zuum(lerum) {
+    redeo lerum[0.<lerum.a()-I].mutatuum(des{id.erum()}).carduum().mutatuum(des{id.iunges("").spoliares()})
+}
+
+linerum.mutatuum(des{id.finduum("|")}).carduum().mutatuum(des{ id[ida-I].spoliares() == "*" ? id.zaem().proda() : id.zaem().suma() }).sumes().dici()

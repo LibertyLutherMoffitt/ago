@@ -1,0 +1,66 @@
+# AoC 2024 Day 10 - Hoof It
+# Trails go 0->1->...->9 stepping +1 in 4 directions.
+# Part 1: sum of trailhead scores (distinct reachable 9s).
+# Part 2: sum of trailhead ratings (distinct trails).
+
+# All reachable 9 positions ("r,c"), with duplicates.
+des reachuum(griduum, ra, ca) {
+    ha := griduum[ra][ca]
+    si ha == 9 {
+        redeo [ra.es() + "," + ca.es()]
+    }
+    accuum := []
+    diruum := [[0, 1], [0, 0 - 1], [1, 0], [0 - 1, 0]]
+    pro da in diruum {
+        nra := ra + da[0]
+        nca := ca + da[1]
+        si nra >= 0 et nra < griduum.a() et nca >= 0 et nca < griduum[0].a() {
+            si griduum[nra][nca] == (ha + 1) {
+                pro pes in reachuum(griduum, nra, nca) {
+                    accuum = accuum.appenduum(pes)
+                }
+            }
+        }
+    }
+    redeo accuum
+}
+
+# Number of distinct trails from (ra,ca) to a 9.
+des ratinga(griduum, ra, ca) {
+    ha := griduum[ra][ca]
+    si ha == 9 {
+        redeo 1
+    }
+    totala := 0
+    diruum := [[0, 1], [0, 0 - 1], [1, 0], [0 - 1, 0]]
+    pro da in diruum {
+        nra := ra + da[0]
+        nca := ca + da[1]
+        si nra >= 0 et nra < griduum.a() et nca >= 0 et nca < griduum[0].a() {
+            si griduum[nra][nca] == (ha + 1) {
+                totala = totala + ratinga(griduum, nra, nca)
+            }
+        }
+    }
+    redeo totala
+}
+
+griduum := apertu("in.txt").contentes.finderum("\n").mutatuum(des { id.erum().mutatuum(des { ida }) })
+
+part1a := 0
+part2a := 0
+pro ra in 0.<griduum.a() {
+    pro ca in 0.<griduum[0].a() {
+        si griduum[ra][ca] == 0 {
+            hituum := reachuum(griduum, ra, ca)
+            seenu := {}
+            pro pes in hituum {
+                seenu[pes] = 1
+            }
+            part1a = part1a + seenu.erum().a()
+            part2a = part2a + ratinga(griduum, ra, ca)
+        }
+    }
+}
+part1a.es().dici()
+part2a.es().dici()

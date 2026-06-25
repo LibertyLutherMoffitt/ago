@@ -1,0 +1,58 @@
+# AoC 2024 Day 11 - Plutonian Pebbles
+# Each blink: 0 -> 1; even-digit -> split halves; else -> *2024.
+# Count stones after N blinks. Part 1: 25 blinks. Part 2: 75 blinks.
+# Maps pass by value in Ago, so the memo table is threaded through the recursion.
+# Returns [count, memo].
+
+des countuum(sa, ba, memu) {
+    si ba == 0 {
+        redeo [1, memu]
+    }
+    keyes := sa.es() + "," + ba.es()
+    si keyes in memu {
+        redeo [memu[keyes], memu]
+    }
+    resa := 0
+    mu := memu
+    si sa == 0 {
+        ruum := countuum(1, ba - 1, mu)
+        resa = ruum[0]
+        mu = ruum[1]
+    } aluid {
+        diges := sa.es()
+        dia := diges.erum().a()
+        si dia % 2 == 0 {
+            lefta := diges[0.<(dia / 2)].a()
+            righta := diges[(dia / 2).<dia].a()
+            r1uum := countuum(lefta, ba - 1, mu)
+            r2uum := countuum(righta, ba - 1, r1uum[1])
+            resa = r1uum[0] + r2uum[0]
+            mu = r2uum[1]
+        } aluid {
+            ruum := countuum(sa * 2024, ba - 1, mu)
+            resa = ruum[0]
+            mu = ruum[1]
+        }
+    }
+    mu[keyes] = resa
+    redeo [resa, mu]
+}
+
+stoneserum := apertu("in.txt").contentes.spoliares().finderum(" ")
+
+memu := {}
+part1a := 0
+pro stes in stoneserum {
+    ruum := countuum(stes.a(), 25, memu)
+    part1a = part1a + ruum[0]
+    memu = ruum[1]
+}
+part1a.es().dici()
+
+part2a := 0
+pro stes in stoneserum {
+    ruum := countuum(stes.a(), 75, memu)
+    part2a = part2a + ruum[0]
+    memu = ruum[1]
+}
+part2a.es().dici()

@@ -1,0 +1,107 @@
+# Trimmed prelude for the fast smoke test.
+#
+# The full stdlib/prelude.ago is ~470 lines, and the tatsu parser is superlinear
+# (~1.4s for 120 lines, ~19s for the full file), so re-parsing the whole prelude
+# for a single sanity check is far too slow. This file contains only the handful
+# of functions test_smoke.py needs (and their dependencies), copied verbatim from
+# stdlib/prelude.ago. Keep in sync if those functions change.
+
+des appenduum(xuum, yium) {
+    xuum.inseri(xa, yium)
+    redeo xuum
+}
+
+des iunges(lerum, ses) {
+    res := lerum[0]
+    vexillam := falsus
+    pro xes in lerum {
+        si vexillam {
+            res = res + ses + xes
+        } aluid {
+            vexillam = non vexillam
+        }
+    }
+    redeo res
+}
+
+des liquum(luum, xo) {
+    ruum := []
+    pro lium in luum {
+        si xo(lium) {
+            ruum.inseri(ra, lium)
+        }
+    }
+    redeo ruum
+}
+
+des plicium(luum, xo) {
+    si non lam {
+        redeo inanis
+    }
+
+    aium := luum[0]
+    pro lium in luum[1..la] {
+        aium = xo(aium, lium)
+    }
+    redeo aium
+}
+
+des mutatuum(luum, xo) {
+    ruum := []
+    pro xa in le {
+        ruum = ruum.appenduum(xo(luum[xa]))
+    }
+    redeo ruum
+}
+
+des finderum(les, ses) {
+    rerum := []
+    ba := 0
+    ea := 0
+    dum ea < lerum.a() {
+        si ses == les[ea] {
+            si ba < ea {
+                rerum.inseri(rerum.a(), les[ba.<ea])
+            }
+            ba = ea + 1
+        }
+        ea = ea + 1
+    }
+    si ba < ea {
+        rerum.inseri(rerum.a(), les[ba.<ea])
+    }
+    redeo rerum
+}
+
+des sumium(luum) {
+    redeo luum.plicium(des (aium, bium) {aium + bium})
+}
+
+des _conuum(auum, buum, xo) {
+    ruum := []
+    aia := 0
+    bia := 0
+    dum aia < aa et bia < ba {
+        si xo(auum[aia]) < xo(buum[bia]) {
+            ruum.inseri(ra, auum[aia])
+            aia = aia + 1
+        } aluid {
+            ruum.inseri(ra, buum[bia])
+            bia = bia + 1
+        }
+    }
+    dum aia < aa {
+        ruum.inseri(ra, auum[aia])
+        aia = aia + 1
+    }
+    dum bia < ba {
+        ruum.inseri(ra, buum[bia])
+        bia = bia + 1
+    }
+    redeo ruum
+}
+
+des genorduum(luum, xo) {
+    si la <= 1 { redeo luum }
+    redeo _conuum(genorduum(luum[0.<la/2], xo), genorduum(luum[la/2.<la], xo), xo)
+}

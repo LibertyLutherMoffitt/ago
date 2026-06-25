@@ -85,8 +85,8 @@ des spoliares(ses) {
 
     vexillam = falsus
     zes := ""
-    pro ia in 1..lengtha {
-        pia := lengtha - ia
+    pro ia in 0.<lengtha {
+        pia := lengtha - 1 - ia
         si vexillam {
             zes = xes[pia] + zes
         } aluid {

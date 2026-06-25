@@ -1,6 +1,15 @@
 use crate::types::{AgoRange, AgoType, TargetType};
 
 impl AgoType {
+    /// Extract a native i128 from this value (via the Int cast). Used by
+    /// generated code for native loop bounds / unboxed integer locals.
+    pub fn as_int(&self) -> i128 {
+        match self.as_type(TargetType::Int) {
+            AgoType::Int(i) => i,
+            _ => 0,
+        }
+    }
+
     // This function will perform the actual conversion.
     // It now panics on error instead of returning a Result.
     pub fn as_type(&self, target: TargetType) -> AgoType {
@@ -63,6 +72,8 @@ impl AgoType {
             (AgoType::BoolList(val), TargetType::Int) => AgoType::Int(val.len() as i128),
             (AgoType::StringList(val), TargetType::Int) => AgoType::Int(val.len() as i128),
             (AgoType::ListAny(val), TargetType::Int) => AgoType::Int(val.len() as i128),
+            // Struct to Int: number of entries (so `mapu.a()` is the map size).
+            (AgoType::Struct(val), TargetType::Int) => AgoType::Int(val.borrow().len() as i128),
 
             (AgoType::IntList(val), TargetType::String) => {
                 let items: Vec<String> = val.iter().map(|i| i.to_string()).collect();
@@ -97,20 +108,13 @@ impl AgoType {
             (AgoType::BoolList(val), TargetType::Bool) => AgoType::Bool(!val.is_empty()),
             (AgoType::StringList(val), TargetType::Bool) => AgoType::Bool(!val.is_empty()),
             (AgoType::ListAny(val), TargetType::Bool) => AgoType::Bool(!val.is_empty()),
-            (AgoType::Struct(val), TargetType::Bool) => AgoType::Bool(!val.is_empty()),
-            (AgoType::Range(val), TargetType::Bool) => {
-                let is_empty = if val.inclusive {
-                    val.start > val.end
-                } else {
-                    val.start >= val.end
-                };
-                AgoType::Bool(!is_empty)
-            }
+            (AgoType::Struct(val), TargetType::Bool) => AgoType::Bool(!val.borrow().is_empty()),
+            (AgoType::Range(val), TargetType::Bool) => AgoType::Bool(val.count() > 0),
 
             // --- Struct to String ---
             (AgoType::Struct(val), TargetType::String) => {
                 let mut parts = Vec::new();
-                for (key, value) in val.iter() {
+                for (key, value) in val.borrow().iter() {
                     if let AgoType::String(s) = value.as_type(TargetType::String) {
                         parts.push(format!("{}: {}", key, s));
                     } else {
@@ -123,23 +127,26 @@ impl AgoType {
             // --- Range to String ---
             (AgoType::Range(val), TargetType::String) => {
                 let operator = if val.inclusive { ".." } else { ".<" };
-                AgoType::String(format!("{}{}{}", val.start, operator, val.end))
+                if val.step != 1 {
+                    AgoType::String(format!(
+                        "{}{}{}..{}",
+                        val.start, operator, val.end, val.step
+                    ))
+                } else {
+                    AgoType::String(format!("{}{}{}", val.start, operator, val.end))
+                }
             }
 
-            // --- Range to IntList ---
+            // --- Range to IntList (honors step and descending direction) ---
             (AgoType::Range(val), TargetType::IntList) => {
-                let mut vec = Vec::new();
-                if val.start > val.end {
-                    return AgoType::IntList(vec);
-                }
-                let mut i = val.start;
-                let end = val.end;
-                while i < end {
-                    vec.push(i);
-                    i += 1;
-                }
-                if val.inclusive && i == end {
-                    vec.push(i);
+                let count = val.count();
+                let inc = val.increment();
+                let start = val.start;
+                let mut vec = Vec::with_capacity(count.max(0) as usize);
+                let mut k = 0;
+                while k < count {
+                    vec.push(start + inc * k);
+                    k += 1;
                 }
                 AgoType::IntList(vec)
             }
@@ -148,41 +155,61 @@ impl AgoType {
             (AgoType::IntList(val), TargetType::Range) => {
                 let len = val.len() as i128;
                 AgoType::Range(AgoRange {
+                    // Exclusive 0..len: the list's valid indices. Using an
+                    // exclusive upper bound keeps an empty list's range empty
+                    // (0..0) rather than the descending 0..=-1.
                     start: 0,
-                    end: len - 1,
-                    inclusive: true,
+                    end: len,
+                    inclusive: false,
+                    step: 1,
                 })
             }
             (AgoType::FloatList(val), TargetType::Range) => {
                 let len = val.len() as i128;
                 AgoType::Range(AgoRange {
+                    // Exclusive 0..len: the list's valid indices. Using an
+                    // exclusive upper bound keeps an empty list's range empty
+                    // (0..0) rather than the descending 0..=-1.
                     start: 0,
-                    end: len - 1,
-                    inclusive: true,
+                    end: len,
+                    inclusive: false,
+                    step: 1,
                 })
             }
             (AgoType::BoolList(val), TargetType::Range) => {
                 let len = val.len() as i128;
                 AgoType::Range(AgoRange {
+                    // Exclusive 0..len: the list's valid indices. Using an
+                    // exclusive upper bound keeps an empty list's range empty
+                    // (0..0) rather than the descending 0..=-1.
                     start: 0,
-                    end: len - 1,
-                    inclusive: true,
+                    end: len,
+                    inclusive: false,
+                    step: 1,
                 })
             }
             (AgoType::StringList(val), TargetType::Range) => {
                 let len = val.len() as i128;
                 AgoType::Range(AgoRange {
+                    // Exclusive 0..len: the list's valid indices. Using an
+                    // exclusive upper bound keeps an empty list's range empty
+                    // (0..0) rather than the descending 0..=-1.
                     start: 0,
-                    end: len - 1,
-                    inclusive: true,
+                    end: len,
+                    inclusive: false,
+                    step: 1,
                 })
             }
             (AgoType::ListAny(val), TargetType::Range) => {
                 let len = val.len() as i128;
                 AgoType::Range(AgoRange {
+                    // Exclusive 0..len: the list's valid indices. Using an
+                    // exclusive upper bound keeps an empty list's range empty
+                    // (0..0) rather than the descending 0..=-1.
                     start: 0,
-                    end: len - 1,
-                    inclusive: true,
+                    end: len,
+                    inclusive: false,
+                    step: 1,
                 })
             }
 
@@ -445,7 +472,7 @@ impl AgoType {
                         .into_iter()
                         .map(|(k, v)| (k, AgoType::IntList(v)))
                         .collect();
-                    return AgoType::Struct(struct_map);
+                    return AgoType::new_struct(struct_map);
                 }
                 
                 // Check if all elements are 2-element lists
@@ -474,7 +501,7 @@ impl AgoType {
                             struct_map.insert(key, inner[1].clone());
                         }
                     }
-                    return AgoType::Struct(struct_map);
+                    return AgoType::new_struct(struct_map);
                 }
                 
                 // Case 3: Default - keys are index strings
@@ -483,12 +510,12 @@ impl AgoType {
                     .enumerate()
                     .map(|(idx, item)| (idx.to_string(), item.clone()))
                     .collect();
-                AgoType::Struct(struct_map)
+                AgoType::new_struct(struct_map)
             }
 
             // --- Struct to StringList (keys) ---
             (AgoType::Struct(val), TargetType::StringList) => {
-                let keys: Vec<String> = val.keys().cloned().collect();
+                let keys: Vec<String> = val.borrow().keys().cloned().collect();
                 AgoType::StringList(keys)
             }
 

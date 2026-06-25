@@ -1,0 +1,47 @@
+des dista(aaem, baem) {
+    redeo (powa(aaem[0] - baem[0], 2) + powa(aaem[1] - baem[1], 2) + powa(aaem[2] - baem[2], 2)).abba()
+}
+
+boxuum := apertu("b").contentes.finderum("\n").mutatuum(des{id.findaem(",")})
+
+adjuum := []
+
+pro aa in boxe {
+    pro ba in 0.<aa {
+        adjuum.inseri(adja, [ba+0, aa+0, dista(boxuum[aa], boxuum[ba])])
+    }
+}
+
+adjuum = adjuum.genorduum(des{idaem[2]})
+
+uu := {}
+
+pro boxa in boxe { uu[boxes] = -1 }
+
+des patra(uu, aa) {
+    redeo uu[aes] < 0 ? aa : patra(uu, uu[aes])
+}
+
+des countnoa(uu) {
+    redeo uerum.liquum(des{uu[id] < 0}).a()
+}
+
+# connect ba to aa
+des conu(uu, aa, ba) {
+    ra := uu.patra(aa)
+    ca := uu.patra(ba)
+    si ra == ca { redeo uu }
+    cva := uu[ces]
+
+    uu[ces] = aa
+    uu[res] = uu[res] + cva
+    redeo uu
+}
+
+pro ia in 0.<1000000 {
+    uu = uu.conu(adjuum[ia][0], adjuum[ia][1])
+    si countnoa(uu) == 1 {
+        (boxuum[adjuum[ia][0]][0] * boxuum[adjuum[ia][1]][0]).es().dici()
+        frio
+    }
+}
