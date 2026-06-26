@@ -868,6 +868,15 @@ class AgoParser(Parser):
                 self.name_last_node('idx')
             with self._option():
                 with self._group():
+                    self._LPAREN_()
+                    with self._optional():
+                        self._expression_list_()
+                        self.name_last_node('args')
+                    self._RPAREN_()
+                    self._define(['args'], [])
+                self.name_last_node('apply')
+            with self._option():
+                with self._group():
                     self._PERIOD_()
                     self._nodotcall_stmt_()
                     self.name_last_node('call')
@@ -889,7 +898,7 @@ class AgoParser(Parser):
                 self.name_last_node('strfield')
             self._error(
                 'expecting one of: '
-                "'.' '[' <LBRACKET> <PERIOD> <indexing>"
+                "'.' '(' '[' <LBRACKET> <LPAREN> <PERIOD> <indexing>"
             )
 
     @tatsumasu()

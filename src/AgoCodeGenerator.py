@@ -2665,6 +2665,24 @@ class AgoCodeGenerator:
                     else:
                         result = f"get({result}, &{idx_expr})"
             
+            # Handle a direct call applied to the previous result, e.g.
+            # `luum[0](5)` or `makero()(5)`: invoke the value as a function.
+            elif op_d.get("apply") is not None:
+                args = []
+                args_node = op_d.get("args")
+                if args_node:
+                    args = self._parse_args(args_node)
+                loop_iters = getattr(self, "_loop_iterators", set())
+                cloned_args = []
+                for arg in args:
+                    if arg in loop_iters:
+                        cloned_args.append(f"{arg}.clone()")
+                    else:
+                        cloned_args.append(self._ensure_owned(arg))
+                args_str = ", ".join(cloned_args)
+                recv = result[1:] if result.startswith("&") else result
+                result = f"{recv}.call_lambda(&[{args_str}])"
+
             # Handle method call: meth:(PERIOD call:nodotcall_stmt)
             # Grammar creates both 'call' and 'meth' keys at the same level
             elif op_d.get("meth") is not None or op_d.get("call") is not None:

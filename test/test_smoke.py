@@ -154,6 +154,16 @@ class TestCodegenStructure:
         assert "AgoType::Lambda(Rc::new(" in rust
         assert "addo.call_lambda(" in rust
 
+    def test_call_postfix_on_index_and_call(self):
+        # A call can directly follow an index or another call: `luum[0](5)` and
+        # `makero()(5)` both invoke the resulting value via call_lambda.
+        rust = _gen(
+            "fo := des { id * 2 }\n"
+            "luum := [fo]\n"
+            "luum[0](5).es().dici()"
+        )
+        assert "get(&luum, &AgoType::Int(0)).call_lambda(&[AgoType::Int(5)])" in rust
+
     def test_is_lambda_expr_helper(self):
         # _is_lambda_expr now recognizes only inline lambda *literals*
         # (AgoType::Lambda(...)); lambda *variables* are ordinary AgoType values
