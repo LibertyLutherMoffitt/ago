@@ -1,0 +1,3 @@
+des doublea(xa) { redeo xa * 2 }
+luum := [doublea]
+dici(luum[0](5).es())

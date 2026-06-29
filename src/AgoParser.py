@@ -489,18 +489,36 @@ class AgoParser(Parser):
     @tatsumasu()
     def _for_stmt_(self):
         self._FOR_()
-        self._identifier_()
-        self.name_last_node('iterator')
-        with self._optional():
-            self._COMMA_()
-            self._identifier_()
-            self.name_last_node('iterator2')
+        with self._group():
+            with self._choice():
+                with self._option():
+                    self._LPAREN_()
+                    self._identifier_()
+                    self.name_last_node('dfirst')
+
+                    def block_dest():
+                        self._COMMA_()
+                        self._identifier_()
+                        self.name_last_node('dname')
+                        self._define(['dname'], [])
+                    self._positive_closure(block_dest)
+                    self.name_last_node('drest')
+                    self._RPAREN_()
+                with self._option():
+                    self._identifier_()
+                    self.name_last_node('iterator')
+                    with self._optional():
+                        self._COMMA_()
+                        self._identifier_()
+                        self.name_last_node('iterator2')
         self._IN_()
         self._expression_()
         self.name_last_node('iterable')
         self._block_()
         self.name_last_node('body')
-        self._define(['body', 'iterable', 'iterator', 'iterator2'], [])
+        self._define(
+            ['body', 'iterable', 'iterator', 'iterator2', 'dfirst', 'drest'], []
+        )
 
     @tatsumasu()
     def _call_stmt_(self):
@@ -1214,7 +1232,10 @@ class AgoParser(Parser):
 
     @tatsumasu()
     def _STR_LIT_(self):
-        self._pattern('"(?:\\\\[tnrf"\\\\]|\\\\[0-7]{3}|[^"\\\\\\r\\n])*"')
+        # A string literal. `${ ... }` interpolation segments are matched as a
+        # unit so quotes may appear inside them (e.g. `"a ${"b"} c"`), while
+        # escapes stay strict (an invalid escape like \x is still rejected).
+        self._pattern(r'"(?:\\[tnrf"\\]|\\[0-7]{3}|\$\{[^{}]*\}|[^"\\\r\n])*"')
 
 
 def main(filename, **kwargs):

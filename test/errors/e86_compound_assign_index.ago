@@ -1,0 +1,3 @@
+luum := [1, 2, 3]
+luum[0] += 10
+dici(luum.es())

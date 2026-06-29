@@ -191,8 +191,17 @@ des maxium(luum) {
 
 # finderum - Split a string on a single character separator
 # Takes a string and separator, returns list of substrings
-# Name ends in -erum (returns StringList)
-des finderum(les, ses) {
+# Name ends in -erum (returns StringList). When called on a list (e.g. the
+# result of an earlier finderum), it maps over the elements, splitting each and
+# returning a list of lists.
+des finderum(lium, ses) {
+    si lium.species() == "StringList" vel lium.species() == "ListAny" {
+        ruum := []
+        pro elium in lium {
+            ruum = ruum.appenduum(elium.finderum(ses))
+        }
+        redeo ruum
+    }
     rerum := []
     ba := 0
     ea := 0

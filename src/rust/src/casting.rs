@@ -518,6 +518,23 @@ impl AgoType {
                 let keys: Vec<String> = val.borrow().keys().cloned().collect();
                 AgoType::StringList(keys)
             }
+            // A map becomes a list of [key, value] pairs, sorted by key, so it
+            // round-trips with the list -> map pairs conversion.
+            (AgoType::Struct(val), TargetType::ListAny) => {
+                let map = val.borrow();
+                let mut keys: Vec<&String> = map.keys().collect();
+                keys.sort();
+                let pairs: Vec<AgoType> = keys
+                    .into_iter()
+                    .map(|k| {
+                        AgoType::ListAny(vec![
+                            AgoType::String(k.clone()),
+                            map.get(k).unwrap().clone(),
+                        ])
+                    })
+                    .collect();
+                AgoType::ListAny(pairs)
+            }
 
             // Default error for unsupported conversions
             _ => panic!("Unsupported cast from {:?} to {:?}", self, target),

@@ -1,0 +1,3 @@
+des inca(xa) { redeo xa + 1 }
+des applya(fo, va) { redeo fo(va) }
+dici(applya(inca, 9).es())

@@ -134,3 +134,44 @@ def test_convergent_from_different_spacing():
     v1 = "xa:=1+2*3\nya := xa>0?xa:-xa\n"
     v2 = "xa  :=  1 +2* 3\nya:=xa > 0 ? xa : -xa\n"
     assert format_source(v1) == format_source(v2)
+
+
+# ---- `ago fmt` CLI: in-place + recursive directory ----
+
+import main as ago_main  # noqa: E402
+
+
+def test_fmt_formats_file_in_place(tmp_path):
+    f = tmp_path / "a.ago"
+    f.write_text("xa:=1+2\n")
+    rc = ago_main.run_fmt([str(f)])
+    assert rc == 0
+    assert f.read_text() == "xa := 1 + 2\n"
+
+
+def test_fmt_recurses_into_directory(tmp_path):
+    (tmp_path / "sub").mkdir()
+    a = tmp_path / "a.ago"
+    b = tmp_path / "sub" / "b.ago"
+    a.write_text("xa:=1\n")
+    b.write_text("ya:=2*3\n")
+    other = tmp_path / "note.txt"
+    other.write_text("xa:=1\n")  # not .ago, must be left alone
+    rc = ago_main.run_fmt([str(tmp_path)])
+    assert rc == 0
+    assert a.read_text() == "xa := 1\n"
+    assert b.read_text() == "ya := 2 * 3\n"
+    assert other.read_text() == "xa:=1\n"
+
+
+def test_fmt_check_reports_without_writing(tmp_path):
+    f = tmp_path / "a.ago"
+    f.write_text("xa:=1\n")
+    rc = ago_main.run_fmt([str(f), "--check"])
+    assert rc == 1
+    assert f.read_text() == "xa:=1\n"  # unchanged
+
+
+def test_fmt_missing_path_errors(tmp_path):
+    rc = ago_main.run_fmt([str(tmp_path / "nope.ago")])
+    assert rc == 1

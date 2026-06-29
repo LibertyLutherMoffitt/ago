@@ -92,6 +92,42 @@ MUTATING_STDLIB_FUNCTIONS = {
 }
 
 
+def split_interpolation(raw: str) -> list[tuple[str, str]]:
+    """Split a (quoted) string literal into ('lit', text) / ('expr', text) parts,
+    recognizing `${ ... }` interpolations with balanced braces. The literal text
+    keeps its source escaping. Shared by codegen and the semantic checker."""
+    if len(raw) >= 2 and raw[0] == '"' and raw[-1] == '"':
+        inner = raw[1:-1]
+    else:
+        inner = raw
+    parts: list[tuple[str, str]] = []
+    lit = ""
+    i, n = 0, len(inner)
+    while i < n:
+        if inner[i] == "$" and i + 1 < n and inner[i + 1] == "{":
+            if lit:
+                parts.append(("lit", lit))
+                lit = ""
+            depth = 1
+            j = i + 2
+            while j < n and depth > 0:
+                if inner[j] == "{":
+                    depth += 1
+                elif inner[j] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        break
+                j += 1
+            parts.append(("expr", inner[i + 2:j].strip()))
+            i = j + 1
+        else:
+            lit += inner[i]
+            i += 1
+    if lit or not parts:
+        parts.append(("lit", lit))
+    return parts
+
+
 def get_suffix_and_stem(name: str) -> tuple[Optional[str], Optional[str]]:
     """Get the type suffix and stem from a variable name."""
     for ending in ENDINGS_BY_LENGTH:
@@ -134,13 +170,24 @@ class AgoCodeGenerator:
         self.functions: list[str] = []
         # Track user-defined function names for stem-based resolution
         self.user_functions: set[str] = set()
+        # Arity (parameter count) of each user function, so a bare function name
+        # used as a value can be wrapped into a first-class AgoType::Lambda.
+        self.user_function_arity: dict[str, int] = {}
         # Track generated lambdas
         self.lambdas: list[str] = []
         self.lambda_counter = 0
         # Counter for temp variables
         self.temp_counter = 0
-        # Native (unboxed) integer locals in the current scope (typed-unboxing).
+        # Native (unboxed) scalar locals in the current scope (typed-unboxing):
+        # int -> i128, float -> f64, bool -> bool. `_native_types` maps each such
+        # name to its type and is the source of truth for the unified native
+        # expression emitter.
         self._native_ints: set[str] = set()
+        self._native_floats: set[str] = set()
+        self._native_bools: set[str] = set()
+        self._native_types: dict[str, str] = {}
+        # Active tail-call context {name, params} while generating a TCO function.
+        self._tco = None
 
     def _optimize_cast_chain(self, result: str, new_target: str) -> str:
         """
@@ -242,6 +289,63 @@ class AgoCodeGenerator:
         # These are simple identifiers without special syntax
         return f"{expr}.clone()"
 
+    def _string_literal(self, raw: str) -> str:
+        """Render a string literal, expanding `${expr}` interpolations.
+
+        `raw` is the quoted source literal. Each `${...}` is parsed as an Ago
+        expression, cast to a string, and concatenated with the surrounding
+        literal text, e.g. `"n=${na}"` -> add("n=", na.as_type(String))."""
+        parts = split_interpolation(raw)
+        if len(parts) == 1 and parts[0][0] == "lit":
+            return f'AgoType::String("{parts[0][1]}".to_string())'
+
+        pieces: list[str] = []  # Rust expressions, each an AgoType
+        for kind, text in parts:
+            if kind == "lit":
+                if text:
+                    pieces.append(f'AgoType::String("{text}".to_string())')
+            else:  # expr
+                expr_ast = self._parse_subexpr(text)
+                expr_code = self._generate_expr(expr_ast)
+                pieces.append(f"({expr_code}).as_type(TargetType::String)")
+
+        if not pieces:
+            return 'AgoType::String("".to_string())'
+        # Fold left with `add` (string concatenation), borrowing each piece.
+        acc = pieces[0]
+        for piece in pieces[1:]:
+            acc = f"add(&{acc}, &{piece})"
+        return acc
+
+    def _parse_subexpr(self, text: str):
+        """Parse a fragment of Ago source as a single expression (for `${...}`)."""
+        from src.AgoParser import AgoParser
+
+        return AgoParser().parse(text, start="expression")
+
+    def _float_literal(self, value: Any, sign: str = "") -> str:
+        """Render a float literal as valid Rust. Ago allows a leading-dot float
+        like `.5`; Rust requires an integer part, so emit `0.5` / `-0.5`."""
+        text = str(value)
+        if text.startswith("."):
+            text = "0" + text
+        return f"AgoType::Float({sign}{text})"
+
+    def _function_value(self, name: str) -> str:
+        """Wrap a named user function as a first-class AgoType::Lambda value.
+
+        The function is compiled to a Rust `fn name(a: &AgoType, ...) -> AgoType`,
+        so the adapter unpacks the call slice and forwards the right number of
+        arguments by reference, exactly like a lambda body would."""
+        arity = self.user_function_arity.get(name, 0)
+        forwarded = ", ".join(
+            f"&args.get({i}).cloned().unwrap_or(AgoType::Null)" for i in range(arity)
+        )
+        return (
+            f"AgoType::Lambda(Rc::new(move |args: &[AgoType]| -> AgoType "
+            f"{{ {name}({forwarded}) }}) as AgoLambda)"
+        )
+
     def _make_ref(self, expr: str) -> str:
         """
         Convert an expression to a reference for passing to a function.
@@ -294,6 +398,10 @@ class AgoCodeGenerator:
         # context. The unboxed bare name is only emitted by _native_int_expr.
         if name in self._native_ints:
             return f"AgoType::Int({name})"
+        if name in self._native_floats:
+            return f"AgoType::Float({name})"
+        if name in self._native_bools:
+            return f"AgoType::Bool({name})"
 
         clone_suffix = ".clone()" if need_owned else ""
 
@@ -304,6 +412,12 @@ class AgoCodeGenerator:
         # Special case: bare `id` without suffix (works like idium - Any type)
         if name == "id" and "id" in self.declared_vars:
             return f"id{clone_suffix}"
+
+        # A bare reference to a user function (not shadowed by a variable) is a
+        # first-class function value: a named `des fooi(...)` works wherever a
+        # lambda does. Wrap it in an AgoType::Lambda adapter of the right arity.
+        if name in self.user_function_arity and name not in self.declared_vars:
+            return self._function_value(name)
 
         # Check for variable casting via suffix
         suffix, stem = get_suffix_and_stem(name)
@@ -356,14 +470,17 @@ class AgoCodeGenerator:
         self.emit_raw("fn main() {")
         self.indent_level += 1
 
-        # Identify native (unboxed) int locals in the top-level scope.
-        old_native = self._native_ints
-        self._native_ints = self._analyze_native_ints(ast)
+        # Map runtime panics back to Ago source lines (suppresses Rust backtrace).
+        self.emit("ago_install_panic_hook();")
+
+        # Identify native (unboxed) scalar locals in the top-level scope.
+        saved = self._save_native()
+        self._analyze_native_scalars(ast)
 
         # Process the AST
         self._process_principio(ast)
 
-        self._native_ints = old_native
+        self._restore_native(saved)
 
         self.indent_level -= 1
         self.emit_raw("}")
@@ -644,7 +761,8 @@ class AgoCodeGenerator:
         self.emit_raw("    unary_minus, unary_plus,")
         self.emit_raw("    get, set, inseri, removium, validate_list_type, into_iter, into_pairs,")
         self.emit_raw("    claverum, valuum, misceu, congruam, congruum,")
-        self.emit_raw("    dici, apertu, species, exei, aequalam, scribi, audies, ordina, literes, exemplium")
+        self.emit_raw("    dici, apertu, species, exei, aequalam, scribi, audies, ordina, literes, exemplium,")
+        self.emit_raw("    ago_set_line, ago_install_panic_hook, ago_div, ago_mod")
         self.emit_raw("};")
         self.emit_raw("use std::collections::HashMap;")
         self.emit_raw("use std::rc::Rc;")
@@ -665,7 +783,8 @@ class AgoCodeGenerator:
         if "name" in d and "body" in d and "params" in d:
             func_name = str(d["name"])
             self.user_functions.add(func_name)
-        
+            self.user_function_arity[func_name] = len(self._parse_params(d.get("params")))
+
         # Recurse into nested structures
         for key, val in d.items():
             if val is not None and key != "parseinfo":
@@ -715,6 +834,9 @@ class AgoCodeGenerator:
             return
         # Check for call statement
         if "call" in d:
+            line = self._stmt_line(item)
+            if line is not None:
+                self.emit(f"ago_set_line({line});")
             call_d = to_dict(d["call"]) if not isinstance(d["call"], str) else {}
             # New grammar: call_stmt = expr:item
             if call_d.get("expr") is not None:
@@ -723,7 +845,7 @@ class AgoCodeGenerator:
                 expr = self._generate_expr(d["call"])
             self.emit(f"{expr};")
             return
-        # Process as statement
+        # Process as statement (emits its own line tracking)
         self._generate_statement(item)
 
     def _find_mutated_vars(self, body: Any, params: set[str]) -> set[str]:
@@ -919,10 +1041,18 @@ class AgoCodeGenerator:
         params = self._parse_params(d.get("params"))
         body = d.get("body")
         
+        # Tail-call optimization: a function that returns a direct call to
+        # itself is compiled as a loop, so deep tail recursion runs in constant
+        # stack. Its parameters become owned mutable locals (reassigned each
+        # iteration), so treat them all as "mutated".
+        tco = self._has_tail_self_call(body, func_name)
+
         # Every parameter is passed by reference as `&AgoType`. Lambdas are now
         # ordinary first-class AgoType values, so they need no special-casing:
         # a parameter that holds a function is just an &AgoType like any other.
         mutated_params = self._find_mutated_vars(body, set(params))
+        if tco:
+            mutated_params = set(params)
 
         param_parts = [f"{name}: &AgoType" for name in params]
         param_str = ", ".join(param_parts)
@@ -956,17 +1086,28 @@ class AgoCodeGenerator:
         for p in params:
             self.declared_vars.add(p)
 
-        # Identify native (unboxed) int locals within this function body.
+        # Identify native (unboxed) scalar locals within this function body.
         # Parameters are never native (they arrive as &AgoType / cloned AgoType).
-        old_native = self._native_ints
-        self._native_ints = self._analyze_native_ints(body, exclude=set(params))
+        old_native = self._save_native()
+        self._analyze_native_scalars(body, exclude=set(params))
+
+        old_tco = getattr(self, "_tco", None)
+        self._tco = {"name": func_name, "params": list(params)} if tco else None
+        if tco:
+            self.emit("'tco: loop {")
+            self.indent_level += 1
 
         # Process body
         if body:
             self._process_block(body)
 
         # Default trailing return if control falls off the end.
-        self.emit("AgoType::Null")
+        if tco:
+            self.emit("return AgoType::Null;")
+            self.indent_level -= 1
+            self.emit("}")
+        else:
+            self.emit("AgoType::Null")
 
         self.indent_level -= 1
         self.emit_raw("}")
@@ -975,7 +1116,8 @@ class AgoCodeGenerator:
         self.declared_vars = old_declared
         self._lambda_params = old_lambda_params
         self._ref_params = old_ref_params
-        self._native_ints = old_native
+        self._restore_native(old_native)
+        self._tco = old_tco
 
     def _parse_params(self, params_node: Any) -> list[str]:
         """Parse parameter list into variable names."""
@@ -1052,6 +1194,21 @@ class AgoCodeGenerator:
                 elif item and item != "\n":
                     self._generate_statement(item)
 
+    def _stmt_line(self, stmt: Any) -> Optional[int]:
+        """1-based Ago source line of a statement from its parseinfo, or None.
+
+        Only user code carries parseinfo (the prelude is parsed without it), so
+        this returns None for prelude statements — leaving the line tracker on
+        the user's last line, which is the actionable one."""
+        pi = getattr(stmt, "parseinfo", None)
+        if pi is None and isinstance(stmt, dict):
+            pi = stmt.get("parseinfo")
+        if pi is not None:
+            ln = getattr(pi, "line", None)
+            if isinstance(ln, int):
+                return ln + 1  # parseinfo.line is 0-based
+        return None
+
     def _generate_statement(self, stmt: Any) -> None:
         """Generate code for a statement."""
         if stmt is None:
@@ -1070,6 +1227,13 @@ class AgoCodeGenerator:
             for sub in stmt:
                 self._generate_statement(sub)
             return
+
+        # Record the Ago source line so a runtime panic can point at it. Only
+        # user statements carry parseinfo (the cached prelude is parsed without
+        # it), so a panic inside a prelude function keeps the caller's line.
+        line = self._stmt_line(stmt)
+        if line is not None:
+            self.emit(f"ago_set_line({line});")
 
         d = to_dict(stmt)
 
@@ -1193,6 +1357,19 @@ class AgoCodeGenerator:
                 return
             # Analysis said native but RHS isn't: stay consistent, fall back to boxed.
             self._native_ints.discard(var_name)
+            self._native_types.pop(var_name, None)
+        # Native (unboxed) float / bool local.
+        if var_name in self._native_floats or var_name in self._native_bools:
+            res = self._native_expr(value)
+            want = "float" if var_name in self._native_floats else "bool"
+            rust_ty = "f64" if want == "float" else "bool"
+            if res is not None and res[1] == want:
+                self.emit(f"let mut {var_name}: {rust_ty} = {res[0]};")
+                self.declared_vars.add(var_name)
+                return
+            self._native_floats.discard(var_name)
+            self._native_bools.discard(var_name)
+            self._native_types.pop(var_name, None)
 
         # First, generate the RHS expression (before removing old variables with same stem)
         # This allows `xarum := xarum` to work - RHS refers to existing `xas` variable
@@ -1259,6 +1436,16 @@ class AgoCodeGenerator:
                     self.emit(f"{var_name} = ({var_name} {aug} {native});")
                 else:
                     self.emit(f"{var_name} = {native};")
+                return
+        # Native (unboxed) float / bool local reassignment.
+        if (var_name in self._native_floats or var_name in self._native_bools) and not has_index:
+            res = self._native_expr(value)
+            want = "float" if var_name in self._native_floats else "bool"
+            if res is not None and res[1] == want:
+                if aug:
+                    self.emit(f"{var_name} = ({var_name} {aug} {res[0]});")
+                else:
+                    self.emit(f"{var_name} = {res[0]};")
                 return
 
         expr = self._generate_expr(value)
@@ -1344,20 +1531,100 @@ class AgoCodeGenerator:
 
         return "AgoType::Int(0)"
 
+    def _extract_simple_call(self, value: Any):
+        """If `value` is exactly a function call (no surrounding operators, index
+        or method ops), return (func_name, args_node); else (None, None). Used to
+        recognize a tail self-call for TCO."""
+        node = self._unwrap_expr(value)
+        if node is None:
+            return (None, None)
+        d = to_dict(node)
+        if not isinstance(d, dict):
+            return (None, None)
+        base = d.get("base")
+        if base is not None:
+            ops = d.get("ops")
+            ops_list = [
+                o for o in (ops if isinstance(ops, (list, tuple)) else ([ops] if ops else []))
+                if o not in (None, ".")
+            ]
+            if ops_list:
+                return (None, None)  # has method/index ops -> not a plain call
+            bd = to_dict(base)
+            cd = to_dict(bd.get("call")) if bd.get("call") is not None else bd
+            if cd.get("func") is not None:
+                return (str(cd["func"]), cd.get("args"))
+            return (None, None)
+        if d.get("call") is not None:
+            cd = to_dict(d["call"])
+            if cd.get("func") is not None:
+                return (str(cd["func"]), cd.get("args"))
+        if d.get("func") is not None and d.get("op") is None:
+            return (str(d["func"]), d.get("args"))
+        return (None, None)
+
+    def _has_tail_self_call(self, body: Any, func_name: str) -> bool:
+        """True if `body` returns a direct call to `func_name` anywhere (a tail
+        self-call eligible for the loop transform)."""
+        found = [False]
+
+        def walk(n):
+            if found[0] or n is None or isinstance(n, str):
+                return
+            if isinstance(n, (list, tuple)):
+                for x in n:
+                    walk(x)
+                return
+            d = to_dict(n)
+            if not isinstance(d, dict):
+                return
+            if "name" in d and "body" in d and "params" in d:
+                return  # nested function: its own scope
+            rs = d.get("return_stmt")
+            if rs and isinstance(rs, (list, tuple)) and len(rs) >= 2:
+                fn, _a = self._extract_simple_call(rs[1])
+                if fn == func_name:
+                    found[0] = True
+                    return
+            for k, v in d.items():
+                if k != "parseinfo":
+                    walk(v)
+
+        walk(body)
+        return found[0]
+
     def _generate_return(self, stmt: Any) -> None:
         """Generate return statement."""
         d = to_dict(stmt)
         return_stmt = d.get("return_stmt")
+        value = None
         if return_stmt and isinstance(return_stmt, list) and len(return_stmt) >= 2:
             value = return_stmt[1]
-            expr = self._generate_expr(value)
-            # Return needs an owned value
-            expr = self._ensure_owned(expr)
-            self.emit(f"return {expr};")
         elif d.get("value"):
-            expr = self._generate_expr(d["value"])
-            # Return needs an owned value
-            expr = self._ensure_owned(expr)
+            value = d["value"]
+
+        # Tail-call optimization: `redeo self(args)` becomes "reassign the
+        # parameters and loop" instead of a recursive call, so deep tail
+        # recursion runs in constant stack.
+        tco = getattr(self, "_tco", None)
+        if tco is not None and value is not None:
+            fn, args_node = self._extract_simple_call(value)
+            if fn == tco["name"]:
+                params = tco["params"]
+                args = self._parse_args(args_node) if args_node else []
+                if len(args) == len(params):
+                    temps = []
+                    for a in args:
+                        t = f"__tco{self._get_temp_counter()}"
+                        self.emit(f"let {t} = {self._ensure_owned(a)};")
+                        temps.append(t)
+                    for p, t in zip(params, temps):
+                        self.emit(f"{p} = {t};")
+                    self.emit("continue 'tco;")
+                    return
+
+        if value is not None:
+            expr = self._ensure_owned(self._generate_expr(value))
             self.emit(f"return {expr};")
         else:
             self.emit("return AgoType::Null;")
@@ -1515,6 +1782,142 @@ class AgoCodeGenerator:
     # rustc type error, never silent miscompilation.
 
     _INT_SUFFIX = "a"
+    _FLOAT_SUFFIX = "ae"
+    _BOOL_SUFFIX = "am"
+    _NUM_TYPES = ("int", "float")
+
+    def _native_expr(self, node: Any, types: dict = None):
+        """Return (rust_code, type) for `node` if it is a pure scalar expression
+        over native locals (int->i128, float->f64, bool->bool) and literals;
+        otherwise None. `types` maps native names to their type (defaults to
+        self._native_types). int operands are promoted to f64 when mixed with
+        floats; integer / and % go through ago_div/ago_mod."""
+        if types is None:
+            types = self._native_types
+        node = self._unwrap_expr(node)
+        if node is None:
+            return None
+        if isinstance(node, str):
+            t = types.get(node)
+            return (node, t) if t else None
+        d = to_dict(node)
+        if not isinstance(d, dict):
+            return None
+        if d.get("int") is not None:
+            return (f"{d['int']}i128", "int")
+        if d.get("float") is not None:
+            txt = str(d["float"])
+            if txt.startswith("."):
+                txt = "0" + txt
+            return (f"{txt}f64", "float")
+        if d.get("roman") is not None:
+            return (f"{self._roman_to_int(d['roman'])}i128", "int")
+        if d.get("TRUE") is not None:
+            return ("true", "bool")
+        if d.get("FALSE") is not None:
+            return ("false", "bool")
+        if d.get("id") is not None:
+            nm = str(d["id"])
+            t = types.get(nm)
+            return (nm, t) if t else None
+
+        # Postfix scalar cast on a native operand, e.g. `ia.ae()` in a float
+        # loop: convert natively instead of boxing.
+        base = d.get("base")
+        ops = d.get("ops")
+        if base is not None and ops is not None:
+            ops_list = ops if isinstance(ops, (list, tuple)) else [ops]
+            ops_list = [o for o in ops_list if o not in (None, ".")]
+            if len(ops_list) == 1:
+                op0 = to_dict(ops_list[0])
+                call_d = to_dict(op0.get("call")) if op0.get("call") is not None else {}
+                func = call_d.get("func")
+                if func is not None and call_d.get("args") is None:
+                    suf = str(func)
+                    if suf in (self._INT_SUFFIX, self._FLOAT_SUFFIX, self._BOOL_SUFFIX):
+                        inner = self._native_expr(base, types)
+                        if inner is not None:
+                            return self._native_cast(inner, suf)
+            return None
+
+        op = d.get("op")
+        if isinstance(op, (list, tuple)):
+            op = op[0] if op else None
+        op = str(op) if op is not None else None
+        left, right = d.get("left"), d.get("right")
+
+        if op and left is not None and right is not None:
+            le = self._native_expr(left, types)
+            re_ = self._native_expr(right, types)
+            if le is None or re_ is None:
+                return None
+            lc, lt = le
+            rc, rt = re_
+            if op in ("+", "-", "*", "/", "%"):
+                if lt not in self._NUM_TYPES or rt not in self._NUM_TYPES:
+                    return None
+                if lt == "float" or rt == "float":
+                    lf = lc if lt == "float" else f"({lc} as f64)"
+                    rf = rc if rt == "float" else f"({rc} as f64)"
+                    return (f"({lf} {op} {rf})", "float")
+                if op == "/":
+                    return (f"ago_div({lc}, {rc})", "int")
+                if op == "%":
+                    return (f"ago_mod({lc}, {rc})", "int")
+                return (f"({lc} {op} {rc})", "int")
+            if op in ("<", ">", "<=", ">=", "==", "!="):
+                if lt in self._NUM_TYPES and rt in self._NUM_TYPES:
+                    if lt == "float" or rt == "float":
+                        lf = lc if lt == "float" else f"({lc} as f64)"
+                        rf = rc if rt == "float" else f"({rc} as f64)"
+                        return (f"({lf} {op} {rf})", "bool")
+                    return (f"({lc} {op} {rc})", "bool")
+                if op in ("==", "!=") and lt == "bool" and rt == "bool":
+                    return (f"({lc} {op} {rc})", "bool")
+                return None
+            if op in ("et",) and lt == "bool" and rt == "bool":
+                return (f"({lc} && {rc})", "bool")
+            if op in ("vel",) and lt == "bool" and rt == "bool":
+                return (f"({lc} || {rc})", "bool")
+            return None
+
+        if op and right is not None and left is None:
+            re_ = self._native_expr(right, types)
+            if re_ is None:
+                return None
+            rc, rt = re_
+            if op == "-" and rt in self._NUM_TYPES:
+                return (f"(-{rc})", rt)
+            if op == "+" and rt in self._NUM_TYPES:
+                return (f"({rc})", rt)
+            if op == "non" and rt == "bool":
+                return (f"(!{rc})", "bool")
+        return None
+
+    def _native_cast(self, inner, suffix: str):
+        """Convert a native (code, type) value to the type named by `suffix`,
+        matching the runtime as_type semantics (truncate float->int, !=0 for
+        bool, etc.). Returns (code, new_type)."""
+        code, t = inner
+        target = {"a": "int", "ae": "float", "am": "bool"}[suffix]
+        if t == target:
+            return (code, t)
+        if target == "float":
+            if t == "int":
+                return (f"({code} as f64)", "float")
+            if t == "bool":
+                return (f"(if {code} {{ 1.0f64 }} else {{ 0.0f64 }})", "float")
+        if target == "int":
+            if t == "float":
+                return (f"({code} as i128)", "int")
+            if t == "bool":
+                return (f"({code} as i128)", "int")
+        if target == "bool":
+            if t == "int":
+                return (f"({code} != 0i128)", "bool")
+            if t == "float":
+                return (f"({code} != 0.0f64)", "bool")
+        return (code, target)
 
     def _unwrap_expr(self, node: Any) -> Any:
         """Strip value/paren wrappers and singleton lists to the inner expr."""
@@ -1599,6 +2002,12 @@ class AgoCodeGenerator:
                 l = self._native_int_expr(d.get("left"), native_set)
                 r = self._native_int_expr(d.get("right"), native_set)
                 if l is not None and r is not None:
+                    # Route / and % through runtime helpers so a literal zero
+                    # divisor is a clean runtime panic, not a rustc lint.
+                    if op == "/":
+                        return f"ago_div({l}, {r})"
+                    if op == "%":
+                        return f"ago_mod({l}, {r})"
                     return f"({l} {op} {r})"
             return None
         if op is not None and d.get("right") is not None and d.get("left") is None:
@@ -1750,6 +2159,113 @@ class AgoCodeGenerator:
                     changed = True
         return candidates
 
+    def _analyze_native_typed(
+        self, scope_nodes: Any, exclude: set, suffix: str, want_type: str, base_types: dict
+    ) -> set:
+        """Identify locals with `suffix` safe to emit as native `want_type`
+        (float or bool). `base_types` are already-decided native names of other
+        types (so a float can read a native int, a bool can compare them)."""
+        exclude = exclude or set()
+        facts = {
+            "decls": {},
+            "indexed_targets": set(),
+            "loop_range_iters": set(),
+            "loop_other_iters": set(),
+            "stems_by_suffix": {},
+            "in_lambda": set(),
+        }
+        self._collect_native_facts(scope_nodes, False, facts, set())
+        ref_params = getattr(self, "_ref_params", set())
+
+        def matches(n: str) -> bool:
+            suf, stem = get_suffix_and_stem(n)
+            return suf == suffix and stem is not None
+
+        def stem_clashes(name: str) -> bool:
+            suf, stem = get_suffix_and_stem(name)
+            return any(s != suf for s in facts["stems_by_suffix"].get(stem, set()))
+
+        candidates = {
+            n for n in facts["decls"]
+            if matches(n)
+            and n not in ref_params
+            and n not in exclude
+            and n not in facts["indexed_targets"]
+            and n not in facts["in_lambda"]
+            and n not in facts["loop_other_iters"]
+            and not stem_clashes(n)
+        }
+
+        # Fixpoint: keep only names whose every RHS is a native expr of want_type.
+        changed = True
+        while changed:
+            changed = False
+            tmap = dict(base_types)
+            tmap.update({n: want_type for n in candidates})
+            for name in list(candidates):
+                ok = True
+                for r in facts["decls"].get(name, []):
+                    res = self._native_expr(r, tmap)
+                    if res is None or res[1] != want_type:
+                        ok = False
+                        break
+                if not ok:
+                    candidates.discard(name)
+                    changed = True
+        return candidates
+
+    def _save_native(self):
+        """Snapshot the native-scalar state for save/restore around a scope."""
+        return (
+            self._native_ints,
+            self._native_floats,
+            self._native_bools,
+            self._native_types,
+        )
+
+    def _restore_native(self, saved) -> None:
+        self._native_ints, self._native_floats, self._native_bools, self._native_types = saved
+
+    def _reset_native(self) -> None:
+        """Clear native state (e.g. inside a lambda, which never unboxes)."""
+        self._native_ints = set()
+        self._native_floats = set()
+        self._native_bools = set()
+        self._native_types = {}
+
+    def _analyze_native_scalars(self, scope_nodes: Any, exclude: set = None) -> None:
+        """Populate _native_ints / _native_floats / _native_bools and the
+        combined _native_types map for this scope."""
+        exclude = exclude or set()
+        self._native_ints = self._analyze_native_ints(scope_nodes, exclude)
+        int_types = {n: "int" for n in self._native_ints}
+        self._native_floats = self._analyze_native_typed(
+            scope_nodes, exclude, self._FLOAT_SUFFIX, "float", int_types
+        )
+        with_floats = dict(int_types)
+        with_floats.update({n: "float" for n in self._native_floats})
+        self._native_bools = self._analyze_native_typed(
+            scope_nodes, exclude, self._BOOL_SUFFIX, "bool", with_floats
+        )
+        self._native_types = dict(with_floats)
+        self._native_types.update({n: "bool" for n in self._native_bools})
+
+    def _for_destructure_names(self, d: dict) -> list:
+        """Names bound by a `pro (a, b, ...) in ...` destructuring loop."""
+        names = [str(d["dfirst"])]
+        drest = d.get("drest")
+        if drest:
+            for item in (drest if isinstance(drest, (list, tuple)) else [drest]):
+                if isinstance(item, (list, tuple)):
+                    for x in item:
+                        if isinstance(x, str) and x != "," and x.isidentifier():
+                            names.append(x)
+                elif isinstance(item, dict):
+                    nm = item.get("dname")
+                    if nm:
+                        names.append(str(nm))
+        return names
+
     def _generate_for(self, stmt: Any) -> None:
         """Generate for loop."""
         d = to_dict(stmt)
@@ -1760,6 +2276,38 @@ class AgoCodeGenerator:
 
         if not hasattr(self, "_loop_iterators"):
             self._loop_iterators = set()
+
+        # Destructuring loop: `pro (a, b) in pairs` unpacks each element (a list)
+        # into the named bindings by position.
+        if d.get("dfirst") is not None:
+            names = self._for_destructure_names(d)
+            iterable_expr = self._generate_expr(iterable)
+            tmp = f"__item{self._get_temp_counter()}"
+            # Shadow same-stem variables for the loop body.
+            shadowed = []
+            for nm in names:
+                _, nstem = get_suffix_and_stem(nm)
+                if nstem:
+                    for ev in list(self.declared_vars):
+                        _, estem = get_suffix_and_stem(ev)
+                        if estem == nstem and ev not in names:
+                            shadowed.append(ev)
+                            self.declared_vars.discard(ev)
+            self.emit(f"for {tmp} in into_iter(&{iterable_expr}) {{")
+            self.indent_level += 1
+            for i, nm in enumerate(names):
+                self.emit(f"let {nm} = get(&{tmp}, &AgoType::Int({i}));")
+                self.declared_vars.add(nm)
+                self._loop_iterators.add(nm)
+            self._process_block(d.get("body"))
+            for nm in names:
+                self._loop_iterators.discard(nm)
+                self.declared_vars.discard(nm)
+            self.indent_level -= 1
+            self.emit("}")
+            for ev in shadowed:
+                self.declared_vars.add(ev)
+            return
 
         # Dual binding: `pro a, b in iterable` -> (index, value) for sequences,
         # (key, value) for maps. Always boxed (no native-int specialization).
@@ -1910,11 +2458,9 @@ class AgoCodeGenerator:
         if d.get("int") is not None:
             return f"AgoType::Int({d['int']})"
         if d.get("float") is not None:
-            return f"AgoType::Float({d['float']})"
+            return self._float_literal(d["float"])
         if d.get("str") is not None:
-            # String literal - remove surrounding quotes for Rust
-            s = d["str"]
-            return f"AgoType::String({s}.to_string())"
+            return self._string_literal(d["str"])
         if d.get("roman") is not None:
             val = self._roman_to_int(d["roman"])
             return f"AgoType::Int({val})"
@@ -2094,7 +2640,7 @@ class AgoCodeGenerator:
                 if inner_d.get("int") is not None:
                     return f"AgoType::Int({sign}{inner_d['int']})"
                 if inner_d.get("float") is not None:
-                    return f"AgoType::Float({sign}{inner_d['float']})"
+                    return self._float_literal(inner_d["float"], sign)
                 if inner_d.get("roman") is not None:
                     return f"AgoType::Int({sign}{self._roman_to_int(inner_d['roman'])})"
 
@@ -2592,9 +3138,9 @@ class AgoCodeGenerator:
         if base_d.get("int") is not None:
             result = f"AgoType::Int({base_d['int']})"
         elif base_d.get("float") is not None:
-            result = f"AgoType::Float({base_d['float']})"
+            result = self._float_literal(base_d["float"])
         elif base_d.get("str") is not None:
-            result = f"AgoType::String({base_d['str']}.to_string())"
+            result = self._string_literal(base_d["str"])
         elif base_d.get("roman") is not None:
             result = f"AgoType::Int({self._roman_to_int(base_d['roman'])})"
         elif base_d.get("TRUE") is not None:
@@ -2644,13 +3190,27 @@ class AgoCodeGenerator:
         # Process each postfix operation
         if not isinstance(ops, (list, tuple)):
             ops = [ops] if ops else []
-        
-        for op in ops:
-            if op is None:
+        ops = [op for op in ops if op is not None]
+
+        i = 0
+        while i < len(ops):
+            # Loop-fusion: a run of consecutive `mutatuum` / `liquum` calls
+            # (optionally ending in a terminal consumer like `ullam`/`omnam`/
+            # `nullam`/`invena`/`plicium`) becomes a single lazy iterator
+            # pipeline, skipping the intermediate lists each stage would
+            # allocate and short-circuiting where the terminal allows.
+            # Unrecognized ops fall through to the eager per-op handling below.
+            plan = self._collect_fusable_run(ops, i)
+            if plan is not None:
+                stages, terminal = plan
+                result = self._emit_fused_chain(result, plan)
+                i += len(stages) + (1 if terminal else 0)
                 continue
-            
+
+            op = ops[i]
+            i += 1
             op_d = to_dict(op) if not isinstance(op, str) else {}
-            
+
             # Handle indexing operation
             if op_d.get("idx") is not None:
                 idx_node = op_d["idx"]
@@ -2817,8 +3377,160 @@ class AgoCodeGenerator:
         # Apply cast if stem resolution found a different suffix
         if cast_target:
             result = f"{result}.as_type(TargetType::{cast_target})"
-        
+
         return result
+
+    # ---- map/filter loop fusion (deforestation) -------------------------
+    #
+    # A chain like `xs.mutatuum(f).liquum(g)` would otherwise compile to
+    # `liquum(&mutatuum(&xs, &f), &g)`, where each prelude call materializes a
+    # fresh Vec. Because Ago compiles to Rust and Rust's iterators are lazy, a
+    # run of consecutive `mutatuum` (map) / `liquum` (filter) calls can instead
+    # be fused into a single `into_iter(..).map(..).filter(..).collect()`
+    # pipeline that allocates no intermediate lists. Only the canonical
+    # any-list forms are fused; anything else falls back to the eager path.
+
+    def _extract_method_call_op(self, op: Any):
+        """If `op` is a method-call postfix op, return `(func_name, args_node)`;
+        otherwise None. Mirrors the meth/call handling in `_generate_postfix`."""
+        if isinstance(op, str):
+            return None
+        op_d = to_dict(op)
+        if op_d.get("meth") is None and op_d.get("call") is None:
+            return None
+        call_d = None
+        if op_d.get("call") is not None:
+            call_d = to_dict(op_d["call"])
+        else:
+            meth_info = op_d["meth"]
+            if isinstance(meth_info, (list, tuple)):
+                for item in meth_info:
+                    if item != "." and item is not None and (
+                        isinstance(item, dict) or hasattr(item, "parseinfo")
+                    ):
+                        call_d = to_dict(item)
+                        break
+            else:
+                meth_d = to_dict(meth_info) if not isinstance(meth_info, str) else {}
+                call_node = meth_d.get("call")
+                call_d = to_dict(call_node) if call_node else meth_d
+        if not call_d:
+            return None
+        func_name = call_d.get("func")
+        if not func_name:
+            return None
+        return (str(func_name), call_d.get("args"))
+
+    def _count_args(self, args_node: Any) -> int:
+        """Count call arguments without generating them (generating here would
+        emit side-effecting temporaries even when we choose not to fuse)."""
+        if args_node is None:
+            return 0
+        d = to_dict(args_node)
+        n = 1 if d.get("first") else 0
+        rest = d.get("rest")
+        if rest:
+            n += len(rest)
+        return n
+
+    # Terminal consumers that can be folded straight into the iterator. Each
+    # short-circuits (or not) exactly as its prelude definition does — any/all/
+    # none/find stop at the first decisive element, reduce visits them all — so
+    # fusing them preserves semantics while skipping the intermediate list.
+    _FUSABLE_TERMINALS = {"ullam", "omnam", "nullam", "invena", "plicium"}
+
+    def _collect_fusable_run(self, ops: list, start: int):
+        """Plan a fused segment beginning at `ops[start]`: a maximal run of
+        `mutatuum`/`liquum` stages, optionally followed by one terminal
+        consumer. Returns `(stages, terminal)` where `terminal` is
+        `(name, args_node)` or None, or None when nothing is worth fusing.
+
+        A trailing terminal makes even a single map/filter stage worth fusing
+        (it removes the materialized list and, for any/all/none/find, lets the
+        whole chain short-circuit). Without a terminal we still require two or
+        more stages, since a lone map/filter is already a single pass."""
+        kinds = {"mutatuum": "map", "liquum": "filter"}
+        stages = []
+        j = start
+        while j < len(ops):
+            info = self._extract_method_call_op(ops[j])
+            if info is None:
+                break
+            fname, args_node = info
+            kind = kinds.get(fname)
+            if kind is None or self._count_args(args_node) != 1:
+                break
+            stages.append((kind, args_node))
+            j += 1
+
+        terminal = None
+        if stages and j < len(ops):
+            info = self._extract_method_call_op(ops[j])
+            if info is not None:
+                fname, args_node = info
+                if fname in self._FUSABLE_TERMINALS and self._count_args(args_node) == 1:
+                    terminal = (fname, args_node)
+
+        if terminal is not None and len(stages) >= 1:
+            return (stages, terminal)
+        if terminal is None and len(stages) >= 2:
+            return (stages, None)
+        return None
+
+    def _emit_fused_chain(self, src_expr: str, plan: tuple) -> str:
+        """Emit the fused lazy iterator pipeline for a planned segment, returning
+        the result expression. A list-producing segment ends in `.collect()`; a
+        terminal segment ends in the matching consuming adapter."""
+        stages, terminal = plan
+        n = self._get_temp_counter()
+        # `into_iter` borrows its argument; strip a leading `&` so we don't pass
+        # a double reference. Owned temporaries get their lifetime extended for
+        # the duration of the call expression.
+        value_expr = src_expr[1:] if src_expr.startswith("&") else src_expr
+        parts = []
+        k = 0
+        for kind, args_node in stages:
+            lam = self._parse_args(args_node)[0]
+            fvar = f"__fuse_fn_{n}_{k}"
+            k += 1
+            # Bind the lambda once, so it isn't reconstructed per element.
+            self.emit(f"let {fvar} = {lam};")
+            if kind == "map":
+                parts.append(f".map(|__e| {fvar}.call_lambda(&[__e]))")
+            else:  # filter
+                parts.append(
+                    f".filter(|__e| matches!("
+                    f"{fvar}.call_lambda(&[__e.clone()]).as_type(TargetType::Bool), "
+                    f"AgoType::Bool(true)))"
+                )
+        pipeline = f"into_iter(&{value_expr})" + "".join(parts)
+
+        if terminal is None:
+            return f"AgoType::ListAny({pipeline}.collect::<Vec<AgoType>>())"
+
+        tname, targs = terminal
+        tvar = f"__fuse_fn_{n}_{k}"
+        self.emit(f"let {tvar} = {self._parse_args(targs)[0]};")
+        truthy = (
+            f"matches!({tvar}.call_lambda(&[__e]).as_type(TargetType::Bool), "
+            f"AgoType::Bool(true))"
+        )
+        if tname == "ullam":  # any
+            return f"AgoType::Bool({pipeline}.any(|__e| {truthy}))"
+        if tname == "omnam":  # all
+            return f"AgoType::Bool({pipeline}.all(|__e| {truthy}))"
+        if tname == "nullam":  # none
+            return f"AgoType::Bool(!({pipeline}.any(|__e| {truthy})))"
+        if tname == "invena":  # index of the first element equal to a value
+            return (
+                f"(match {pipeline}.position(|__e| __e == {tvar}) "
+                f"{{ Some(__i) => AgoType::Int(__i as i128), None => AgoType::Null }})"
+            )
+        # plicium: left fold using the first element as the seed; inanis if empty
+        return (
+            f"(match {pipeline}.reduce(|__a, __b| {tvar}.call_lambda(&[__a, __b])) "
+            f"{{ Some(__x) => __x, None => AgoType::Null }})"
+        )
 
     def _generate_method_chain(self, mchain: Any) -> str:
         """Generate method chain: a.b().c(d) -> c(&a, d)."""
@@ -3228,9 +3940,12 @@ class AgoCodeGenerator:
         old_declared = self.declared_vars.copy()
         old_in_lambda = getattr(self, "_in_id_lambda", False)
         old_ref_params = getattr(self, "_ref_params", set())
-        # Lambda bodies aren't analyzed for native ints; treat all as boxed.
-        old_native_ints = self._native_ints
-        self._native_ints = set()
+        # Lambda bodies aren't analyzed for native scalars; treat all as boxed.
+        old_native = self._save_native()
+        self._reset_native()
+        # A lambda is its own scope: no outer tail-call context applies.
+        old_tco_lambda = getattr(self, "_tco", None)
+        self._tco = None
 
         # Captured variables are cloned into the closure (`let x = x.clone();`),
         # so inside the lambda body they are owned values, not references — even
@@ -3271,8 +3986,9 @@ class AgoCodeGenerator:
         self.declared_vars = old_declared
         self._in_id_lambda = old_in_lambda
         self._ref_params = old_ref_params
-        self._native_ints = old_native_ints
-        
+        self._restore_native(old_native)
+        self._tco = old_tco_lambda
+
         # Build the inline move closure, wrapped as a first-class AgoType value.
         # Format: { let cap = cap.clone(); AgoType::Lambda(Rc::new(move |args| -> AgoType { body }) as AgoLambda) }
         body_code = " ".join(line.strip() for line in body_lines)

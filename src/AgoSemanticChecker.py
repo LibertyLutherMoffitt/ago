@@ -13,13 +13,15 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 from src.AgoSymbolTable import Symbol, SymbolTable, SymbolTableError
-from src.AgoCodeGenerator import get_suffix_and_stem
+from src.AgoCodeGenerator import get_suffix_and_stem, split_interpolation
 from src.AgoErrors import closest as _closest
 
 # --- Type System Constants ---
 
 NUMERIC_TYPES = {"int", "float"}
 LIST_TYPES = {"int_list", "float_list", "bool_list", "string_list", "list_any"}
+# Types that support `x[i]`. "Any"/"unknown" are permissive (inference fallbacks).
+_INDEXABLE_TYPES = LIST_TYPES | {"string", "struct", "range", "Any", "unknown"}
 PRIMITIVE_TYPES = {"int", "float", "bool", "string"}
 ALL_TYPES = (
     PRIMITIVE_TYPES
@@ -178,11 +180,16 @@ def can_cast(from_type: str, to_type: str) -> bool:
     # Range can cast to int_list, bool, or string
     if from_type == "range" and to_type in ("int_list", "bool", "string"):
         return True
-    # Lists can cast to int (length), bool (non-empty), string, or range
-    if from_type in LIST_TYPES and to_type in ("int", "bool", "string", "range"):
+    # Lists can cast to int (length), bool (non-empty), string, range, or a map
+    # (list -> struct: pairs / index keys, see casting.rs).
+    if from_type in LIST_TYPES and to_type in ("int", "bool", "string", "range", "struct"):
         return True
-    # Struct can cast to bool (non-empty) or string
-    if from_type == "struct" and to_type in ("bool", "string", "string_list"):
+    # Struct can cast to bool (non-empty), int (size), string, its keys
+    # (string_list), or a list of [key, value] pairs (list_any).
+    if from_type == "struct" and to_type in ("bool", "int", "string", "string_list", "list_any"):
+        return True
+    # inanis (null) can cast to the scalar types (0 / 0.0 / false / "inanis").
+    if from_type == "null" and to_type in ("bool", "int", "float", "string"):
         return True
     # List types can cast between each other if elements can cast
     if from_type in LIST_TYPES and to_type in LIST_TYPES:
@@ -222,6 +229,13 @@ class AgoSemanticChecker:
     def __init__(self):
         self.sym_table = SymbolTable()
         self.errors: list[SemanticError] = []
+        # (message, line, col) of already-reported diagnostics, for dedup.
+        self._reported_keys: set = set()
+        # All function names/stems anywhere in the program (filled by a pre-scan),
+        # so a forward reference to a function defined later isn't mis-reported as
+        # undefined. Functions are otherwise registered in source order.
+        self._known_function_names: set = set()
+        self._known_function_stems: set = set()
         self.loop_depth: int = 0
         self.current_function: Optional[Symbol] = None
         # Track lambda context: None if not in lambda, else the Symbol for the lambda
@@ -286,9 +300,42 @@ class AgoSemanticChecker:
     def report_error(
         self, message: str, node: Any = None, suggestion: Optional[str] = None
     ) -> None:
-        """Record a semantic error, with an optional 'did you mean' suggestion."""
+        """Record a semantic error, with an optional 'did you mean' suggestion.
+
+        Identical diagnostics (same message at the same location) are collapsed,
+        so a callee that is validated both by the statement walker and during
+        type inference is reported only once."""
         line, col = get_node_location(node) if node else (None, None)
+        key = (message, line, col)
+        if key in self._reported_keys:
+            return
+        self._reported_keys.add(key)
         self.errors.append(SemanticError(message, line, col, node, suggestion))
+
+    def _validate_callee(self, func_name: str, node: Any) -> None:
+        """Report if `func_name` cannot be called: undefined, or a non-function
+        value. Mirrors the statement-level check so calls nested inside
+        arguments / method chains are validated too."""
+        sym, _cast = self._find_function_by_stem(func_name)
+        if sym is not None:
+            return  # a function or a function-typed variable: callable
+        # Forward reference: the function is defined later in the program.
+        if func_name in self._known_function_names:
+            return
+        fstem = get_stem(func_name)
+        if fstem and fstem in self._known_function_stems:
+            return
+        exact = self.sym_table.get_symbol(func_name)
+        if exact is not None and exact.category != "func" and exact.type_t != "function":
+            self.report_error(
+                f"'{func_name}' is not callable (type '{exact.type_t}')", node
+            )
+        else:
+            self.report_error(
+                f"Use of undeclared identifier '{func_name}'",
+                node,
+                suggestion=self._suggest_name(func_name),
+            )
 
     def _suggest_name(self, name: str) -> Optional[str]:
         """Nearest known identifier (variable, function, or builtin) to `name`,
@@ -436,6 +483,7 @@ class AgoSemanticChecker:
         if d.get("float") is not None:
             return "float"
         if d.get("str") is not None:
+            self._validate_interpolations(d["str"], node)
             return "string"
         if d.get("roman") is not None:
             return "int"
@@ -536,6 +584,12 @@ class AgoSemanticChecker:
         # Function call
         if d.get("call") is not None:
             return self._infer_call_type(d["call"])
+
+        # Bare function-call node (func + args), e.g. the base of a postfix
+        # chain like `fooi(2).es()`. Validate the callee so undefined/non-callable
+        # functions are caught here too, not only at statement level.
+        if d.get("func") is not None and d.get("base") is None:
+            return self._infer_nodotcall_type(d)
 
         # New postfix structure (base + ops for indexing and method chains)
         if d.get("base") is not None:
@@ -748,29 +802,97 @@ class AgoSemanticChecker:
 
         return (None, None)
 
+    def _validate_interpolations(self, raw: Any, node: Any) -> None:
+        """Validate `${expr}` fragments inside a string literal so typos in an
+        interpolation are caught here, not as an opaque rustc error."""
+        if not isinstance(raw, str) or "${" not in raw:
+            return
+        from src.AgoParser import AgoParser
+
+        for kind, text in split_interpolation(raw):
+            if kind != "expr" or not text:
+                continue
+            try:
+                expr_ast = AgoParser().parse(text, start="expression")
+            except Exception:
+                self.report_error(
+                    f"Invalid expression in string interpolation: '${{{text}}}'",
+                    node,
+                )
+                continue
+            # Walk the sub-expression to validate names/calls/types within it,
+            # then re-anchor any new errors to the string literal's location
+            # (the fragment was parsed standalone, so its own positions are off).
+            before = len(self.errors)
+            self.infer_expr_type(expr_ast)
+            line, col = get_node_location(node)
+            for e in self.errors[before:]:
+                e.node = node
+                e.line = line
+                e.col = col
+
+    def _method_is_known(self, name: str) -> bool:
+        """Whether a method/function name in a chain is resolvable: a type-cast
+        suffix, a stdlib/in-scope/visible function, or a user/prelude function
+        (by exact name or stem, including forward references)."""
+        if name in ENDING_TO_TYPE:
+            return True
+        if self.sym_table.get_symbol(name) is not None:
+            return True
+        if name in self._known_function_names:
+            return True
+        stem = get_stem(name)
+        if stem and stem in self._known_function_stems:
+            return True
+        if stem:
+            for vn, vs in self.sym_table.get_all_visible_symbols().items():
+                if (vs.category == "func" or vs.type_t == "function") and get_stem(vn) == stem:
+                    return True
+        return False
+
+    def _infer_nodotcall_type(self, d: dict) -> str:
+        """Infer the return type of a bare `func(args)` node, validating that the
+        callee exists and is callable."""
+        func_name = str(d.get("func"))
+        self._validate_callee(func_name, d)
+        sym, cast_type = self._find_function_by_stem(func_name)
+        if sym:
+            if cast_type:
+                return cast_type
+            if sym.return_type:
+                return sym.return_type
+        return "Any"
+
     def _infer_call_type(self, call_node: Any) -> str:
         """Infer return type of a function call."""
         d = to_dict(call_node)
-        # call_stmt has structure: {recv, first, chain}
+        # call_stmt has structure {recv, first, chain}; a bare nodotcall used as
+        # an expression has {func, args} directly. Handle both.
         first = d.get("first")
         if first:
             first_d = to_dict(first)
             # chain_elem wraps nodotcall_stmt with 'call:' key, so unwrap it
             if "call" in first_d and first_d.get("call") is not None:
                 first_d = to_dict(first_d["call"])
-            func_name = first_d.get("func")
-            if func_name:
-                func_name = str(func_name)
-                sym, cast_type = self._find_function_by_stem(func_name)
-                if sym:
-                    if cast_type:
-                        # Calling with different ending - return the cast type
-                        return cast_type
-                    elif sym.category == "func" and sym.return_type:
-                        return sym.return_type
-                    elif sym.type_t == "function" and sym.return_type:
-                        # Lambda stored in variable
-                        return sym.return_type
+        else:
+            first_d = d
+        func_name = first_d.get("func")
+        if func_name:
+            func_name = str(func_name)
+            sym, cast_type = self._find_function_by_stem(func_name)
+            if sym:
+                if cast_type:
+                    # Calling with different ending - return the cast type
+                    return cast_type
+                elif sym.category == "func" and sym.return_type:
+                    return sym.return_type
+                elif sym.type_t == "function" and sym.return_type:
+                    # Lambda stored in variable
+                    return sym.return_type
+            elif "args" in first_d:
+                # Unknown callee in a real call position — validate so calls
+                # nested in arguments / method chains are caught too.
+                self._validate_callee(func_name, first_d)
         return "Any"
 
     def _infer_postfix_type(self, node: Any, parent_node: Any) -> str:
@@ -808,6 +930,16 @@ class AgoSemanticChecker:
             
             # Handle indexing operation
             if op_d.get("idx") is not None:
+                # Only lists, strings, maps and ranges are indexable. Catch
+                # `xa[0]` on a scalar at compile time instead of at runtime.
+                if current_type not in _INDEXABLE_TYPES:
+                    self.report_error(
+                        f"Cannot index a value of type '{current_type}' "
+                        f"(only lists, strings, maps and ranges can be indexed)",
+                        parent_node,
+                    )
+                    current_type = "unknown"
+                    continue
                 idx_d = to_dict(op_d["idx"])
                 idx_expr = idx_d.get("expr")
                 if idx_expr:
@@ -852,8 +984,26 @@ class AgoSemanticChecker:
                     args_node = call_d.get("args") if call_d else None
                     if not args_node or self._is_empty_args(args_node):
                         if func_name_str in ENDING_TO_TYPE:
-                            current_type = ENDING_TO_TYPE[func_name_str]
+                            target = ENDING_TO_TYPE[func_name_str]
+                            # Validate the cast at compile time so e.g. a
+                            # struct -> int_list mistake is caught here instead
+                            # of panicking at runtime.
+                            if not can_cast(current_type, target):
+                                self.report_error(
+                                    f"Cannot cast '{current_type}' to '{target}' "
+                                    f"via '.{func_name_str}()'",
+                                    parent_node,
+                                )
+                            current_type = target
                             continue
+                    # A method that resolves to nothing (not a cast, not a known
+                    # function) is almost always a misspelling.
+                    if not self._method_is_known(func_name_str):
+                        self.report_error(
+                            f"Unknown method or function '{func_name_str}'",
+                            parent_node,
+                            suggestion=self._suggest_name(func_name_str),
+                        )
                     # Look up function
                     sym = self.sym_table.get_symbol(func_name_str)
                     if sym and sym.category == "func" and sym.return_type:
@@ -1590,11 +1740,35 @@ class AgoSemanticChecker:
         if ast is None:
             return ast
 
+        # Pre-scan every function declaration so calls to functions defined later
+        # in the file are not mistaken for undefined identifiers.
+        self._prescan_functions(ast)
+
         # ast is a list: [item, [[newlines]], more_items...]
         for item in ast:
             self._process_top_level_item(item)
 
         return ast
+
+    def _prescan_functions(self, node: Any) -> None:
+        """Collect the names (and stems) of all function declarations anywhere
+        in the AST, for forward-reference resolution."""
+        if node is None or isinstance(node, str):
+            return
+        if isinstance(node, (list, tuple)):
+            for x in node:
+                self._prescan_functions(x)
+            return
+        d = to_dict(node)
+        if "name" in d and "body" in d and "params" in d:
+            name = str(d["name"])
+            self._known_function_names.add(name)
+            st = get_stem(name)
+            if st:
+                self._known_function_stems.add(st)
+        for k, v in d.items():
+            if k != "parseinfo" and v is not None:
+                self._prescan_functions(v)
 
     def _process_top_level_item(self, item):
         """Process a top-level item."""
@@ -2197,6 +2371,22 @@ class AgoSemanticChecker:
             self._process_block(ad.get("body"))
             self.sym_table.decrement_scope()
 
+    def _for_destructure_names(self, d: dict) -> list:
+        """Names bound by a `pro (a, b, ...) in ...` destructuring loop."""
+        names = [str(d["dfirst"])]
+        drest = d.get("drest")
+        if drest:
+            for item in (drest if isinstance(drest, (list, tuple)) else [drest]):
+                if isinstance(item, (list, tuple)):
+                    for x in item:
+                        if isinstance(x, str) and x != "," and x.isidentifier():
+                            names.append(x)
+                elif isinstance(item, dict):
+                    nm = item.get("dname")
+                    if nm:
+                        names.append(str(nm))
+        return names
+
     def _handle_for(self, ast):
         """Handle for loop."""
         d = to_dict(ast)
@@ -2227,6 +2417,19 @@ class AgoSemanticChecker:
 
         self.loop_depth += 1
         self.sym_table.increment_scope()
+
+        # Destructuring: `pro (a, b) in pairs` binds each name to a position in
+        # the (list) element. Each name takes the type implied by its suffix.
+        if d.get("dfirst") is not None:
+            for nm in self._for_destructure_names(d):
+                t = self.require_type_from_name(nm, ast)
+                self.declare_symbol(
+                    Symbol(name=nm, type_t=(t or "Any"), category="var"), ast
+                )
+            self._process_block(d.get("body"))
+            self.sym_table.decrement_scope()
+            self.loop_depth -= 1
+            return
 
         if iterator2_name:
             # Dual binding: `pro a, b in iterable`.

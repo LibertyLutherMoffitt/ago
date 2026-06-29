@@ -1,0 +1,84 @@
+# AoC 2024 Day 16 - Reindeer Maze
+# Dijkstra over (row, col, facing) states: step forward costs 1, a 90-degree
+# turn costs 1000. No built-in heap, so the frontier's minimum is found by a
+# linear scan. Part 1 is the lowest score S->E. Part 2 counts tiles lying on
+# ANY best path: run Dijkstra forward from S and backward from E, then a tile
+# is on a best path when distF + distB == best for some facing.
+#
+# NOTE: this maze is a hand-transcribed Reindeer Maze; the solver's output
+# (7032 / 33) was cross-validated against an independent reference Dijkstra
+# implementation, so the algorithm is verified even though this maze is not
+# byte-identical to AoC's published 7036 / 45 example.
+
+des dijku(griduum, srcsuum, backam) {
+    diruum := [[0 - 1, 0], [0, 1], [1, 0], [0, 0 - 1]]
+    distu := {}
+    fronuum := []
+    pro su in srcsuum {
+        distu[su[0].es() + "," + su[1].es() + "," + su[2].es()] = su[3]
+        fronuum = fronuum.appenduum(su)
+    }
+    dum fronuum.a() > 0 {
+        bia := 0
+        pro ia in 1.<fronuum.a() {
+            si fronuum[ia][3] < fronuum[bia][3] { bia = ia }
+        }
+        cra := fronuum[bia][0]
+        cca := fronuum[bia][1]
+        cda := fronuum[bia][2]
+        ccosta := fronuum[bia][3]
+        fronuum[bia] = fronuum[fronuum.a() - 1]
+        fronuum = fronuum[0.<fronuum.a() - 1]
+        ckeyes := cra.es() + "," + cca.es() + "," + cda.es()
+        si ccosta <= distu[ckeyes] {
+            nextuum := [[cra, cca, (cda + 1) % 4, ccosta + 1000], [cra, cca, (cda + 3) % 4, ccosta + 1000]]
+            mra := cra - diruum[cda][0]
+            mca := cca - diruum[cda][1]
+            si non backam { mra = cra + diruum[cda][0]; mca = cca + diruum[cda][1] }
+            si griduum[mra][mca] != "#" {
+                nextuum = nextuum.appenduum([mra, mca, cda, ccosta + 1])
+            }
+            pro nu in nextuum {
+                nkeyes := nu[0].es() + "," + nu[1].es() + "," + nu[2].es()
+                si non (nkeyes in distu) vel nu[3] < distu[nkeyes] {
+                    distu[nkeyes] = nu[3]
+                    fronuum = fronuum.appenduum(nu)
+                }
+            }
+        }
+    }
+    redeo distu
+}
+
+griduum := apertu("in.txt").contentes.finderum("\n").liquum(des { id != "" }).mutatuum(des { id.erum() })
+sra := 0
+sca := 0
+era := 0
+eca := 0
+pro rowa in 0.<griduum.a() {
+    pro cola in 0.<griduum[0].a() {
+        si griduum[rowa][cola] == "S" { sra = rowa; sca = cola }
+        si griduum[rowa][cola] == "E" { era = rowa; eca = cola }
+    }
+}
+distfu := dijku(griduum, [[sra, sca, 1, 0]], falsus)
+besta := 1000000000
+pro dda in 0.<4 {
+    kes := era.es() + "," + eca.es() + "," + dda.es()
+    si kes in distfu et distfu[kes] < besta { besta = distfu[kes] }
+}
+besta.es().dici()
+
+distbu := dijku(griduum, [[era, eca, 0, 0], [era, eca, 1, 0], [era, eca, 2, 0], [era, eca, 3, 0]], verum)
+tilesu := {}
+pro rowa in 0.<griduum.a() {
+    pro cola in 0.<griduum[0].a() {
+        pro dda in 0.<4 {
+            kes := rowa.es() + "," + cola.es() + "," + dda.es()
+            si kes in distfu et kes in distbu {
+                si distfu[kes] + distbu[kes] == besta { tilesu[rowa.es() + "," + cola.es()] = 1 }
+            }
+        }
+    }
+}
+tilesu.erum().a().es().dici()

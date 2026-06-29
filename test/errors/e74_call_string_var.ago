@@ -1,0 +1,2 @@
+ses := "hi"
+dici(ses(1).es())

@@ -1,0 +1,21 @@
+# AoC 2024 Day 13 - Claw Contraption
+# Each machine is a 2x2 linear system (A=3 tokens, B=1). Solve by Cramer's
+# rule; a win needs non-negative integer button presses. Part 2 shifts the
+# prize by 10^13.
+
+des solvea(nuum, offa) {
+    deta := nuum[0] * nuum[3] - nuum[1] * nuum[2]
+    si deta == 0 { redeo 0 }
+    pxa := nuum[4] + offa
+    pya := nuum[5] + offa
+    naa := pxa * nuum[3] - pya * nuum[2]
+    nba := nuum[0] * pya - nuum[1] * pxa
+    si naa % deta != 0 vel nba % deta != 0 vel naa / deta < 0 vel nba / deta < 0 { redeo 0 }
+    redeo 3 * (naa / deta) + nba / deta
+}
+
+numsaem := apertu("in.txt").contentes.congruum("-?[0-9]+").mutatuum(des { id[0].a() })
+counta := numsaem.a() / 6
+machuum := (0.<counta).aem().mutatuum(des { numsaem[(id * 6).<(id * 6 + 6)] })
+machuum.mutatuum(des { solvea(id, 0) }).plicium(des (aium, bium) { aium + bium }).es().dici()
+machuum.mutatuum(des { solvea(id, 10000000000000) }).plicium(des (aium, bium) { aium + bium }).es().dici()

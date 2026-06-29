@@ -10,8 +10,8 @@ pub fn dici(val: &AgoType) -> AgoType {
     AgoType::Null
 }
 
-// writes a string to a file named filename, fails otherwise.
-// names end in -i (returns null/inanis)
+/// Writes a string to the file named by the first argument (fails otherwise).
+/// Name ends in -i (returns null/inanis).
 pub fn scribi(filename: &AgoType, content: &AgoType) -> AgoType {
     if let (AgoType::String(path), AgoType::String(data)) = (filename, content) {
         match std::fs::write(path, data) {
@@ -23,8 +23,8 @@ pub fn scribi(filename: &AgoType, content: &AgoType) -> AgoType {
     }
 }
 
-// reads in a line from stdin, "input()" style
-// name ends in -es (returns string)
+/// Reads one line from stdin (Python `input()` style), trimming the newline.
+/// Name ends in -es (returns string).
 pub fn audies() -> AgoType {
     let mut input = String::new();
     match std::io::stdin().read_line(&mut input) {

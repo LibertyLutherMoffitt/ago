@@ -83,6 +83,58 @@ def test_goto_definition_prefers_enclosing_function_scope():
     assert _select_definition([dict(d) for d in cands], spans, 0)["line"] == 0
 
 
+def _goto(src: str, word: str, cursor_line: int):
+    """Mirror the definition handler's resolution: exact-name first, then stem,
+    each scoped to the nearest enclosing block."""
+    from src.AgoLsp import _function_spans, _select_definition
+
+    lines = src.split("\n")
+    same = [d for d in collect_definitions(src) if d["stem"] == _stem(word)]
+    spans = _function_spans(lines)
+    exact = [d for d in same if d["name"] == word]
+    pool = exact if exact else same
+    return _select_definition([dict(d) for d in pool], spans, cursor_line)["line"]
+
+
+def test_goto_definition_loop_variable_is_block_scoped():
+    # `guum` and the loop variable `ga` share the stem `g`. Go-to-def on `guum`
+    # outside the loop, and on the loop header, must land on the `guum`
+    # declaration (line 0), not the block-local `ga`.
+    src = (
+        'guum := apertu("b").contentes.finduum("x")\n'  # 0
+        "\n"                                              # 1
+        "mapuum := []\n"                                  # 2
+        "pro ga in guum[0].erum().e() {\n"                # 3
+        "    mapuum = mapuum.appenduum(0)\n"              # 4
+        "}\n"                                             # 5
+        'mapuum[guum[0].erum().invena("S")] = 1\n'        # 6
+    )
+    assert _goto(src, "guum", 6) == 0   # below the loop
+    assert _goto(src, "guum", 3) == 0   # on the loop header (iterable)
+    assert _goto(src, "ga", 4) == 3     # the loop var, from inside the loop
+    # Pure stem fallback (no exact name) still respects block scope.
+    assert _goto(src, "gaem", 6) == 0
+
+
+def test_references_respect_block_scope():
+    # `guum` (stem g) and the loop var `ga` (stem g) must not be conflated by
+    # find-references / rename.
+    from src.AgoLsp import _scoped_occurrences
+
+    src = (
+        "guum := [1, 2, 3]\n"          # 0
+        "pro ga in guum.erum() {\n"    # 1
+        "    dici(ga.es())\n"          # 2
+        "}\n"                          # 3
+        "dici(guum.es())\n"            # 4
+    )
+    lines = src.split("\n")
+    guum_refs = sorted(l for l, _c, _n in _scoped_occurrences(lines, "guum", 4))
+    ga_refs = sorted(l for l, _c, _n in _scoped_occurrences(lines, "ga", 2))
+    assert guum_refs == [0, 1, 4]   # not the loop variable
+    assert ga_refs == [1, 2]        # not guum
+
+
 def test_prelude_functions_indexed_by_stem():
     pf = prelude_functions()
     names = {f["name"] for f in pf}
@@ -131,3 +183,12 @@ def test_stem_bucket_is_stable_and_stem_based():
     # Same stem -> same bucket, regardless of ending.
     assert _stem_bucket("xa") == _stem_bucket("xes") == _stem_bucket("xerum")
     assert 0 <= _stem_bucket("foo") < 16
+
+
+def test_builtin_docs_come_from_rust_source():
+    from src.AgoLsp import builtin_doc, _BUILTINS
+    # Every exported builtin should now have documentation (from its Rust ///).
+    missing = [b for b in _BUILTINS if not builtin_doc(b)]
+    assert missing == [], f"builtins missing docs: {missing}"
+    assert "stdout" in builtin_doc("dici").lower()
+    assert "struct" in builtin_doc("valuum").lower()

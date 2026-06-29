@@ -44,6 +44,13 @@ def _gen(src: str) -> str:
     return generate(ast)
 
 
+def _gen_p(src: str) -> str:
+    """Like _gen but with the trimmed prelude prepended, for programs that call
+    prelude higher-order functions (mutatuum, plicium, ...). Those names are only
+    'defined' once the prelude is in scope, which the real CLI always does."""
+    return _gen(SMOKE_PRELUDE + "\n" + src)
+
+
 class TestCodegenStructure:
     """Pure-Python codegen checks — no cargo, sub-second."""
 
@@ -89,6 +96,17 @@ class TestCodegenStructure:
         assert "sa = (sa + (ia * ia));" in rust
         assert "AgoType::Int(sa).as_type(TargetType::String)" in rust
 
+    def test_native_div_mod_routed_through_helpers(self):
+        # Native int / and % go through ago_div/ago_mod so a literal zero divisor
+        # is a clean runtime panic, not a rustc unconditional_panic lint.
+        rust = _gen(
+            "sa := 0\n"
+            "pro ia in 1.<5 { sa = sa + 100 / ia + 7 % ia }\n"
+            "sa.es().dici()"
+        )
+        assert "ago_div(" in rust
+        assert "ago_mod(" in rust
+
     def test_native_int_not_applied_to_params(self):
         # Parameters are never native (they arrive as &AgoType / cloned AgoType),
         # even when mutated in the body.
@@ -131,7 +149,7 @@ class TestCodegenStructure:
         # owned value inside the closure (cloned), so passing it to a user
         # function (which takes &AgoType) must add `&` — it must not be treated
         # as a still-live reference parameter.
-        rust = _gen(
+        rust = _gen_p(
             "des helpera(xium, yium) { redeo xium + yium }\n"
             "des fuum(luum, basea) { redeo luum.mutatuum(des { helpera(id, basea) }) }\n"
             "[1,2,3].fuum(10).es().dici()"
@@ -153,6 +171,17 @@ class TestCodegenStructure:
         # variable goes through call_lambda.
         assert "AgoType::Lambda(Rc::new(" in rust
         assert "addo.call_lambda(" in rust
+
+    def test_named_function_as_first_class_value(self):
+        # A named `des fooi(...)` used as a value (passed to a lambda param) is
+        # wrapped in an AgoType::Lambda adapter of the right arity, so a function
+        # works wherever a lambda does.
+        rust = _gen_p(
+            "des doublea(xa) { redeo xa * 2 }\n"
+            "resuum := [1,2,3].mutatuum(doublea)\n"
+            "resuum.es().dici()"
+        )
+        assert "AgoType::Lambda(Rc::new(move |args: &[AgoType]| -> AgoType { doublea(" in rust
 
     def test_call_postfix_on_index_and_call(self):
         # A call can directly follow an index or another call: `luum[0](5)` and
@@ -256,3 +285,201 @@ class TestEndToEnd:
             release=False,
         )
         assert out.splitlines() == EXPECTED
+
+
+class TestStringInterpolation:
+    def test_interpolation_codegen(self):
+        rust = _gen('na := 5\ndici("n=${na}")\n')
+        assert ".as_type(TargetType::String)" in rust
+        assert "add(" in rust
+
+    def test_interpolation_runs(self):
+        out = compile_and_run(
+            'na := 5\nses := "hi"\ndici("${ses} n=${na} sum=${na + 1}")\n',
+            release=False,
+        )
+        assert out.strip() == "hi n=5 sum=6"
+
+    def test_nested_quote_interpolation_runs(self):
+        out = compile_and_run('na := 42\ndici("outer ${"inner=" + na.es()}")\n', release=False)
+        assert out.strip() == "outer inner=42"
+
+    def test_plain_string_unaffected(self):
+        rust = _gen('dici("plain")\n')
+        assert 'AgoType::String("plain".to_string())' in rust
+
+
+class TestNativeFloatBool:
+    def test_native_float_unboxed(self):
+        rust = _gen("xae := 1.5\nyae := xae * 2.0 + 0.5\nyae.es().dici()")
+        assert "let mut xae: f64 = 1.5f64;" in rust
+        assert "let mut yae: f64 = ((xae * 2.0f64) + 0.5f64);" in rust
+
+    def test_native_bool_unboxed(self):
+        rust = _gen("xa := 7\nevenam := xa % 2 == 0\nbigam := xa > 5 et xa < 9\nevenam.es().dici()")
+        assert "let mut evenam: bool = (ago_mod(xa, 2i128) == 0i128);" in rust
+        assert "&&" in rust
+
+    def test_native_float_runs(self):
+        out = compile_and_run("xae := 1.5\nyae := xae * 2.0 + 0.5\nyae.es().dici()", release=False)
+        assert out.strip() == "3.5"
+
+    def test_native_bool_runs(self):
+        out = compile_and_run("xa := 7\nbigam := xa > 5 et xa < 9\nbigam.es().dici()", release=False)
+        assert out.strip() == "true"
+
+    def test_native_cast_operand_unboxed(self):
+        # `ia.ae()` (int->float cast) inside a native float expr converts natively.
+        rust = _gen("sumae := 0.0\npro ia in 1.<5 { sumae = sumae + 1.0 / ia.ae() }\nsumae.es().dici()")
+        assert "(ia as f64)" in rust
+        assert "let mut sumae: f64" in rust
+
+    def test_native_float_boxes_at_boundary(self):
+        # A native float passed to a function / printed is re-boxed as AgoType::Float.
+        rust = _gen("xae := 2.5\ndici(xae.es())")
+        assert "AgoType::Float(xae)" in rust
+
+
+class TestForDestructuring:
+    def test_destructure_pairs_codegen(self):
+        rust = _gen("puum := [[1, 2]]\npro (fa, sa) in puum {\n  dici((fa + sa).es())\n}")
+        assert "into_iter(" in rust
+        assert "let fa = get(" in rust
+        assert "let sa = get(" in rust
+
+    def test_destructure_pairs_runs(self):
+        out = compile_and_run(
+            "puum := [[123, 148], [999, 1000]]\npro (fa, sa) in puum {\n  dici((fa + sa).es())\n}",
+            release=False,
+        )
+        assert out.split() == ["271", "1999"]
+
+
+class TestTailCallOptimization:
+    def test_tail_self_call_becomes_loop(self):
+        rust = _gen(
+            "des suma(na, acca) {\n  si na == 0 { redeo acca }\n  redeo suma(na - 1, acca + na)\n}\n"
+            "suma(3, 0).es().dici()"
+        )
+        assert "'tco: loop {" in rust
+        assert "continue 'tco;" in rust
+
+    def test_non_tail_recursion_not_transformed(self):
+        rust = _gen(
+            "des facta(na) {\n  si na < 2 { redeo 1 }\n  redeo na * facta(na - 1)\n}\n"
+            "facta(5).es().dici()"
+        )
+        assert "'tco" not in rust
+
+    def test_deep_tail_recursion_runs(self):
+        out = compile_and_run(
+            "des suma(na, acca) {\n  si na == 0 { redeo acca }\n  redeo suma(na - 1, acca + na)\n}\n"
+            "suma(100000, 0).es().dici()",
+            release=False,
+        )
+        assert out.strip() == "5000050000"
+
+
+class TestMapFilterFusion:
+    def test_map_filter_chain_is_fused(self):
+        rust = _gen_p(
+            "auum := [1, 2, 3, 4].mutatuum(des { id * 2 }).liquum(des { id > 4 })\n"
+            "auum.es().dici()"
+        )
+        # The two stages collapse into a single lazy iterator pipeline.
+        assert "into_iter(&" in rust
+        assert ".map(|__e|" in rust
+        assert ".filter(|__e|" in rust
+        assert "__fuse_fn" in rust
+
+    def test_single_map_is_not_fused(self):
+        # A lone map has nothing to fuse with, so it stays on the eager path.
+        rust = _gen_p("auum := [1, 2, 3].mutatuum(des { id * 2 })\nauum.es().dici()")
+        assert "__fuse_fn" not in rust
+
+    def test_cast_suffix_form_falls_back(self):
+        # `.mutataem` carries a list cast; only the canonical `mutatuum` /
+        # `liquum` forms fuse, so this stays eager.
+        rust = _gen_p(
+            "auum := [1, 2, 3].mutataem(des { id * 2 }).liquum(des { id > 2 })\n"
+            "auum.es().dici()"
+        )
+        assert "__fuse_fn" not in rust
+
+    def test_fused_chain_runs_correctly(self):
+        out = compile_and_run(
+            "auum := [1, 2, 3, 4, 5, 6].mutatuum(des { id * 2 }).liquum(des { id > 5 })\n"
+            "auum.es().dici()",
+            include_prelude=True,
+            release=False,
+        )
+        assert out.strip() == "6\n8\n10\n12"
+
+    def test_fusion_does_not_consume_source(self):
+        # Fusing over a variable must borrow, not move it: the source list is
+        # still usable afterwards.
+        out = compile_and_run(
+            "xsaem := [1, 2, 3, 4]\n"
+            "auum := xsaem.mutatuum(des { id + 1 }).liquum(des { id > 2 })\n"
+            "auum.es().dici()\n"
+            "xsaem.es().dici()",
+            include_prelude=True,
+            release=False,
+        )
+        assert out.strip() == "3\n4\n5\n1\n2\n3\n4"
+
+
+class TestTerminalFusion:
+    def test_map_any_fuses_to_short_circuit(self):
+        rust = _gen_p(
+            "xsaem := [1, 2, 3]\n"
+            "dici(xsaem.mutatuum(des { id * 2 }).ullam(des { id > 4 }).es())"
+        )
+        assert ".any(|__e|" in rust and "__fuse_fn" in rust
+
+    def test_filter_reduce_fuses(self):
+        rust = _gen_p(
+            "xsaem := [1, 2, 3, 4]\n"
+            "dici(xsaem.liquum(des { id % 2 == 0 })"
+            ".plicium(des (aium, bium) { aium + bium }).es())"
+        )
+        assert ".reduce(|__a, __b|" in rust and "__fuse_fn" in rust
+
+    def test_standalone_terminal_not_fused(self):
+        # A terminal with no preceding map/filter stays on the eager prelude
+        # path (which already short-circuits).
+        rust = _gen_p("xsaem := [1, 2, 3]\ndici(xsaem.ullam(des { id > 2 }).es())")
+        assert "__fuse_fn" not in rust
+
+    def test_any_all_none_run_correctly(self):
+        out = compile_and_run(
+            "xsaem := [1, 2, 3, 4, 5, 6]\n"
+            "dici(xsaem.mutatuum(des { id * 2 }).ullam(des { id > 10 }).es())\n"
+            "dici(xsaem.mutatuum(des { id * 2 }).omnam(des { id % 2 == 0 }).es())\n"
+            "dici(xsaem.mutatuum(des { id * 2 }).nullam(des { id % 2 == 1 }).es())",
+            include_prelude=True,
+            release=False,
+        )
+        assert out.strip() == "true\ntrue\ntrue"
+
+    def test_find_index_fuses(self):
+        out = compile_and_run(
+            "xsaem := [1, 2, 3, 4, 5, 6]\n"
+            "dici(xsaem.mutatuum(des { id * 2 }).invena(8).es())\n"
+            "dici(xsaem.mutatuum(des { id * 2 }).invena(7).species())",
+            include_prelude=True,
+            release=False,
+        )
+        assert out.strip() == "3\nNull"
+
+    def test_reduce_fuses_with_empty_yielding_inanis(self):
+        out = compile_and_run(
+            "xsaem := [1, 2, 3, 4, 5, 6]\n"
+            "dici(xsaem.liquum(des { id % 2 == 0 })"
+            ".plicium(des (aium, bium) { aium + bium }).es())\n"
+            "dici(xsaem.liquum(des { id > 100 })"
+            ".plicium(des (aium, bium) { aium + bium }).species())",
+            include_prelude=True,
+            release=False,
+        )
+        assert out.strip() == "12\nNull"

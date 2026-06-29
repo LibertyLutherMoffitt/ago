@@ -4,6 +4,7 @@ pub mod functions;
 pub mod iterators;
 pub mod operators;
 pub mod regex;
+pub mod trace;
 pub mod types;
 
 // Re-export everything for easy importing
@@ -14,6 +15,9 @@ pub use functions::{
     aequalam, apertu, audies, dici, exei, exemplium, literes, ordina, species, scribi,
 };
 pub use iterators::{into_iter, into_pairs};
+pub use trace::{
+    ago_current_line, ago_div, ago_install_panic_hook, ago_mod, ago_set_line,
+};
 pub use regex::{congruam, congruum};
 pub use operators::{
     add, and, bitwise_and, bitwise_or, bitwise_xor, contains, divide, elvis, greater_equal,

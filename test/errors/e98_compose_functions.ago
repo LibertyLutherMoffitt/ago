@@ -1,0 +1,7 @@
+des doublea(xa) { redeo xa * 2 }
+des inca(xa) { redeo xa + 1 }
+des composo(fo, go) {
+    redeo des {fo(go(id))}
+}
+dio := composo(doublea, inca)
+dici(dio(10).es())

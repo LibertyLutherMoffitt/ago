@@ -1,0 +1,3 @@
+des pairuum() { redeo [3, 4] }
+aa, ba := pairuum()
+dici((aa + ba).es())

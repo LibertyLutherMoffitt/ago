@@ -1,0 +1,2 @@
+des doublea(xa) { redeo xa * 2 }
+dici(doubela(2).es())

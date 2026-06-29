@@ -1,0 +1,54 @@
+# AoC 2024 Day 12 - Garden Groups
+# Flood-fill same-letter regions (4-connected). Part 1: sum area*perimeter.
+# Part 2: sum area*sides, and sides == corners (convex + concave) per region.
+
+des samam(griduum, ra, ca, pes) {
+    si ra < 0 vel ra >= griduum.a() vel ca < 0 vel ca >= griduum[0].a() { redeo falsus }
+    redeo griduum[ra][ca] == pes
+}
+
+griduum := apertu("in.txt").contentes.finderum("\n").liquum(des { id != "" }).mutatuum(des { id.erum() })
+diruum := [[0, 1], [0, 0 - 1], [1, 0], [0 - 1, 0]]
+cornuum := [[0 - 1, 0 - 1], [0 - 1, 1], [1, 0 - 1], [1, 1]]
+seenuum := griduum.mutatuum(des { id.mutatuum(des { 0 }) })
+part1a := 0
+part2a := 0
+
+pro ra in 0.<griduum.a() {
+    pro ca in 0.<griduum[0].a() {
+        si seenuum[ra][ca] == 0 {
+            pes := griduum[ra][ca]
+            celluum := []
+            stacuum := [[ra, ca]]
+            seenuum[ra][ca] = 1
+            dum stacuum.a() > 0 {
+                curuum := stacuum[stacuum.a() - 1]
+                stacuum = stacuum[0.<stacuum.a() - 1]
+                celluum = celluum.appenduum(curuum)
+                pro da in diruum {
+                    nra := curuum[0] + da[0]
+                    nca := curuum[1] + da[1]
+                    si samam(griduum, nra, nca, pes) et seenuum[nra][nca] == 0 {
+                        seenuum[nra][nca] = 1
+                        stacuum = stacuum.appenduum([nra, nca])
+                    }
+                }
+            }
+            perima := 0
+            cornsa := 0
+            pro ces in celluum {
+                perima = perima + diruum.liquum(des { non samam(griduum, ces[0] + id[0], ces[1] + id[1], pes) }).a()
+                pro ku in cornuum {
+                    vam := samam(griduum, ces[0] + ku[0], ces[1], pes)
+                    ham := samam(griduum, ces[0], ces[1] + ku[1], pes)
+                    diam := samam(griduum, ces[0] + ku[0], ces[1] + ku[1], pes)
+                    si ((non vam) et (non ham)) vel (vam et ham et (non diam)) { cornsa = cornsa + 1 }
+                }
+            }
+            part1a = part1a + celluum.a() * perima
+            part2a = part2a + celluum.a() * cornsa
+        }
+    }
+}
+part1a.es().dici()
+part2a.es().dici()

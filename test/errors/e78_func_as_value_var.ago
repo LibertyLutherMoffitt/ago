@@ -1,0 +1,3 @@
+des doublea(xa) { redeo xa * 2 }
+fo := doublea
+dici(fo(21).es())

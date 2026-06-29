@@ -1,0 +1,2 @@
+luum := []
+dici(luum[0].es())

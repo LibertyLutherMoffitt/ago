@@ -1,0 +1,2 @@
+luum := [1, 2]
+dici(luum..es())

@@ -1,0 +1,116 @@
+# AoC 2024 Day 15 - Warehouse Woes
+# A Sokoban robot pushes boxes by a move string. Part 1: narrow boxes (O),
+# sum 100*row+col. Part 2: the warehouse is doubled in width and boxes are
+# two cells wide ([]), so a vertical push fans out to every box it leans on
+# (collected by BFS). GPS uses the box's left cell. Verified on the wide-box
+# example, whose part-2 sum is the published 618.
+
+des part1a(secuum) {
+    griduum := secuum.liquum(des { id.erum().a() > 0 et id[0.<1] == "#" }).mutatuum(des { id.erum() })
+    seqes := secuum.liquum(des { id.erum().a() > 0 et id[0.<1] != "#" }).iunges("")
+    ra := 0
+    ca := 0
+    pro rowa in 0.<griduum.a() {
+        pro cola in 0.<griduum[0].a() {
+            si griduum[rowa][cola] == "@" { ra = rowa; ca = cola }
+        }
+    }
+    diru := {"<": [0, 0 - 1], ">": [0, 1], "^": [0 - 1, 0], "v": [1, 0]}
+    pro mes in seqes.erum() {
+        dvuum := diru[mes]
+        nra := ra + dvuum[0]
+        nca := ca + dvuum[1]
+        tra := nra
+        tca := nca
+        dum griduum[tra][tca] == "O" { tra = tra + dvuum[0]; tca = tca + dvuum[1] }
+        si griduum[tra][tca] == "." {
+            griduum[tra][tca] = "O"
+            griduum[ra][ca] = "."
+            griduum[nra][nca] = "@"
+            ra = nra
+            ca = nca
+        }
+    }
+    totala := 0
+    pro rowa in 0.<griduum.a() {
+        pro cola in 0.<griduum[0].a() {
+            si griduum[rowa][cola] == "O" { totala = totala + 100 * rowa + cola }
+        }
+    }
+    redeo totala
+}
+
+des part2a(secuum) {
+    rowserum := secuum.liquum(des { id.erum().a() > 0 et id[0.<1] == "#" })
+    seqes := secuum.liquum(des { id.erum().a() > 0 et id[0.<1] != "#" }).iunges("")
+    widu := {"#": "##", "O": "[]", ".": "..", "@": "@."}
+    wuum := rowserum.mutatuum(des { id.erum().mutatuum(des { widu[id] }).iunges("") }).mutatuum(des { id.erum() })
+    ra := 0
+    ca := 0
+    pro rowa in 0.<wuum.a() {
+        pro cola in 0.<wuum[0].a() {
+            si wuum[rowa][cola] == "@" { ra = rowa; ca = cola }
+        }
+    }
+    diru := {"<": [0, 0 - 1], ">": [0, 1], "^": [0 - 1, 0], "v": [1, 0]}
+    pro mes in seqes.erum() {
+        dvuum := diru[mes]
+        dra := dvuum[0]
+        dca := dvuum[1]
+        si dra == 0 {
+            tca := ca + dca
+            dum wuum[ra][tca] == "[" vel wuum[ra][tca] == "]" { tca = tca + dca }
+            si wuum[ra][tca] == "." {
+                kca := tca
+                dum kca != ca { wuum[ra][kca] = wuum[ra][kca - dca]; kca = kca - dca }
+                wuum[ra][ca] = "."
+                ca = ca + dca
+            }
+        } aluid {
+            nra := ra + dra
+            si wuum[nra][ca] == "." {
+                wuum[ra][ca] = "."; wuum[nra][ca] = "@"; ra = nra
+            } aluid wuum[nra][ca] != "#" {
+                cla := ca
+                si wuum[nra][ca] == "]" { cla = ca - 1 }
+                boxesuum := [[nra, cla]]
+                seenu := {}
+                seenu[nra.es() + "," + cla.es()] = 1
+                blokam := falsus
+                qia := 0
+                dum qia < boxesuum.a() {
+                    bu := boxesuum[qia]
+                    qia = qia + 1
+                    pro ofa in [0, 1] {
+                        tra := bu[0] + dra
+                        tcaa := bu[1] + ofa
+                        celles := wuum[tra][tcaa]
+                        si celles == "#" { blokam = verum }
+                        si celles == "[" vel celles == "]" {
+                            ncla := tcaa
+                            si celles == "]" { ncla = tcaa - 1 }
+                            keyes := tra.es() + "," + ncla.es()
+                            si non (keyes in seenu) { seenu[keyes] = 1; boxesuum = boxesuum.appenduum([tra, ncla]) }
+                        }
+                    }
+                }
+                si non blokam {
+                    pro bu in boxesuum { wuum[bu[0]][bu[1]] = "."; wuum[bu[0]][bu[1] + 1] = "." }
+                    pro bu in boxesuum { wuum[bu[0] + dra][bu[1]] = "["; wuum[bu[0] + dra][bu[1] + 1] = "]" }
+                    wuum[ra][ca] = "."; wuum[nra][ca] = "@"; ra = nra
+                }
+            }
+        }
+    }
+    totala := 0
+    pro rowa in 0.<wuum.a() {
+        pro cola in 0.<wuum[0].a() {
+            si wuum[rowa][cola] == "[" { totala = totala + 100 * rowa + cola }
+        }
+    }
+    redeo totala
+}
+
+secuum := apertu("in.txt").contentes.finderum("\n")
+part1a(secuum).es().dici()
+part2a(secuum).es().dici()

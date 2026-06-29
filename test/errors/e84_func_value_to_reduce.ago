@@ -1,0 +1,3 @@
+des adda(aa, ba) { redeo aa + ba }
+tota := [1,2,3,4].plicium(adda)
+dici(tota.es())

@@ -105,3 +105,24 @@ des genorduum(luum, xo) {
     si la <= 1 { redeo luum }
     redeo _conuum(genorduum(luum[0.<la/2], xo), genorduum(luum[la/2.<la], xo), xo)
 }
+
+des invena(luum, xium) {
+    pro ia in le {
+        si luum[ia] == xium {
+            redeo ia
+        }
+    }
+}
+
+des ullam(luum, xo) {
+    pro lium in luum { si xo(lium) { redeo verum } }
+    redeo falsus
+}
+
+des omnam(luum, xo) {
+    redeo non luum.ullam(des{ non xo(id) })
+}
+
+des nullam(luum, xo) {
+    redeo non luum.ullam(xo)
+}

@@ -1,0 +1,4 @@
+luum := [1, 2]
+pro ia ja in luum {
+    omitto
+}

@@ -1,0 +1,43 @@
+# AoC 2024 Day 14 - Restroom Redoubt
+# Robots wrap on a wa x ha grid (11 x 7 example; 101 x 103 for the real input).
+# Part 1: safety factor (product of the four quadrant counts) after 100s.
+# Part 2: the only example-free part - the second minimizing the safety factor
+# is where the robots cluster into the tree on a real input.
+
+des safetya(roboruum, wa, ha, ta) {
+    mxa := wa / 2
+    mya := ha / 2
+    q1a := 0
+    q2a := 0
+    q3a := 0
+    q4a := 0
+    pro ru in roboruum {
+        xa := (((ru[0] + ta * ru[2]) % wa) + wa) % wa
+        ya := (((ru[1] + ta * ru[3]) % ha) + ha) % ha
+        si xa < mxa et ya < mya { q1a = q1a + 1 }
+        si xa > mxa et ya < mya { q2a = q2a + 1 }
+        si xa < mxa et ya > mya { q3a = q3a + 1 }
+        si xa > mxa et ya > mya { q4a = q4a + 1 }
+    }
+    redeo q1a * q2a * q3a * q4a
+}
+
+wa := 11
+ha := 7
+robotsuum := apertu("in.txt").contentes.finderum("\n").liquum(des { id != "" }).mutatuum(des { id.congruum("-?[0-9]+").mutatuum(des { id[0].a() }) })
+safetya(robotsuum, wa, ha, 100).es().dici()
+
+# Part 2 has no worked example - the Christmas-tree frame exists only in the
+# real 101x103 input, where it is the second that minimises the safety factor
+# (the robots cluster, emptying the quadrants). The finder below is that
+# algorithm; on the 11x7 example there is no tree, so it is not printed.
+#
+#   wa = 101
+#   ha = 103
+#   bestta := 0
+#   besta := safetya(robotsuum, wa, ha, 0)
+#   pro ta in 1.<(wa * ha) {
+#       sa := safetya(robotsuum, wa, ha, ta)
+#       si sa < besta { besta = sa; bestta = ta }
+#   }
+#   bestta.es().dici()

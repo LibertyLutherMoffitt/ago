@@ -1,0 +1,3 @@
+fo := des {id * 2}
+luum := [fo]
+dici(luum[0](5).es())

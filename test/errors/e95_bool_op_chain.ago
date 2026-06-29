@@ -1,0 +1,2 @@
+am := verum et falsus vel verum
+dici(am.es())

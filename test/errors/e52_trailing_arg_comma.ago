@@ -1,0 +1,2 @@
+des adda(xa, ya) { redeo xa + ya }
+dici(adda(1, 2,))

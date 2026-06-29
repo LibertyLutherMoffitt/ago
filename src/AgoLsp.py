@@ -57,8 +57,55 @@ _IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z_0-9]*")
 
 
 _STDLIB_DOCS_CACHE = {}
+_RUST_DOCS_CACHE: dict = {}
+_RUST_SRC_DIR = _AGO_HOME / "src" / "rust" / "src"
+_RUST_FN_RE = re.compile(r"^\s*pub fn ([a-z_][A-Za-z0-9_]*)\s*[(<]")
 
-def builtin_doc(stem: str) -> str:
+
+def _rust_builtin_docs() -> dict:
+    """Map each Rust stdlib `pub fn` to its `///` (or `//`) doc comment, scanned
+    from the runtime source so builtins are documented from one place (the same
+    model as prelude `#` docstrings)."""
+    if _RUST_DOCS_CACHE:
+        return _RUST_DOCS_CACHE
+    if not _RUST_SRC_DIR.is_dir():
+        return _RUST_DOCS_CACHE
+    for rs in sorted(_RUST_SRC_DIR.glob("*.rs")):
+        try:
+            lines = rs.read_text().split("\n")
+        except OSError:
+            continue
+        for i, line in enumerate(lines):
+            m = _RUST_FN_RE.match(line)
+            if not m:
+                continue
+            name = m.group(1)
+            if name in _RUST_DOCS_CACHE:
+                continue
+            doc = []
+            j = i - 1
+            while j >= 0:
+                s = lines[j].strip()
+                if s.startswith("///"):
+                    doc.append(s[3:].strip())
+                elif s.startswith("//"):
+                    doc.append(s[2:].strip())
+                elif s.startswith("#["):
+                    pass  # attribute (e.g. #[inline]) — keep walking up
+                else:
+                    break
+                j -= 1
+            if doc:
+                _RUST_DOCS_CACHE[name] = "\n".join(reversed(doc)).strip()
+    return _RUST_DOCS_CACHE
+
+
+def builtin_doc(name: str) -> str:
+    """Documentation for a builtin, by exact name: the Rust `///` docstring if
+    present, else the docs/stdlib.md section."""
+    rd = _rust_builtin_docs().get(name)
+    if rd:
+        return rd
     if not _STDLIB_DOCS_CACHE:
         stdlib_path = _AGO_HOME / "docs" / "stdlib.md"
         if stdlib_path.exists():
@@ -75,7 +122,7 @@ def builtin_doc(stem: str) -> str:
                     current_doc.append(line)
             if current_func:
                 _STDLIB_DOCS_CACHE[current_func] = "\n".join(current_doc).strip()
-    return _STDLIB_DOCS_CACHE.get(stem, "")
+    return _STDLIB_DOCS_CACHE.get(name, "")
 
 
 def _load_prelude() -> str:
@@ -110,23 +157,28 @@ def _parse_error_line(exc: Exception) -> int:
     return 0
 
 
-def compute_diagnostics(text: str) -> list[lsp.Diagnostic]:
-    """Parse + semantically check `text`, returning diagnostics on its lines."""
-    prelude = _load_prelude()
-    offset = prelude.count("\n")  # number of prelude lines prepended
-    source = prelude + text
-    user_lines = text.split("\n")
+def _prelude_ast():
+    """Cached prelude AST, shared with the CLI (parsed once, keyed on disk)."""
+    from src.AgoPreludeCache import prelude_ast
 
+    cache_dir = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "ago"
+    return prelude_ast(_load_prelude(), cache_dir / "prelude_ast.pkl")
+
+
+def compute_diagnostics(text: str) -> list[lsp.Diagnostic]:
+    """Parse + semantically check `text`, returning diagnostics on its lines.
+
+    The user's code is parsed on its own (fast) and concatenated with the cached
+    prelude AST, so user line numbers are their own (no offset to subtract) and
+    the slow prelude parse happens at most once per prelude change."""
+    user_lines = text.split("\n")
     parser = AgoParser(parseinfo=True)
-    semantics = AgoSemanticChecker()
     diagnostics: list[lsp.Diagnostic] = []
 
     try:
-        parser.parse(source, semantics=semantics)
+        user_ast = parser.parse(text)
     except Exception as exc:  # noqa: BLE001 - surface any parse failure
-        line = _parse_error_line(exc) - offset
-        if line < 0:
-            line = 0
+        line = _parse_error_line(exc)  # already user-relative now
         diagnostics.append(
             lsp.Diagnostic(
                 range=_full_line_range(user_lines, line),
@@ -137,20 +189,23 @@ def compute_diagnostics(text: str) -> list[lsp.Diagnostic]:
         )
         return diagnostics
 
+    combined = tuple(_prelude_ast()) + tuple(user_ast)
+    semantics = AgoSemanticChecker()
+    semantics.principio(combined)
+
     for err in semantics.errors:
-        line = err.line
-        if line is None:
-            node_line, _ = get_node_location(getattr(err, "node", None))
-            line = node_line
-        if line is None:
-            line = offset  # unknown -> first user line
-        user_line = line - offset
-        if user_line < 0:
-            # Error attributed to the prelude; skip (not the user's code).
-            continue
+        node = getattr(err, "node", None)
+        node_line, _ = get_node_location(node)
+        if node_line is None:
+            if node is not None:
+                # Node from the prelude (no parseinfo) — not the user's code.
+                continue
+            line = 0  # unlocatable -> first user line
+        else:
+            line = node_line  # user nodes carry their own line
         diagnostics.append(
             lsp.Diagnostic(
-                range=_full_line_range(user_lines, user_line),
+                range=_full_line_range(user_lines, line),
                 message=str(err.message),
                 severity=lsp.DiagnosticSeverity.Error,
                 source="ago",
@@ -285,12 +340,14 @@ def hover(ls: LanguageServer, params: lsp.HoverParams):
     local_vars = [d for d in collect_definitions(doc.source) if d["stem"] == target_stem and d["kind"] == "variable"]
 
     parts = []
-    if target_stem in _BUILTINS:
-        bdoc = builtin_doc(target_stem)
+    if word in _BUILTINS:
+        # Builtins are matched by their exact name (they don't use the
+        # suffix-cast convention), and documented from their Rust source.
+        bdoc = builtin_doc(word)
         if bdoc:
-            parts.append(f"_builtin function: {target_stem}_\n\n{bdoc}")
+            parts.append(f"_builtin function: {word}_\n\n{bdoc}")
         else:
-            parts.append(f"_builtin function: {target_stem}_")
+            parts.append(f"_builtin function: {word}_")
     elif prelude_funcs:
         func = prelude_funcs[0]
         parts.append(f"_prelude function: {func['name']}_\n\n{func.get('doc', '')}")
@@ -499,12 +556,13 @@ def completion(ls: LanguageServer, params: lsp.CompletionParams):
 
 
 def _function_spans(lines: list[str]) -> list[tuple[int, int, str]]:
-    """(start_line, end_line, name) for every named ``des`` function body block.
+    """(start_line, end_line, name) for every brace-delimited block.
 
-    Brace matching skips strings and comments so that the spans reflect real
-    nesting. Used to scope go-to-definition: a variable referenced inside a
-    function should resolve to the same-stem definition in the *nearest
-    enclosing* function, not the globally-earliest one in some other function.
+    This covers ``des`` function bodies *and* ``pro``/``dum``/``si`` blocks, so a
+    variable declared inside a block — e.g. a ``pro`` loop variable — is scoped
+    to that block and is not resolved from outside it. Brace matching skips
+    strings and comments so the spans reflect real nesting. The name is only the
+    enclosing function's (when known) and is otherwise unused by selection.
     """
     spans: list[tuple[int, int, str]] = []
     stack: list[dict] = []          # open braces, tagged with a function name
@@ -527,24 +585,22 @@ def _function_spans(lines: list[str]) -> list[tuple[int, int, str]]:
                 i += 1
                 continue
             if c == "{":
-                stack.append({"name": pending, "start": ln})
+                stack.append({"name": pending or "", "start": ln})
                 pending = None
             elif c == "}":
                 if stack:
                     top = stack.pop()
-                    if top["name"]:
-                        spans.append((top["start"], ln, top["name"]))
+                    spans.append((top["start"], ln, top["name"]))
             i += 1
     # Close any blocks left open by incomplete/being-edited code.
     while stack:
         top = stack.pop()
-        if top["name"]:
-            spans.append((top["start"], len(lines) - 1, top["name"]))
+        spans.append((top["start"], len(lines) - 1, top["name"]))
     return spans
 
 
 def _innermost_scope(spans: list[tuple[int, int, str]], line: int):
-    """The deepest function span containing ``line``, or None for top level."""
+    """The deepest block span containing ``line``, or None for top level."""
     best = None
     for s, e, name in spans:
         if s <= line <= e and (best is None or (s >= best[0] and e <= best[1])):
@@ -604,13 +660,17 @@ def definition(ls: LanguageServer, params: lsp.DefinitionParams):
         return None
     target_stem = _stem(word)
 
-    # 1) Stem-aware match in the current file: the variable resolves regardless
-    #    of the ending under the cursor (xes -> the `xa := ...` that defined it).
-    #    When several functions declare the same stem, prefer the definition in
-    #    the nearest enclosing function scope rather than the earliest globally.
-    candidates = [d for d in collect_definitions(doc.source) if d["stem"] == target_stem]
-    if candidates:
-        best = _select_definition(candidates, _function_spans(lines), pos.line)
+    # 1) Resolve within the current file. Prefer a definition whose name matches
+    #    the word under the cursor exactly; only when there is none fall back to
+    #    stem matching (xes -> the `xa := ...` that defined it). Either way, pick
+    #    the definition in the nearest enclosing block scope, so a block-local
+    #    name (e.g. a `pro` loop variable) never wins from outside its block.
+    same_stem = [d for d in collect_definitions(doc.source) if d["stem"] == target_stem]
+    if same_stem:
+        spans = _function_spans(lines)
+        exact = [d for d in same_stem if d["name"] == word]
+        pool = exact if exact else same_stem
+        best = _select_definition(pool, spans, pos.line)
         return lsp.Location(
             uri=params.text_document.uri,
             range=_name_range(lines, best["line"], best["name"]),
@@ -719,6 +779,36 @@ def document_symbol(ls: LanguageServer, params: lsp.DocumentSymbolParams):
 # --------------------------------------------------------------------------
 
 
+def _resolved_def_line(name: str, ln: int, defs: list[dict], spans) -> int | None:
+    """The definition line that an occurrence of `name` at line `ln` resolves to,
+    using the same rule as go-to-definition (exact-name first, then stem, scoped
+    to the nearest enclosing block). Lets references/rename stay within scope."""
+    same = [d for d in defs if d["stem"] == _stem(name)]
+    if not same:
+        return None
+    exact = [d for d in same if d["name"] == name]
+    pool = exact if exact else same
+    return _select_definition([dict(d) for d in pool], spans, ln)["line"]
+
+
+def _scoped_occurrences(lines: list[str], word: str, cursor_line: int):
+    """Yield (line, col, name) for every identifier that resolves to the same
+    definition as `word` at `cursor_line` — i.e. the *same variable*, respecting
+    block scope, not merely the same stem."""
+    src = "\n".join(lines)
+    defs = collect_definitions(src)
+    spans = _function_spans(lines)
+    target_stem = _stem(word)
+    target_line = _resolved_def_line(word, cursor_line, defs, spans)
+    if target_line is None:
+        return
+    for ln, col, name in _iter_identifiers(lines):
+        if _stem(name) != target_stem:
+            continue
+        if _resolved_def_line(name, ln, defs, spans) == target_line:
+            yield ln, col, name
+
+
 @server.feature(lsp.TEXT_DOCUMENT_REFERENCES)
 def references(ls: LanguageServer, params: lsp.ReferenceParams):
     doc = ls.workspace.get_text_document(params.text_document.uri)
@@ -729,19 +819,17 @@ def references(ls: LanguageServer, params: lsp.ReferenceParams):
     word = _word_at(lines[pos.line], pos.character)
     if not word:
         return None
-    target = _stem(word)
     locs = []
-    for ln, col, name in _iter_identifiers(lines):
-        if _stem(name) == target:
-            locs.append(
-                lsp.Location(
-                    uri=params.text_document.uri,
-                    range=lsp.Range(
-                        start=lsp.Position(line=ln, character=col),
-                        end=lsp.Position(line=ln, character=col + len(name)),
-                    ),
-                )
+    for ln, col, name in _scoped_occurrences(lines, word, pos.line):
+        locs.append(
+            lsp.Location(
+                uri=params.text_document.uri,
+                range=lsp.Range(
+                    start=lsp.Position(line=ln, character=col),
+                    end=lsp.Position(line=ln, character=col + len(name)),
+                ),
             )
+        )
     return locs
 
 
@@ -755,22 +843,20 @@ def rename(ls: LanguageServer, params: lsp.RenameParams):
     word = _word_at(lines[pos.line], pos.character)
     if not word:
         return None
-    old_stem = _stem(word)
     new_stem = _stem(params.new_name)
     edits = []
-    for ln, col, name in _iter_identifiers(lines):
-        suffix, stem = get_suffix_and_stem(name)
-        if stem == old_stem:
-            replacement = new_stem + (suffix or "")
-            edits.append(
-                lsp.TextEdit(
-                    range=lsp.Range(
-                        start=lsp.Position(line=ln, character=col),
-                        end=lsp.Position(line=ln, character=col + len(name)),
-                    ),
-                    new_text=replacement,
-                )
+    for ln, col, name in _scoped_occurrences(lines, word, pos.line):
+        suffix, _stem_part = get_suffix_and_stem(name)
+        replacement = new_stem + (suffix or "")
+        edits.append(
+            lsp.TextEdit(
+                range=lsp.Range(
+                    start=lsp.Position(line=ln, character=col),
+                    end=lsp.Position(line=ln, character=col + len(name)),
+                ),
+                new_text=replacement,
             )
+        )
     if not edits:
         return None
     return lsp.WorkspaceEdit(changes={params.text_document.uri: edits})

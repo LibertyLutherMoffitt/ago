@@ -1,0 +1,2 @@
+totala := couna + 1
+dici(totala.es())

@@ -124,7 +124,7 @@ def print_help():
 
     print(f"""{get_banner()}
 {C}Usage:{E} ago {G}FILE{E} [{Y}OPTIONS{E}]
-       ago fmt [{Y}--check{E}|{Y}-w{E}] {G}FILE...{E}   {D}# format Ago source{E}
+       ago fmt [{Y}--check{E}] {G}PATH...{E}        {D}# format .ago files in place (dirs recurse){E}
        ago lsp                       {D}# run the language server (stdio){E}
 
 {C}Arguments:{E}
@@ -182,6 +182,11 @@ def parse_args():
     parser.add_argument("--no-color", action="store_true")
     parser.add_argument("--quiet", "-q", action="store_true")
     parser.add_argument("--verbose", action="store_true")
+    parser.add_argument(
+        "--release",
+        action="store_true",
+        help="optimized build (slower to compile, faster to run)",
+    )
 
     return parser.parse_args()
 
@@ -198,23 +203,33 @@ def load_prelude() -> str:
     return ""
 
 
-def read_source(file_path: Path):
-    """Read source with the stdlib prelude prepended.
-
-    Returns (combined_source, user_code, prelude_line_offset). The offset lets
-    error reporting map combined line numbers back to the user's own lines.
-    """
-    prelude = load_prelude()
+def read_user_source(file_path: Path) -> str:
+    """Read the user's `.ago` file (the prelude is handled separately now)."""
     try:
         with open(file_path, "r") as f:
-            user_code = f.read() + "\n"
+            return f.read() + "\n"
     except FileNotFoundError:
         print_error(f"file not found: {file_path}")
         sys.exit(1)
     except PermissionError:
         print_error(f"permission denied: {file_path}")
         sys.exit(1)
-    return prelude + user_code, user_code, prelude.count("\n")
+
+
+# The prelude is large and the parser is superlinear, so parsing it dominates
+# every compile (~4s). It never changes between runs, so parse it once and cache
+# the AST on disk, keyed by the prelude *and* parser source. The user's program
+# is parsed on its own (fast) and the two ASTs are concatenated, which keeps the
+# user's line numbers their own (no prelude offset to subtract).
+PRELUDE_AST_CACHE = CACHE_DIR / "prelude_ast.pkl"
+
+
+def prelude_ast():
+    """Parsed prelude AST (parseinfo-free), cached on disk. Returns a tuple of
+    top-level items, or () if there is no prelude."""
+    from src.AgoPreludeCache import prelude_ast as _cached
+
+    return _cached(load_prelude(), PRELUDE_AST_CACHE)
 
 
 # Keywords + builtins used for "did you mean ...?" suggestions on parse errors.
@@ -348,21 +363,28 @@ def _emit_syntax(file_path, lines, line0, col0, length, message, label, suggesti
     )
 
 
-def parse_source(source, file_path, user_code, prelude_offset):
-    """Parse source (with positions) and run semantic checks."""
+def parse_source(user_code, file_path):
+    """Parse the user's code (with positions), prepend the cached prelude AST,
+    and run semantic checks. User line numbers are their own (offset 0)."""
     # A cheap, precise pre-check catches the most common syntax mistakes with
     # better messages than the generic parser can give.
     if _check_brackets(user_code, file_path):
         sys.exit(1)
 
     parser = AgoParser(parseinfo=True)
-    semantics = AgoSemanticChecker()
     try:
-        ast = parser.parse(source, semantics=semantics)
+        user_ast = parser.parse(user_code)
     except Exception as e:
-        _report_parse_error(e, file_path, user_code, prelude_offset)
+        _report_parse_error(e, file_path, user_code, 0)  # exits
 
-    return ast, semantics
+    # Concatenate the cached prelude AST with the freshly parsed user AST, then
+    # run the semantic checker over the whole program. The semantic checker's
+    # per-rule actions are no-ops, so calling `principio` on the combined tree is
+    # equivalent to parsing the combined source with `semantics=`.
+    combined = tuple(prelude_ast()) + tuple(user_ast)
+    semantics = AgoSemanticChecker()
+    semantics.principio(combined)
+    return combined, semantics
 
 
 def _node_loc(node, combined_source):
@@ -434,9 +456,17 @@ ago_stdlib = {{ path = "{stdlib_path}" }}
 
 
 def compile_rust(
-    rust_code: str, output_path: Path, quiet: bool = False, verbose: bool = False
+    rust_code: str,
+    output_path: Path,
+    quiet: bool = False,
+    verbose: bool = False,
+    release: bool = False,
 ) -> Path:
-    """Compile Rust code to binary."""
+    """Compile Rust code to a binary.
+
+    Builds in debug by default — far faster to compile, which is what the
+    edit→run loop wants. Pass `release=True` for an optimized build.
+    """
     # Set up build directory
     setup_build_dir()
 
@@ -450,10 +480,11 @@ def compile_rust(
 
     # Compile with cargo
     if not quiet:
-        print_info("compiling...")
+        print_info("compiling..." if release else "compiling (debug)...")
 
+    cmd = ["cargo", "build"] + (["--release"] if release else [])
     result = subprocess.run(
-        ["cargo", "build", "--release"],
+        cmd,
         cwd=OUTPUT_DIR,
         capture_output=True,
         text=True,
@@ -481,7 +512,8 @@ def compile_rust(
         sys.exit(1)
 
     # Copy/link to output path
-    exe_path = OUTPUT_DIR / "target" / "release" / "ago_program"
+    profile_dir = "release" if release else "debug"
+    exe_path = OUTPUT_DIR / "target" / profile_dir / "ago_program"
 
     if output_path != exe_path:
         import shutil
@@ -504,89 +536,157 @@ def _summarize_rustc_error(stderr: str) -> str:
     return ""
 
 
-def run_binary(exe_path: Path) -> int:
+def run_binary(exe_path: Path, file_path=None, user_code: str = "") -> int:
     """Run the compiled binary.
 
     stdout streams to the user live; stderr is captured so that a Rust panic can
-    be reformatted as a clean Ago runtime error (no Rust backtrace / file paths).
+    be reformatted as a clean Ago runtime error pointing at the Ago source line
+    (no Rust backtrace / file paths).
     """
     env = dict(os.environ)
     env["RUST_BACKTRACE"] = "0"
     result = subprocess.run([exe_path], stderr=subprocess.PIPE, text=True, env=env)
     if result.returncode != 0 and result.stderr:
-        _report_runtime_error(result.stderr)
+        _report_runtime_error(result.stderr, file_path, user_code)
     elif result.stderr:
         sys.stderr.write(result.stderr)
     return result.returncode
 
 
-def _report_runtime_error(stderr: str) -> None:
-    """Turn a Rust panic dump into a one-line Ago runtime error."""
+# Emitted by the runtime's panic hook: "__AGO_RT__<line>\t<message>".
+_AGO_RT_MARKER = "__AGO_RT__"
+
+
+def _report_runtime_error(stderr: str, file_path=None, user_code: str = "") -> None:
+    """Turn a runtime panic into a clean Ago error pointing at the source line."""
+    line_no = None
     msg = None
-    lines = stderr.split("\n")
-    for i, line in enumerate(lines):
-        if "panicked at" in line:
-            # The human message is on the following line(s).
-            msg = "\n".join(lines[i + 1 :]).strip()
-            # Drop the trailing "note: run with RUST_BACKTRACE..." hint.
-            msg = msg.split("\nnote:")[0].strip()
-            break
-    if not msg:
-        # Not a panic we recognize; pass the original through.
-        sys.stderr.write(stderr)
+    passthrough = []
+    for line in stderr.split("\n"):
+        if line.startswith(_AGO_RT_MARKER):
+            rest = line[len(_AGO_RT_MARKER):]
+            num, _, m = rest.partition("\t")
+            try:
+                line_no = int(num)
+            except ValueError:
+                line_no = 0
+            msg = m.strip()
+        elif "panicked at" not in line and not line.startswith("note:"):
+            if line.strip():
+                passthrough.append(line)
+
+    # Fallback for any stderr that isn't our marker (e.g. older binaries).
+    if msg is None:
+        lines = stderr.split("\n")
+        for i, line in enumerate(lines):
+            if "panicked at" in line:
+                msg = "\n".join(lines[i + 1:]).split("\nnote:")[0].strip()
+                break
+        if not msg:
+            sys.stderr.write(stderr)
+            return
+        print_error(f"runtime error: {msg}")
         return
-    print_error(f"runtime error: {msg}")
+
+    # Anything the program wrote to stderr before crashing.
+    for line in passthrough:
+        sys.stderr.write(line + "\n")
+
+    user_lines = user_code.split("\n") if user_code else []
+    if line_no and line_no >= 1 and user_lines:
+        sys.stderr.write(
+            render_diagnostic(
+                filename=str(file_path) if file_path else "<program>",
+                source_lines=user_lines,
+                line=line_no - 1,
+                col=None,
+                message=f"runtime error: {msg}",
+                label="while running this line",
+                color=color_enabled(),
+            )
+        )
+    else:
+        print_error(f"runtime error: {msg}")
 
 
 def run_fmt(argv) -> int:
-    """`ago fmt [--check] [-w|--write] FILE...` - format Ago source.
+    """`ago fmt [--check] [--stdout] PATH...` - format Ago source.
 
-    With no flags, prints the formatted source to stdout (reads stdin if no
-    files). --check reports unformatted files and exits non-zero. -w/--write
-    rewrites files in place.
+    Default: rewrite each file in place. A PATH that is a directory is searched
+    recursively for `*.ago` files. With no PATH, formats stdin to stdout.
+    --check reports unformatted files and exits non-zero (writes nothing).
+    --stdout prints the formatted source instead of writing.
     """
-    write = False
     check = False
-    files = []
+    to_stdout = False
+    paths = []
     for a in argv:
         if a in ("-w", "--write"):
-            write = True
+            pass  # in-place is now the default; accepted for compatibility
         elif a == "--check":
             check = True
+        elif a in ("--stdout", "-"):
+            to_stdout = True
         elif a in ("-h", "--help"):
-            print("usage: ago fmt [--check] [-w|--write] FILE...")
+            print("usage: ago fmt [--check] [--stdout] PATH...")
+            print("  PATH may be a .ago file or a directory (searched recursively)")
             return 0
         elif a.startswith("-"):
             print_error(f"unknown fmt option: {a}")
             return 2
         else:
-            files.append(a)
+            paths.append(a)
 
-    if not files:
+    # No paths: act as a stdin -> stdout filter.
+    if not paths:
         sys.stdout.write(format_source(sys.stdin.read()))
         return 0
 
+    # Expand each path into the set of .ago files to format (dirs recurse).
+    files: list[Path] = []
     rc = 0
+    for p in paths:
+        path = Path(p)
+        if path.is_dir():
+            found = sorted(path.rglob("*.ago"))
+            if not found:
+                print_warning(f"no .ago files under {p}")
+            files.extend(found)
+        elif path.exists():
+            files.append(path)
+        else:
+            print_error(f"path not found: {p}")
+            rc = 1
+
     unformatted = False
-    for f in files:
-        path = Path(f)
+    changed = 0
+    for path in files:
         try:
             original = path.read_text()
         except OSError as e:
-            print_error(f"cannot read {f}: {e}")
+            print_error(f"cannot read {path}: {e}")
             rc = 1
             continue
-        formatted = format_source(original)
+        try:
+            formatted = format_source(original)
+        except Exception as e:
+            print_error(f"cannot format {path}: {e}")
+            rc = 1
+            continue
         if check:
             if formatted != original:
-                print(f"{f}: not formatted", file=sys.stderr)
+                print(f"{path}: not formatted", file=sys.stderr)
                 unformatted = True
-        elif write:
+        elif to_stdout:
+            sys.stdout.write(formatted)
+        else:
             if formatted != original:
                 path.write_text(formatted)
-                print_success(f"formatted {f}")
-        else:
-            sys.stdout.write(formatted)
+                print_success(f"formatted {path}")
+                changed += 1
+
+    if not check and not to_stdout and changed == 0 and files:
+        print_info("already formatted")
     if check and unformatted:
         return 1
     return rc
@@ -622,20 +722,21 @@ def main():
         print_warning(f"file does not have .ago extension: {file_path}")
 
     # Read source
-    source, user_code, prelude_offset = read_source(file_path)
+    user_code = read_user_source(file_path)
 
     # Parse and semantic check
-    ast, semantics = parse_source(source, file_path, user_code, prelude_offset)
+    ast, semantics = parse_source(user_code, file_path)
 
     # Handle --ast
     if args.ast:
         print(json.dumps(asjson(ast), indent=2))
         sys.exit(0)
 
-    # Report semantic errors
+    # Report semantic errors. User nodes carry their own (user-relative) line
+    # numbers now, so there is no prelude offset to subtract.
     if semantics.errors:
         _report_semantic_errors(
-            semantics.errors, source, file_path, user_code, prelude_offset
+            semantics.errors, user_code, file_path, user_code, 0
         )
         n = len(semantics.errors)
         print_error(f"found {n} error(s) in {file_path}")
@@ -657,23 +758,27 @@ def main():
     # Handle --emit=bin
     if args.emit == "bin":
         output_path = Path(args.output) if args.output else Path("program")
-        exe_path = compile_rust(rust_code, output_path, args.quiet, args.verbose)
+        exe_path = compile_rust(
+            rust_code, output_path, args.quiet, args.verbose, args.release
+        )
         print_success(f"compiled to {exe_path}")
         sys.exit(0)
 
     # Default: compile and run
     with tempfile.TemporaryDirectory():
+        profile_dir = "release" if args.release else "debug"
         exe_path = compile_rust(
             rust_code,
-            OUTPUT_DIR / "target" / "release" / "ago_program",
+            OUTPUT_DIR / "target" / profile_dir / "ago_program",
             args.quiet,
             args.verbose,
+            args.release,
         )
 
         if not args.quiet:
             print(c("─" * 40, Colors.DIM), file=sys.stderr)
 
-        exit_code = run_binary(exe_path)
+        exit_code = run_binary(exe_path, file_path, user_code)
         sys.exit(exit_code)
 
 

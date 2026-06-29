@@ -1,0 +1,5 @@
+des doublea(xa) { redeo xa * 2 }
+des inca(xa) { redeo xa + 1 }
+flagam := verum
+fo := flagam ? doublea : inca
+dici(fo(10).es())

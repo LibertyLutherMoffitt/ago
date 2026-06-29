@@ -1,0 +1,2 @@
+fo := des {id + 1}
+resuum := [1,2,3].mutatuuum(fo)

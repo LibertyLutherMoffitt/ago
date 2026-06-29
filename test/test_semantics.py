@@ -781,3 +781,97 @@ des makeo() {
     errors = run_semantics(src)
     assert len(errors) == 1
     assert "no return statement" in str(errors[0])
+
+
+# ---------- CALLEE VALIDATION IN NESTED / METHOD-CHAIN POSITIONS ----------
+
+
+def test_undefined_function_nested_in_argument_is_reported():
+    # A call nested inside another call's argument must still validate its callee.
+    src = 'des doublea(xa) { redeo xa * 2 }\ndici(doubela(2).es())\n'
+    errors = run_semantics(src)
+    assert any("undeclared identifier 'doubela'" in str(e) for e in errors)
+    assert any(e.suggestion == "doublea" for e in errors)
+
+
+def test_calling_non_function_nested_is_reported():
+    src = 'ses := "hi"\ndici(ses(1).es())\n'
+    errors = run_semantics(src)
+    assert any("not callable" in str(e) for e in errors)
+
+
+def test_misspelled_method_is_reported():
+    # An unresolved method/function name in a chain is flagged. (The "did you
+    # mean ..." suggestion needs the prelude loaded, which the CLI does; this
+    # bare-source harness only checks that it is reported.)
+    src = 'fo := des {id + 1}\nresuum := [1,2,3].mutatuuum(fo)\n'
+    errors = run_semantics(src)
+    assert any("Unknown method or function 'mutatuuum'" in str(e) for e in errors)
+
+
+def test_forward_referenced_function_is_not_undefined():
+    # Functions defined later in the file may be called earlier.
+    src = "des firsta() { redeo seconda() }\ndes seconda() { redeo 1 }\nfirsta()\n"
+    errors = run_semantics(src)
+    assert errors == []
+
+
+def test_named_function_used_as_value_is_allowed():
+    # A named function passed where a lambda is expected is valid.
+    src = (
+        "des inca(xa) { redeo xa + 1 }\n"
+        "des applya(fo, va) { redeo fo(va) }\n"
+        "applya(inca, 9)\n"
+    )
+    errors = run_semantics(src)
+    assert errors == []
+
+
+def test_valid_lambda_variable_call_nested_is_ok():
+    src = "fo := des {id * 2}\ndici(fo(5).es())\n"
+    errors = run_semantics(src)
+    assert errors == []
+
+
+# ---------- CAST VALIDATION (compile-time) + list<->map ----------
+
+
+def test_struct_to_list_cast_allowed():
+    errors = run_semantics('mu := {"a": 1}\npuum := mu.uum()\ndici(puum.es())\n')
+    assert errors == []
+
+
+def test_list_to_struct_cast_allowed():
+    errors = run_semantics('puum := [["a", 1]]\nmu := puum.u()\ndici(mu["a"].es())\n')
+    assert errors == []
+
+
+def test_struct_to_typed_list_cast_rejected():
+    errors = run_semantics('mu := {"a": 1}\naem := mu.aem()\ndici(aem.es())\n')
+    assert any("Cannot cast 'struct' to 'int_list'" in str(e) for e in errors)
+
+
+def test_string_to_int_list_cast_rejected():
+    # string -> string_list is fine, but string -> int_list is not.
+    errors = run_semantics('ses := "hi"\naem := ses.aem()\ndici(aem.es())\n')
+    assert any("Cannot cast 'string' to 'int_list'" in str(e) for e in errors)
+
+
+def test_interpolation_typo_is_reported():
+    errors = run_semantics('na := 5\ndici("v=${naa}")\n')
+    assert any("not defined" in str(e) for e in errors)
+
+
+def test_valid_interpolation_has_no_errors():
+    errors = run_semantics('na := 5\nses := "x"\ndici("${ses}=${na + 1}")\n')
+    assert errors == []
+
+
+def test_variable_suffix_cast_validated():
+    # Reading a variable through a different-suffix name is a cast and is
+    # checked: struct/int/string -> int_list are rejected, float -> int is fine.
+    assert any("Cannot cast variable" in str(e)
+               for e in run_semantics('xa := 5\ndici(xaem.es())\n'))
+    assert any("Cannot cast variable" in str(e)
+               for e in run_semantics('mu := {"a": 1}\ndici(maem.es())\n'))
+    assert run_semantics("xae := 1.9\ndici(xa.es())\n") == []

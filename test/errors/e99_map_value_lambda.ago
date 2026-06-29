@@ -1,0 +1,4 @@
+fo := des {id + 1}
+mu := {"fo": fo}
+go := mu["fo"]
+dici(go(41).es())

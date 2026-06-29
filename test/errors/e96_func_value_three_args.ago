@@ -1,0 +1,3 @@
+des suma(aa, ba, ca) { redeo aa + ba + ca }
+des apply3a(fo) { redeo fo(1, 2, 3) }
+dici(apply3a(suma).es())
