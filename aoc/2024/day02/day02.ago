@@ -7,8 +7,8 @@ des safeam(luum) {
     increasingam := verum
     decreasingam := verum
     okam := verum
-    pro ia in 0.<(luum.a()-1) {
-        da := luum[ia+1] - luum[ia]
+    pro ia in 0.<(luum.a() - 1) {
+        da := luum[ia + 1] - luum[ia]
         absa := da >= 0 ? da : 0 - da
         si absa < 1 vel absa > 3 { okam = falsus }
         si da < 0 { increasingam = falsus }

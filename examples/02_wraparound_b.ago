@@ -22,9 +22,9 @@ des absium(xium) {
 }
 
 numaem := apertu("./a.txt").contentes.finderum("\n").mutatuum(des {
-    res := ides
-    res[0] = ides[0] == "L" ? "-" : "+"
-    redeo ra
+        res := ides
+        res[0] = ides[0] == "L" ? "-" : "+"
+        redeo ra
 })
 
 va := 50

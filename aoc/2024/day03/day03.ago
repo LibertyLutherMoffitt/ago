@@ -5,7 +5,7 @@
 des matcham(cuum, posa, paterum) {
     pro ka in 0.<paterum.a() {
         si posa + ka >= cuum.a() { redeo falsus }
-        si cuum[posa+ka] != paterum[ka] { redeo falsus }
+        si cuum[posa + ka] != paterum[ka] { redeo falsus }
     }
     redeo verum
 }

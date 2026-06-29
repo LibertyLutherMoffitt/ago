@@ -1,29 +1,28 @@
 des area(aaem, baem) { redeo ((aaem[0] - baem[0]).abba() + 1) * ((aaem[1] - baem[1]).abba() + 1) }
 
 des betweenam(aa, ba, ca) {
-    ma := mina([ba+0, ca+0])
-    xa := maxa([ba+0, ca+0])
+    ma := mina([ba + 0, ca + 0])
+    xa := maxa([ba + 0, ca + 0])
     redeo ma <= aa et aa <= xa
 }
 
 des in_am(puum, horuum) {
-    si horuum.ullam(des{id[0][0] == puum[0] et puum[1].betweenam(id[0][1], id[1][1]) }) { redeo verum }
-    redeo horuum.liquum(des{id[0][0] > puum[0] et puum[1].betweenam(id[0][1], id[1][1]) }).a() % 2 == 1
+    si horuum.ullam(des { id[0][0] == puum[0] et puum[1].betweenam(id[0][1], id[1][1]) }) { redeo verum }
+    redeo horuum.liquum(des { id[0][0] > puum[0] et puum[1].betweenam(id[0][1], id[1][1]) }).a() % 2 == 1
 }
 
-boxuum := apertu("b").contentes.finderum("\n").mutatuum(des{id.findaem(",")})
-horuum := boxe.aem().mutatuum(des{[boxuum[ida], boxuum[(ida+1)%boxa]]}).liquum(des{ id[0][0] == id[1][0] })
+boxuum := apertu("b").contentes.finderum("\n").mutatuum(des { id.findaem(",") })
+horuum := boxe.aem().mutatuum(des { [boxuum[ida], boxuum[(ida + 1) % boxa]] }).liquum(des { id[0][0] == id[1][0] })
 
 adjuum := []
 pro aa in boxe {
     pro ba in 0.<aa {
-        adjuum.inseri(adja, [ba+0, aa+0, area(boxuum[aa], boxuum[ba])])
-   }
+        adjuum.inseri(adja, [ba + 0, aa + 0, area(boxuum[aa], boxuum[ba])])
+    }
 }
 
+adjuum = adjuum.genorduum(des { -idaem[2] })
 
-adjuum = adjuum.genorduum(des{-idaem[2]})
-
-adjuum.liquum(des{
-    [boxuum[id[0]], boxuum[id[1]], [boxuum[id[0]][0], boxuum[id[1]][1]], [boxuum[id[1]][0], boxuum[id[0]][1]]].omnam(des{id.in_am(horuum)})
+adjuum.liquum(des {
+        [boxuum[id[0]], boxuum[id[1]], [boxuum[id[0]][0], boxuum[id[1]][1]], [boxuum[id[1]][0], boxuum[id[0]][1]]].omnam(des { id.in_am(horuum) })
 })[0][2].es().dici()

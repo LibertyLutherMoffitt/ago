@@ -69,7 +69,9 @@ des part2a(secuum) {
         } aluid {
             nra := ra + dra
             si wuum[nra][ca] == "." {
-                wuum[ra][ca] = "."; wuum[nra][ca] = "@"; ra = nra
+                wuum[ra][ca] = "."
+                wuum[nra][ca] = "@"
+                ra = nra
             } aluid wuum[nra][ca] != "#" {
                 cla := ca
                 si wuum[nra][ca] == "]" { cla = ca - 1 }
@@ -97,7 +99,9 @@ des part2a(secuum) {
                 si non blokam {
                     pro bu in boxesuum { wuum[bu[0]][bu[1]] = "."; wuum[bu[0]][bu[1] + 1] = "." }
                     pro bu in boxesuum { wuum[bu[0] + dra][bu[1]] = "["; wuum[bu[0] + dra][bu[1] + 1] = "]" }
-                    wuum[ra][ca] = "."; wuum[nra][ca] = "@"; ra = nra
+                    wuum[ra][ca] = "."
+                    wuum[nra][ca] = "@"
+                    ra = nra
                 }
             }
         }

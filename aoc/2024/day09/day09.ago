@@ -92,6 +92,7 @@ dum lefta < righta {
     lefta = lefta + 1
     righta = righta - 1
 }
+
 checksuma(b1uum).es().dici()
 
 # Part 2
@@ -111,4 +112,5 @@ pro ka in 0.<nfa {
         }
     }
 }
+
 checksuma(b2uum).es().dici()

@@ -1,4 +1,4 @@
-numuum := apertu("./b.txt").contentes.finderum(",").mutatuum(des {spoliares(ides).finderum("-")})
+numuum := apertu("./b.txt").contentes.finderum(",").mutatuum(des { spoliares(ides).finderum("-") })
 
 ca := 0 # total
 pro numium in numuum {
@@ -13,7 +13,7 @@ pro numium in numuum {
             xerum := []
             pro ja in 0.<ia { # split the string into ia bits adding them to xerum
                 ssa := ja * serum.a() / ia
-                eea := (ja+I) * serum.a() / ia
+                eea := (ja + I) * serum.a() / ia
                 xerum = xerum.appenduum(ses[ssa.<eea])
             }
             flagam := verum

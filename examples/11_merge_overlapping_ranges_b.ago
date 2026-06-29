@@ -1,8 +1,8 @@
-ranguum := apertu("./a.txt").contentes.findomnuum("\n").finduum("")[0].mutatuum(des{id.findaem("-")})
+ranguum := apertu("./a.txt").contentes.findomnuum("\n").finduum("")[0].mutatuum(des { id.findaem("-") })
 
 flagam := verum
 dum flagam {
-    ranguum = ranguum.liquum(des{id != inanis})
+    ranguum = ranguum.liquum(des { id != inanis })
     flagam = falsus
     pro ia in range {
         pro ja in range {
@@ -19,4 +19,4 @@ dum flagam {
 
 ranges.dici()
 
-ranguum.mutatuum(des{id[1]-id[0]+I}).sumes().dici()
+ranguum.mutatuum(des { id[1] - id[0] + I }).sumes().dici()

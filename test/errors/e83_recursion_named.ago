@@ -2,4 +2,5 @@ des facta(na) {
     si na < 2 { redeo 1 }
     redeo na * facta(na - 1)
 }
+
 dici(facta(5).es())

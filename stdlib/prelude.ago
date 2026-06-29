@@ -1,7 +1,6 @@
 # Ago Standard Library Prelude
 # These functions are automatically available in all Ago programs.
 
-
 # sqrtae - returns the square root of sium
 # Name ends in -tae (returns int/float)
 des sqrtae(sium) {
@@ -40,7 +39,7 @@ des powa(xa, na) {
 # abbium - returns absolute value
 # Name ends in -ium (returns int/float)
 des abbium(xium) {
-    redeo xium < 0  ? -xium : xium
+    redeo xium < 0 ? -xium : xium
 }
 
 # appenduum - appends yium to xium
@@ -57,7 +56,7 @@ des vicissuum(ruum) {
     ia := ra
     dum ia > 0 {
         ia = ia - I
-        tuum.inseri(ta, ruum[ia]) 
+        tuum.inseri(ta, ruum[ia])
     }
     redeo tuum
 }
@@ -169,7 +168,7 @@ des plicium(luum, xo) {
 # Name ends in -uum (returns list_any)
 des mutatuum(luum, xo) {
     ruum := []
-    pro xa in le { 
+    pro xa in le {
         ruum = ruum.appenduum(xo(luum[xa]))
     }
     redeo ruum
@@ -179,14 +178,14 @@ des mutatuum(luum, xo) {
 # Works with all list types containing comparable elements
 # Returns inanis for empty lists
 des minium(luum) {
-    redeo luum.plicium(des (aium, bium) {aium < bium ? aium : bium})
+    redeo luum.plicium(des (aium, bium) { aium < bium ? aium : bium })
 }
 
 # maxium - Returns the maximum element of any list
 # Works with all list types containing comparable elements
 # Returns inanis for empty lists
 des maxium(luum) {
-    redeo luum.plicium(des (aium, bium) {aium > bium ? aium : bium})
+    redeo luum.plicium(des (aium, bium) { aium > bium ? aium : bium })
 }
 
 # finderum - Split a string on a single character separator
@@ -247,14 +246,14 @@ des findomnerum(les, ses) {
 # Returns the sum of all elements, or inanis for empty lists
 # Name ends in -ium (returns int/float/any)
 des sumium(luum) {
-    redeo luum.plicium(des (aium, bium) {aium + bium})
+    redeo luum.plicium(des (aium, bium) { aium + bium })
 }
 
 # prodium - Product of all elements of a numeric list
 # Returns the product of all elements, or inanis for empty lists
 # Name ends in -ium (returns int/float/any)
 des prodium(luum) {
-    redeo luum.plicium(des (aium, bium) {aium * bium})
+    redeo luum.plicium(des (aium, bium) { aium * bium })
 }
 
 # invena - Find the index of an element in a list
@@ -302,7 +301,7 @@ des _conuum(auum, buum, xo) {
 # Name ends in -uum (returns list_any)
 des genorduum(luum, xo) {
     si la <= 1 { redeo luum }
-    redeo _conuum(genorduum(luum[0.<la/2], xo), genorduum(luum[la/2.<la], xo), xo)
+    redeo _conuum(genorduum(luum[0.<la / 2], xo), genorduum(luum[la / 2.<la], xo), xo)
 }
 
 # ullam - any
@@ -313,7 +312,7 @@ des ullam(luum, xo) {
 
 # omnam - all
 des omnam(luum, xo) {
-    redeo non luum.ullam(des{ non xo(id) })
+    redeo non luum.ullam(des { non xo(id) })
 }
 
 # nullam - none
@@ -324,7 +323,7 @@ des nullam(luum, xo) {
 # pivot / transpose
 des carduum(luum) {
     ruum := []
-    si non lam {redeo []}
+    si non lam { redeo [] }
     pro ja in luum[0].e() {
         suum := []
         pro ia in le {
@@ -359,15 +358,15 @@ des _siftdownuum(luum, starta, enda, xo) {
     dum roota * II + I <= enda {
         childa := roota * II + I
         swapa := roota
-        
+
         si xo(luum[swapa]) < xo(luum[childa]) {
             swapa = childa
         }
-        
+
         si childa + I <= enda et xo(luum[swapa]) < xo(luum[childa + I]) {
             swapa = childa + I
         }
-        
+
         si swapa != roota {
             tempa := luum[roota]
             luum[roota] = luum[swapa]
@@ -386,25 +385,25 @@ des _siftdownuum(luum, starta, enda, xo) {
 # Name ends in -uum (returns list_any)
 des heaporduum(luum, xo) {
     si la <= I { redeo luum }
-    
+
     # Build max-heap (bottom-up heapify)
     starta := (la - II) / II
     dum starta >= 0 {
         luum = _siftdownuum(luum, starta, la - I, xo)
         starta = starta - I
     }
-    
+
     # Extract elements one by one
     enda := la - I
     dum enda > 0 {
         tempa := luum[0]
         luum[0] = luum[enda]
         luum[enda] = tempa
-        
+
         enda = enda - I
         luum = _siftdownuum(luum, 0, enda, xo)
     }
-    
+
     redeo luum
 }
 
@@ -415,7 +414,7 @@ des _mediana(luum, aa, ba, ca, xo) {
     xa := xo(luum[aa])
     ya := xo(luum[ba])
     za := xo(luum[ca])
-    
+
     si (xa <= ya et ya <= za) vel (za <= ya et ya <= xa) {
         redeo ba
     }
@@ -430,19 +429,19 @@ des _mediana(luum, aa, ba, ca, xo) {
 # Name ends in -uum (returns list_any)
 des _quickuum(luum, loa, hia, xo) {
     si loa >= hia { redeo luum }
-    
+
     # Median-of-three pivot selection
     mida := (loa + hia) / II
     pivota := _mediana(luum, loa, mida, hia, xo)
-    
+
     # Move pivot to end
     tempa := luum[pivota]
     luum[pivota] = luum[hia]
     luum[hia] = tempa
-    
+
     pivotium := xo(luum[hia])
     ia := loa
-    
+
     # Partition
     pro ja in loa.<hia {
         si xo(luum[ja]) < pivotium {
@@ -452,19 +451,19 @@ des _quickuum(luum, loa, hia, xo) {
             ia = ia + I
         }
     }
-    
+
     # Place pivot in final position
     tempa = luum[ia]
     luum[ia] = luum[hia]
     luum[hia] = tempa
-    
+
     # Recurse on partitions
     luum = _quickuum(luum, loa, ia - I, xo)
     luum = _quickuum(luum, ia + I, hia, xo)
     redeo luum
 }
 
-# celerorduum - Quicksort using a key function  
+# celerorduum - Quicksort using a key function
 # Takes a list and a key function that extracts the sort key from each element
 # Uses median-of-three pivot selection to avoid O(n²) worst case
 # O(n log n) average - can be very fast for large lists
@@ -481,5 +480,5 @@ des linerum() {
 
 # numeruum - Input from stdin into a 2d list of ints
 des numeruum() {
-    redeo linerum().mutatuum(des { ides.finderum(" ").mutataem(des {ida}) })
+    redeo linerum().mutatuum(des { ides.finderum(" ").mutataem(des { ida }) })
 }

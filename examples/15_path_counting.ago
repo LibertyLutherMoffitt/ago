@@ -14,18 +14,19 @@ mapuum := []
 pro ga in guum[0].erum().e() {
     mapuum = mapuum.appenduum(0)
 }
+
 mapuum[guum[0].erum().invena("S")] = 1
 
 guum[0] = mapuum
 finaluum := guum.plicium(des (auum, bes) {
-    ruum := auum
-    pro ea in ae {
-        si ea != 0 et "^" in berum.uum().u() et ea in berum.uum().u()."^" {
-            ruum[ea-I] = ruum[ea-I] + ruum[ea]
-            ruum[ea+I] = ruum[ea+I] + ruum[ea]
-            ruum[ea] = 0
+        ruum := auum
+        pro ea in ae {
+            si ea != 0 et "^" in berum.uum().u() et ea in berum.uum().u()."^" {
+                ruum[ea - I] = ruum[ea - I] + ruum[ea]
+                ruum[ea + I] = ruum[ea + I] + ruum[ea]
+                ruum[ea] = 0
+            }
         }
-    }
-    redeo ruum
+        redeo ruum
 })
 finaluum.sumes().dici()

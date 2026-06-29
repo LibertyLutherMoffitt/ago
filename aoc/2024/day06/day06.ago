@@ -66,6 +66,7 @@ dum ra >= 0 et ra < rowsa et ca >= 0 et ca < colsa {
         ca = nca
     }
 }
+
 visitedu.erum().a().es().dici()
 
 # Part 2: try an obstruction on every free cell, count those that cause a loop.
@@ -81,4 +82,5 @@ pro ia in 0.<rowsa {
         }
     }
 }
+
 part2a.es().dici()

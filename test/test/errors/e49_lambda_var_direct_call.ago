@@ -1,2 +1,2 @@
-fo := des {id * 10}
+fo := des { id * 10 }
 dici(fo(4).es())

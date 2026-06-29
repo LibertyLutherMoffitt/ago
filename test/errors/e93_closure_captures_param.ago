@@ -1,5 +1,6 @@
 des addero(na) {
-    redeo des {id + na}
+    redeo des { id + na }
 }
+
 add5o := addero(5)
 dici(add5o(10).es())

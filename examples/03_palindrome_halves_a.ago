@@ -17,7 +17,7 @@ des finderum(les, ses) {
     redeo rerum
 }
 
-numuum := apertu("./a.txt").contentes.finderum(",").mutatuum(des {spoliares(ides).finderum("-")})
+numuum := apertu("./a.txt").contentes.finderum(",").mutatuum(des { spoliares(ides).finderum("-") })
 
 ca := 0
 pro numium in numuum {
@@ -25,8 +25,8 @@ pro numium in numuum {
 
     pro ra in re {
         ses := res
-        yes := ses[0.<(serum.a()/2)]
-        xes := ses[serum.a()/2.<serum.a()]
+        yes := ses[0.<(serum.a() / 2)]
+        xes := ses[serum.a() / 2.<serum.a()]
         ca = ca + (yes == xes ? ra : 0)
     }
 }

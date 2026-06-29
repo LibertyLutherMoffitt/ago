@@ -13,19 +13,18 @@ des deciderum(xes, yes) {
     redeo [xes, yes]
 }
 
-
 des sates() {
     xa := II
     yae := -1.2
     yae = 1.3
     ya := ya
     listaem := [1, 2, 3]
-    tabu := {"keya":3}
+    tabu := {"keya": 3}
 
     legies()
     werum := deciderum("a", "b")
 
-    pro ies in werum[0 .< 2] {
+    pro ies in werum[0.<2] {
         si (ia ^ I) > 0 {
             omitto
         }

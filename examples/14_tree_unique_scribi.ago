@@ -12,8 +12,8 @@ scribi("out", "")
 guum := apertu("b").contentes.finduum("\n")
 guum[0] = [guum[0].erum().invena("S")]
 guum.plicium(des (auum, bes) {
-    rowuum := auum.mutatuum(des {"^" in berum.uum().u() et ida in berum.uum().u()."^" ? [id-I, id+I] : id})
-    scribi("out", apertu("out").contentes + "\n" + rowuum.liquum(des {"List" in id.species()}).a().es())
-    redeo rowuum.planuum().unicuum()
+        rowuum := auum.mutatuum(des { "^" in berum.uum().u() et ida in berum.uum().u()."^" ? [id - I, id + I] : id })
+        scribi("out", apertu("out").contentes + "\n" + rowuum.liquum(des { "List" in id.species() }).a().es())
+        redeo rowuum.planuum().unicuum()
 })
 apertu("out").contentes.findaem("\n").sumes().dici()

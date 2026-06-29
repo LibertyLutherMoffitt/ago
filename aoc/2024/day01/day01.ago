@@ -15,6 +15,7 @@ pro ia in 0.<sleftuum.a() {
     da := sleftuum[ia] - srightuum[ia]
     totala = totala + (da >= 0 ? da : 0 - da)
 }
+
 totala.es().dici()
 
 # Part 2
@@ -23,4 +24,5 @@ pro la in leftuum {
     counta := rightuum.liquum(des { id == la }).a()
     sima = sima + la * counta
 }
+
 sima.es().dici()

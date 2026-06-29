@@ -61,12 +61,14 @@ pro rowa in 0.<griduum.a() {
         si griduum[rowa][cola] == "E" { era = rowa; eca = cola }
     }
 }
+
 distfu := dijku(griduum, [[sra, sca, 1, 0]], falsus)
 besta := 1000000000
 pro dda in 0.<4 {
     kes := era.es() + "," + eca.es() + "," + dda.es()
     si kes in distfu et distfu[kes] < besta { besta = distfu[kes] }
 }
+
 besta.es().dici()
 
 distbu := dijku(griduum, [[era, eca, 0, 0], [era, eca, 1, 0], [era, eca, 2, 0], [era, eca, 3, 0]], verum)
@@ -81,4 +83,5 @@ pro rowa in 0.<griduum.a() {
         }
     }
 }
+
 tilesu.erum().a().es().dici()

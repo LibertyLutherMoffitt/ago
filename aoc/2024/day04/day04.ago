@@ -36,6 +36,7 @@ pro ia in 0.<rowsa {
         }
     }
 }
+
 count1a.es().dici()
 
 count2a := 0
@@ -54,4 +55,5 @@ pro ia in 1.<(rowsa - 1) {
         }
     }
 }
+
 count2a.es().dici()

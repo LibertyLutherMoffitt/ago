@@ -1,6 +1,7 @@
 luum := []
 pro ia in 0.<3 {
-    luum = luum.appenduum(des {id + ia})
+    luum = luum.appenduum(des { id + ia })
 }
+
 firsto := luum[0]
 dici(firsto(100).es())

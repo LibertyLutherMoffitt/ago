@@ -1,4 +1,4 @@
-des makeaddero(na) { redeo des {id + na} }
+des makeaddero(na) { redeo des { id + na } }
 add3o := makeaddero(3)
 luum := [1, 2, 3].mutatuum(add3o)
 dici(luum.es())

@@ -74,7 +74,7 @@ des finderum(les, ses) {
 }
 
 des sumium(luum) {
-    redeo luum.plicium(des (aium, bium) {aium + bium})
+    redeo luum.plicium(des (aium, bium) { aium + bium })
 }
 
 des _conuum(auum, buum, xo) {
@@ -103,7 +103,7 @@ des _conuum(auum, buum, xo) {
 
 des genorduum(luum, xo) {
     si la <= 1 { redeo luum }
-    redeo _conuum(genorduum(luum[0.<la/2], xo), genorduum(luum[la/2.<la], xo), xo)
+    redeo _conuum(genorduum(luum[0.<la / 2], xo), genorduum(luum[la / 2.<la], xo), xo)
 }
 
 des invena(luum, xium) {
@@ -120,7 +120,7 @@ des ullam(luum, xo) {
 }
 
 des omnam(luum, xo) {
-    redeo non luum.ullam(des{ non xo(id) })
+    redeo non luum.ullam(des { non xo(id) })
 }
 
 des nullam(luum, xo) {

@@ -39,5 +39,6 @@ pro lies in lineserum {
         part2a = part2a + targeta
     }
 }
+
 part1a.es().dici()
 part2a.es().dici()

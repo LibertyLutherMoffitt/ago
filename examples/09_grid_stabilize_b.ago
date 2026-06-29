@@ -1,4 +1,4 @@
-griduum := apertu("./b.txt").contentes.finderum("\n").mutatuum(des{iderum})
+griduum := apertu("./b.txt").contentes.finderum("\n").mutatuum(des { iderum })
 
 ra := 0
 dum verum {
@@ -9,10 +9,10 @@ dum verum {
             counta := 0
             pro iia in [-I, 0, I] {
                 pro jja in [-I, 0, I] {
-                    si (iia == 0 et jja == 0) vel (ia + iia >= grida vel ia + iia < 0 ) vel (ja + jja >= griduum[0].a() vel ja + jja < 0) {
+                    si (iia == 0 et jja == 0) vel (ia + iia >= grida vel ia + iia < 0) vel (ja + jja >= griduum[0].a() vel ja + jja < 0) {
                         pergo
                     }
-                    si griduum[ia+iia][ja+jja] == "@" {
+                    si griduum[ia + iia][ja + jja] == "@" {
                         counta = counta + I
                     }
                 }
@@ -27,4 +27,5 @@ dum verum {
         frio
     }
 }
+
 res.dici()
